@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WNY App ไปราชการ</title>
+    <link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/1/15/Wny-logo.png">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="p-4 sm:p-8 min-h-screen bg-gradient-to-br from-pink-100 to-blue-200 antialiased">
+    <div id="app" class="max-w-6xl mx-auto">
+        <div id="login-screen" class="max-w-6xl mx-auto mt-10 pb-20">
+            
+            <div class="max-w-md mx-auto mb-12">
+                <div class="p-8 rounded-2xl shadow-2xl main-container transform hover:scale-105 transition duration-300">
+                    <div class="text-center mb-6">
+                        <img src="https://img2.pic.in.th/pic/WNY-App-.png" alt="Logo" class="mx-auto h-28 mb-4 drop-shadow-md">
+                    </div>
+                    <form id="login-form">
+                        <div class="mb-4">
+                            <label for="username" class="form-label text-gray-700">ชื่อผู้ใช้ (Username)</label>
+                            <input type="text" id="username" class="form-input" placeholder="ระบุชื่อผู้ใช้" required>
+                        </div>
+                        <div class="mb-6">
+                            <label for="password" class="form-label text-gray-700">รหัสผ่าน (Password)</label>
+                            <input type="password" id="password" class="form-input" placeholder="ระบุรหัสผ่าน" required>
+                        </div>
+                        <button type="submit" id="login-button" class="btn btn-primary w-full text-lg shadow-lg">
+                            <div id="login-loader" class="loader hidden"></div>
+                            <span id="login-button-text">เข้าสู่ระบบ</span>
+                        </button>
+                        <p id="login-error" class="text-red-500 text-center mt-4 hidden bg-red-50 p-2 rounded"></p>
+                    </form>
+                    <p class="text-center mt-4 text-sm text-gray-600 hidden">
+                        ยังไม่มีบัญชี? <button type="button" id="show-register-modal-button" class="font-semibold text-indigo-600 hover:text-indigo-500">สมัครใช้งานที่นี่</button>
+                    </p>
+                    <p class="text-center mt-4">
+                        <button type="button" id="show-forgot-password-modal" class="font-semibold text-indigo-600 hover:text-indigo-500 text-sm">ลืมรหัสผ่าน?</button>
+                    </p>
+                </div>
+            </div>
+            <div class="w-full mb-10">
+                <div class="p-6 rounded-2xl shadow-xl main-container bg-white/80 backdrop-blur-sm border border-white/50">
+                    <div class="flex flex-wrap justify-between items-end mb-4 border-b pb-4 border-gray-200 gap-4">
+                        <div>
+                            <h2 class="text-xl font-bold text-blue-800 flex items-center gap-2">
+                                <span class="bg-blue-100 p-2 rounded-lg">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                </span>
+                                รายการไปราชการประจำสัปดาห์
+                            </h2>
+                            <p class="text-sm text-gray-500 mt-2 ml-1">
+                                <span class="text-green-600 font-bold">ℹ️ หมายเหตุ:</span> 
+                                หากคำสั่งอนุมัติเรียบร้อยแล้ว จะมีปุ่ม <span class="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded border border-green-200">📄 ดูคำสั่ง</span> ปรากฏขึ้น
+                            </p>
+                        </div>
+                        <span class="text-sm font-medium text-indigo-600 bg-indigo-50 px-4 py-2 rounded-full shadow-inner border border-indigo-100" id="current-week-display">
+                            Loading...
+                        </span>
+                    </div>
+                    
+                    <div class="overflow-x-auto rounded-lg border border-gray-200">
+                        <table class="w-full text-sm text-left">
+                            <thead class="text-sm text-gray-700 uppercase bg-gradient-to-r from-blue-50 to-indigo-50 border-b">
+                                <tr>
+                                    <th scope="col" class="px-6 py-4 font-bold">วัน-เวลา</th>
+                                    <th scope="col" class="px-6 py-4 font-bold">ชื่อผู้ขอ</th>
+                                    <th scope="col" class="px-6 py-4 font-bold">เรื่อง / สถานที่</th>
+                                    <th scope="col" class="px-6 py-4 font-bold text-center">ไฟล์คำสั่ง</th>
+                                </tr>
+                            </thead>
+                            <tbody id="public-weekly-list" class="bg-white divide-y divide-gray-100">
+                                <tr>
+                                    <td colspan="4" class="text-center py-10">
+                                        <div class="loader mx-auto mb-3"></div>
+                                        <span class="text-gray-500">กำลังโหลดข้อมูล...</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="info-section">
+                    <h3 class="text-lg font-bold text-blue-700 mb-4">1. การขออนุญาตไปราชการ (เบิกค่าใช้จ่าย)</h3>
+                    <p class="font-medium mb-2">เอกสารที่ต้องเตรียม:</p>
+                    <ul class="list-disc pl-5 mb-2">
+                        <li>ร่างบันทึกข้อความ และกดส่งร่างข้อความในระบบ</li> 
+                        <p class="font-medium mb-2">(ปริ้นส่ง 1 ชุด)</p>
+                        <li>หนังสือราชการต้นเรื่อง</li>
+                        <li>บันทึกขออนุญาตวิชาการ (กรณีที่มีนักเรียนไปด้วย)</li>
+                    </ul>
+                    <div class="info-note">
+                        <p class="font-medium">กรณีที่นำนักเรียนไปพักค้างคืนส่งเอกสารเพิ่มเติม:</p> 
+                         <span class="font-bold">ปริ้นส่ง 1 ชุด</span>
+                        <ul class="list-disc pl-5 mt-1">
+                            <li>หนังสือกำหนดการการเดินทาง</li>
+                            <li>หนังสือขออนุญาตผู้ปกครอง</li>
+                            <li>แผนที่การเดินทาง (Google map)</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="info-section">
+                    <h3 class="text-lg font-bold text-green-700 mb-4">2. การขออนุญาตไปราชการ (ไม่เบิกค่าใช้จ่าย)</h3>
+                    <p class="font-medium mb-2">เอกสารที่ต้องเตรียม:</p>
+                    <ul class="list-disc pl-5 mb-2">
+                        <li>ร่างบันทึกข้อความ กดส่งร่างข้อความในระบบ (อัพโหลดไฟล์ที่เซ็นเสร็จแล้ว)</li>
+                        <li>หนังสือราชการต้นเรื่อง</li>
+                        <li>บันทึกขออนุญาตวิชาการ (กรณีที่มีนักเรียนไปด้วย)</li>
+                    </ul>
+                    <div class="info-note">
+                        <p class="font-medium">กรณีที่นำนักเรียนไปพักค้างคืนส่งเอกสารเพิ่มเติม:</p> 
+                        <span class="font-bold">ปริ้นส่ง 1 ชุด</span>
+                        <ul class="list-disc pl-5 mt-1">
+                            <li>หนังสือกำหนดการการเดินทาง</li>
+                            <li>หนังสือขออนุญาตผู้ปกครอง</li>
+                            <li>แผนที่การเดินทาง (Google map)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+     <footer class="text-center text-sm text-gray-500 mt-8 pb-4">
+                <p>จัดทำโดยกลุ่มบริหารงานบุคคล โรงเรียนวังน้ำเย็นวิทยาคม </p>
+                <p>พัฒนาระบบโดย ครูกีรติ ประสพพรรังสี </p>
+            </footer>
+        </div>
+
+        <div id="main-app" class="hidden">
+        <header class="relative z-50 p-4 rounded-xl mb-6 flex flex-wrap justify-between items-center gap-4 bg-white/90 backdrop-blur shadow-sm border border-white/50">
+            <div class="flex items-center gap-4">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/1/15/Wny-logo.png" alt="Logo" class="h-12 w-12 object-contain">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">ยินดีต้อนรับ, <span id="user-fullname">...</span></h2>
+                    <p class="text-sm text-gray-500">ตำแหน่ง: <span id="user-position">...</span></p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <div class="relative">
+                    <button id="notification-btn" class="p-2 rounded-full hover:bg-gray-100 transition relative">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                        </svg>
+                        <span id="notification-badge" class="hidden absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-red-100 transform translate-x-1/4 -translate-y-1/4 bg-red-600 rounded-full">0</span>
+                    </button>
+
+                    <div id="notification-dropdown" class="hidden absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 z-50 overflow-hidden">
+                        <div class="bg-gray-50 px-4 py-3 border-b border-gray-100 flex justify-between items-center">
+                            <h3 class="font-bold text-gray-700">รายการค้างส่ง (Pending)</h3>
+                            <span id="notification-count-text" class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">0 รายการ</span>
+                        </div>
+                        <div id="notification-list" class="max-h-64 overflow-y-auto divide-y divide-gray-50">
+                            <div class="p-4 text-center text-sm text-gray-500">ไม่มีรายการค้างส่ง</div>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="logout-button" class="btn btn-danger btn-sm">ออกจากระบบ</button>
+            </div>
+        </header>
+
+            <div id="navigation" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 mb-6">
+                <button data-target="dashboard-page" id="user-nav-dashboard" class="nav-button p-4 text-center bg-white rounded-lg shadow hover:bg-indigo-50 transition active">
+                    <h3 class="font-bold text-indigo-700">แดชบอร์ด</h3>
+                    <p class="text-xs text-gray-500">ภาพรวมของคุณ</p>
+                </button>
+                <button data-target="form-page" id="user-nav-form" class="nav-button p-4 text-center bg-white rounded-lg shadow hover:bg-indigo-50 transition">
+                    <h3 class="font-bold text-indigo-700">ร่างคำขอไปราชการ</h3>
+                    <p class="text-xs text-gray-500">สร้างบันทึกข้อความ</p>
+                </button>
+                <button data-target="edit-page" id="nav-edit" class="nav-button p-4 text-center bg-white rounded-lg shadow hover:bg-indigo-50 transition hidden">
+                    <h3 class="font-bold text-orange-700">แก้ไขคำขอ</h3>
+                    <p class="text-xs text-gray-500">แก้ไขคำขอไปราชการ</p>
+                </button>
+                 <button data-target="command-generation-page" id="admin-nav-command" class="nav-button p-4 text-center bg-white rounded-lg shadow hover:bg-indigo-50 transition hidden">
+                    <h3 class="font-bold text-purple-700">จัดการบันทึกและคำสั่ง</h3>
+                    <p class="text-xs text-gray-500">สำหรับผู้ดูแลระบบ</p>
+                </button>
+                 <button data-target="stats-page" id="nav-stats" class="nav-button p-4 text-center bg-white rounded-lg shadow hover:bg-indigo-50 transition">
+                    <h3 class="font-bold text-green-700">สถิติข้อมูล</h3>
+                    <p class="text-xs text-gray-500">สรุปภาพรวม</p>
+                </button>
+                <button data-target="profile-page" class="nav-button p-4 text-center bg-white rounded-lg shadow hover:bg-indigo-50 transition">
+                    <h3 class="font-bold text-indigo-700">ข้อมูลส่วนตัว</h3>
+                    <p class="text-xs text-gray-500">จัดการข้อมูลของคุณ</p>
+                </button>
+                <button id="admin-nav-users" data-target="admin-users-page" class="nav-button p-4 text-center bg-white rounded-lg shadow hover:bg-indigo-50 transition hidden">
+                    <h3 class="font-bold text-red-700">จัดการผู้ใช้</h3>
+                    <p class="text-xs text-gray-500">ผู้ใช้ทั้งหมด</p>
+                </button>
+            </div>
+            <div id="admin-actions" class="mb-4 flex gap-2">
+                 <button id="admin-sync-btn" class="btn bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 transition">
+                    🔄 Sync ข้อมูลสู่ Firebase
+                </button>
+            </div>
+            <main id="page-content" class="p-6 sm:p-8 rounded-2xl">
+                <div id="dashboard-page" class="page-view">
+                    <h2 class="text-2xl font-bold mb-4">รายการคำขอไปราชการของฉัน</h2>
+                    <input type="text" id="search-requests" class="form-input mb-4" placeholder="ค้นหาตามวัตถุประสงค์, สถานที่, เลขอ้างอิง...">
+                    <div id="requests-loader" class="text-center p-8">
+                        <div class="loader mx-auto"></div><p class="mt-4">กำลังโหลดข้อมูลคำขอ...</p>
+                    </div>
+                    <div id="requests-list" class="hidden"></div>
+                    <p id="no-requests-message" class="text-center text-gray-500 p-8 hidden">ไม่พบรายการคำขอของคุณ</p>
+                </div>
+
+                <div id="form-page" class="page-view hidden">
+                     <form id="request-form">
+                          <input type="hidden" id="form-request-id">
+                            <fieldset class="border p-4 rounded-lg mb-6"><legend>ข้อมูลทั่วไป</legend>
+                                <div><label for="form-doc-date" class="form-label">วันที่</label><input type="date" id="form-doc-date" class="form-input" required></div>
+                          </fieldset>
+                         <fieldset class="border p-4 rounded-lg mb-6"><legend>1. รายละเอียดการไปราชการ</legend>
+                               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                   <div><label for="form-requester-name" class="form-label">ชื่อ-นามสกุลผู้ขอ</label><input type="text" id="form-requester-name" class="form-input" required></div>
+                                   <div><label for="form-requester-position" class="form-label">ตำแหน่ง</label><input type="text" id="form-requester-position" class="form-input" required></div>
+                              </div>
+                             <div class="mt-4"><label for="form-location" class="form-label">ขออนุญาตไปราชการ ณ สถานที่</label><input type="text" id="form-location" class="form-input" required></div>
+                             <div class="mt-4"><label for="form-purpose" class="form-label">เพื่อ</label><textarea id="form-purpose" rows="2" class="form-input" required></textarea></div>
+                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                   <div><label for="form-start-date" class="form-label">ตั้งแต่วันที่</label><input type="date" id="form-start-date" class="form-input" required></div>
+                                   <div><label for="form-end-date" class="form-label">ถึงวันที่</label><input type="date" id="form-end-date" class="form-input" required></div>
+                              </div>
+                         </fieldset>
+                            <fieldset class="border p-4 rounded-lg mb-6"><legend>ผู้ร่วมเดินทาง (ถ้ามี)</legend>
+                                <div id="form-attendees-list"></div>
+                                <div class="flex flex-wrap gap-2 mt-4">
+                                    <button type="button" id="form-add-attendee" class="btn btn-success w-full sm:w-auto"><span>+ เพิ่มผู้ร่วมเดินทาง</span></button>
+                                    <button type="button" id="form-import-excel" class="btn btn-primary w-full sm:w-auto">
+                                        <div id="import-excel-loader" class="loader hidden"></div>
+                                        <span>นำเข้าจาก Excel</span>
+                                    </button>
+                                    <button type="button" id="form-download-template" class="btn bg-gray-500 text-white hover:bg-gray-600 w-full sm:w-auto"><span>ดาวน์โหลดแม่แบบ</span></button>
+                                    <input type="file" id="excel-file-input" class="hidden" accept=".xlsx, .xls">
+                                </div>
+                          </fieldset>
+                            <fieldset class="border p-4 rounded-lg mb-6"><legend>2. การเบิกค่าใช้จ่าย</legend>
+                                <div class="space-y-3">
+                                    <div><input type="radio" id="expense_no" name="expense_option" value="no" checked class="h-4 w-4"><label for="expense_no" class="ml-2">ไม่ขอเบิกค่าใช้จ่าย</label></div>
+                                    <div><input type="radio" id="expense_partial" name="expense_option" value="partial" class="h-4 w-4"><label for="expense_partial" class="ml-2">ขอเบิกเฉพาะค่าใช้จ่าย</label></div>
+                              </div>
+                             <div id="partial-expense-options" class="pl-6 mt-3 hidden space-y-2">
+                                  <label class="block"><input type="checkbox" name="expense_item" value="ค่าเบี้ยเลี้ยง" data-item-name="ค่าเบี้ยเลี้ยง" class="rounded"> ค่าเบี้ยเลี้ยง</label>
+                                  <label class="block"><input type="checkbox" name="expense_item" value="ค่าอาหาร" data-item-name="ค่าอาหาร" class="rounded"> ค่าอาหาร</label>
+                                  <label class="block"><input type="checkbox" name="expense_item" value="ค่าที่พัก" data-item-name="ค่าที่พัก" class="rounded"> ค่าที่พัก</label>
+                                  <label class="block"><input type="checkbox" name="expense_item" value="ค่าพาหนะ" data-item-name="ค่าพาหนะ" class="rounded"> ค่าพาหนะ</label>
+                                  <label class="block"><input type="checkbox" name="expense_item" value="ค่าน้ำมัน" data-item-name="ค่าน้ำมัน" class="rounded"> ค่าน้ำมัน</label>
+                                  <div class="flex items-center gap-2"><label><input type="checkbox" name="expense_item" id="expense_other_check" data-item-name="ค่าใช้จ่ายอื่นๆ" class="rounded"> ค่าใช้จ่ายอื่นๆ</label><input type="text" id="expense_other_text" class="form-input text-sm p-1 flex-grow" placeholder="ระบุ"></div>
+                             </div>
+                             <div id="total-expense-container" class="mt-4 hidden"><label for="form-total-expense" class="form-label">รวมเป็นจำนวนเงิน (บาท)</label><input type="number" id="form-total-expense" class="form-input w-full md:w-1/2" placeholder="0.00" step="0.01"></div>
+                          </fieldset>
+                            <fieldset class="border p-4 rounded-lg mb-6">
+                                    <legend>3. การเดินทาง</legend><div class="space-y-2">
+                                    <label class="block">
+                                    <input type="checkbox" name="vehicle_option" value="gov" class="rounded">รถยนต์ราชการ (รถโรงเรียน)</label>
+                                    <label class="block">
+                                    <input type="checkbox" name="vehicle_option" value="private" class="rounded">รถยนต์ส่วนตัว</label>
+                                    <div id="private-vehicle-details" class="pl-6 mt-2 hidden">
+                                    <label for="form-license-plate" class="form-label">หมายเลขทะเบียน</label>
+                                    <input type="text" id="form-license-plate" class="form-input w-full md:w-1/2"></div>
+                                    <label class="block"><input type="checkbox" name="vehicle_option" value="public" class="rounded">พาหนะอื่นๆ</label>
+                                    <div id="public-vehicle-details" class="pl-6 mt-2 hidden">
+                                    <label for="form-public-vehicle-details" class="form-label">ระบุพาหนะอื่นๆ</label><input type="text" id="form-public-vehicle-details" class="form-input w-full md:w-1/2"></div>
+                             </div>
+                         </fieldset>
+                          <fieldset id="signer-fieldset" class="border p-4 rounded-lg mb-6"><legend>5. ข้อมูลผู้ลงนาม</legend>
+                                <div class="mb-4">
+                                    <label for="form-department" class="form-label">กลุ่มสาระฯ / งาน</label>
+                                    <select id="form-department" class="form-input" required>
+                                        <option value="">-- เลือกกลุ่มสาระ/งาน --</option>
+                                        <option value="หัวหน้ากลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี">กลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี</option>
+                                        <option value="รองหัวหน้ากลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี">(รอง)กลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี</option>
+                                        <option value="หัวหน้ากลุ่มสาระการเรียนรู้คณิตศาสตร์">กลุ่มสาระการเรียนรู้คณิตศาสตร์</option>
+                                        <option value="หัวหน้ากลุ่มสาระการเรียนรู้ภาษาไทย">กลุ่มสาระการเรียนรู้ภาษาไทย</option>
+                                        <option value="หัวหน้ากลุ่มสาระการเรียนรู้ภาษาต่างประเทศ">กลุ่มสาระการเรียนรู้ภาษาต่างประเทศ</option>
+                                        <option value="หัวหน้ากลุ่มสาระการเรียนรู้สังคมศึกษา ศาสนา และวัฒนธรรม">กลุ่มสาระการเรียนรู้สังคมศึกษา ศาสนา และวัฒนธรรม</option>
+                                        <option value="หัวหน้ากลุ่มสาระการเรียนรู้สุขศึกษาและพลศึกษา">กลุ่มสาระการเรียนรู้สุขศึกษาและพลศึกษา</option>
+                                        <option value="หัวหน้ากลุ่มสาระการเรียนรู้ศิลปะ">กลุ่มสาระการเรียนรู้ศิลปะ</option>
+                                        <option value="หัวหน้ากลุ่มสาระการเรียนรู้การงานอาชีพ">กลุ่มสาระการเรียนรู้การงานอาชีพ</option>
+                                        <option value="รองผู้อำนวยการกลุ่มบริหารวิชาการ">รองผู้อำนวยการกลุ่มบริหารวิชาการ</option>
+                                    <option value="รองผู้อำนวยการกลุ่มบริหารงบประมาณ">รองผู้อำนวยการกลุ่มบริหารงบประมาณ</option>
+                                    <option value="รองผู้อำนวยการกลุ่มบริหารงานบุคคล">รองผู้อำนวยการกลุ่มบริหารงานบุคคล</option>
+                                    <option value="รองผู้อำนวยการกลุ่มบริหารทั่วไป">รองผู้อำนวยการกลุ่มบริหารทั่วไป</option>
+                                    <option value="หัวหน้ากลุ่มบริหารวิชาการ">หัวหน้ากลุ่มบริหารวิชาการ</option>
+                                    <option value="หัวหน้ากลุ่มบริหารงบประมาณ">หัวหน้ากลุ่มบริหารงบประมาณ</option>
+                                    <option value="หัวหน้ากลุ่มบริหารงานบุคคล">หัวหน้ากลุ่มบริหารงานบุคคล</option>
+                                    <option value="หัวหน้ากลุ่มบริหารทั่วไป">หัวหน้ากลุ่มบริหารทั่วไป</option>
+                                        <option value=".....................................">.....................................</option>
+                                    </select>
+                                </div>
+                                <div><label for="form-head-name" class="form-label">ชื่อหัวหน้ากลุ่มสาระ / หัวหน้างาน</label><input type="text" id="form-head-name" class="form-input bg-gray-200" readonly></div>
+                         </fieldset>
+                         <div class="text-center mt-10 border-t pt-6 border-gray-200">
+                              <button type="submit" id="submit-request-button" class="btn btn-primary w-full sm:w-auto text-lg">
+                                <div id="submit-loader" class="loader hidden"></div>
+                                <span id="submit-button-text">บันทึกและสร้างเอกสาร</span>
+                             </button>
+                         </div>
+                    </form>
+                      <div id="form-result" class="hidden mt-6 p-6 text-center">
+                          <h3 id="form-result-title" class="font-bold text-lg"></h3>
+                          <p id="form-result-message" class="mt-2 text-gray-700"></p>
+                            <div class="flex justify-center flex-wrap gap-4 mt-4">
+                                <a id="form-result-link" href="#" target="_blank" class="btn btn-success">เปิดไฟล์ PDF</a>
+                             </div>
+                      </div>
+                </div>
+
+                <div id="edit-page" class="page-view hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold">แก้ไขคำขอไปราชการ</h2>
+                        <button id="back-to-dashboard" class="btn bg-gray-500 text-white">← กลับสู่แดชบอร์ด</button>
+                    </div>
+                    
+                    <form id="edit-request-form">
+                        <input type="hidden" id="edit-draft-id">
+                        <input type="hidden" id="edit-request-id">
+                        
+                        <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>ข้อมูลทั่วไป</legend>
+                            <div>
+                                <label for="edit-doc-date" class="form-label">วันที่</label>
+                                <input type="date" id="edit-doc-date" class="form-input" required>
+                            </div>
+                        </fieldset>
+                        
+                        <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>1. รายละเอียดการไปราชการ</legend>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label for="edit-requester-name" class="form-label">ชื่อ-นามสกุลผู้ขอ</label>
+                                    <input type="text" id="edit-requester-name" class="form-input" required>
+                                </div>
+                                <div>
+                                    <label for="edit-requester-position" class="form-label">ตำแหน่ง</label>
+                                    <input type="text" id="edit-requester-position" class="form-input" required>
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <label for="edit-location" class="form-label">ขออนุญาตไปราชการ ณ สถานที่</label>
+                                <input type="text" id="edit-location" class="form-input" required>
+                            </div>
+                            <div class="mt-4">
+                                <label for="edit-purpose" class="form-label">เพื่อ</label>
+                                <textarea id="edit-purpose" rows="2" class="form-input" required></textarea>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                <div>
+                                    <label for="edit-start-date" class="form-label">ตั้งแต่วันที่</label>
+                                    <input type="date" id="edit-start-date" class="form-input" required>
+                                </div>
+                                <div>
+                                    <label for="edit-end-date" class="form-label">ถึงวันที่</label>
+                                    <input type="date" id="edit-end-date" class="form-input" required>
+                                </div>
+                            </div>
+                        </fieldset>
+                        
+                        <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>ผู้ร่วมเดินทาง (ถ้ามี)</legend>
+                            <div id="edit-attendees-list"></div>
+                            <div class="flex flex-wrap gap-2 mt-4">
+                                <button type="button" id="edit-add-attendee" class="btn btn-success w-full sm:w-auto">
+                                    <span>+ เพิ่มผู้ร่วมเดินทาง</span>
+                                </button>
+                            </div>
+                        </fieldset>
+                        
+                        <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>2. การเบิกค่าใช้จ่าย</legend>
+                            <div class="space-y-3">
+                                <div><input type="radio" id="edit-expense_no" name="edit-expense_option" value="no" checked class="h-4 w-4"><label for="edit-expense_no" class="ml-2">ไม่ขอเบิกค่าใช้จ่าย</label></div>
+                                <div><input type="radio" id="edit-expense_partial" name="edit-expense_option" value="partial" class="h-4 w-4"><label for="edit-expense_partial" class="ml-2">ขอเบิกเฉพาะค่าใช้จ่าย</label></div>
+                            </div>
+                            <div id="edit-partial-expense-options" class="pl-6 mt-3 hidden space-y-2">
+                                <label class="block"><input type="checkbox" name="edit-expense_item" value="ค่าเบี้ยเลี้ยง" data-item-name="ค่าเบี้ยเลี้ยง" class="rounded"> ค่าเบี้ยเลี้ยง</label>
+                                <label class="block"><input type="checkbox" name="edit-expense_item" value="ค่าอาหาร" data-item-name="ค่าอาหาร" class="rounded"> ค่าอาหาร</label>
+                                <label class="block"><input type="checkbox" name="edit-expense_item" value="ค่าที่พัก" data-item-name="ค่าที่พัก" class="rounded"> ค่าที่พัก</label>
+                                <label class="block"><input type="checkbox" name="edit-expense_item" value="ค่าพาหนะ" data-item-name="ค่าพาหนะ" class="rounded"> ค่าพาหนะ</label>
+                                <label class="block"><input type="checkbox" name="edit-expense_item" value="ค่าน้ำมัน" data-item-name="ค่าน้ำมัน" class="rounded"> ค่าน้ำมัน</label>
+                                <div class="flex items-center gap-2"><label><input type="checkbox" name="edit-expense_item" id="edit-expense_other_check" data-item-name="ค่าใช้จ่ายอื่นๆ" class="rounded"> ค่าใช้จ่ายอื่นๆ</label><input type="text" id="edit-expense_other_text" class="form-input text-sm p-1 flex-grow" placeholder="ระบุ"></div>
+                            </div>
+                            <div id="edit-total-expense-container" class="mt-4 hidden"><label for="edit-total-expense" class="form-label">รวมเป็นจำนวนเงิน (บาท)</label><input type="number" id="edit-total-expense" class="form-input w-full md:w-1/2" placeholder="0.00" step="0.01"></div>
+                        
+                       <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>3. การเดินทาง</legend>
+                            <div class="space-y-2">
+                                <label class="block">
+                                    <input type="checkbox" id="edit-vehicle_gov" name="edit-vehicle_option" value="gov" class="rounded">
+                                    รถยนต์ราชการ (รถโรงเรียน)
+                                </label>
+                                
+                                <label class="block">
+                                    <input type="checkbox" id="edit-vehicle_private" name="edit-vehicle_option" value="private" class="rounded">
+                                    รถยนต์ส่วนตัว
+                                </label>
+                                
+                                <div id="edit-private-vehicle-details" class="pl-6 mt-2 hidden">
+                                    <label for="edit-license-plate" class="form-label">หมายเลขทะเบียน</label>
+                                    <input type="text" id="edit-license-plate" class="form-input w-full md:w-1/2">
+                                </div>
+                                
+                                <label class="block">
+                                    <input type="checkbox" id="edit-vehicle_public" name="edit-vehicle_option" value="public" class="rounded">
+                                    พาหนะอื่นๆ
+                                </label>
+                                
+                                <div id="edit-public-vehicle-details" class="pl-6 mt-2 hidden">
+                                    <label for="edit-public-vehicle-details" class="form-label">ระบุพาหนะอื่นๆ</label>
+                                    <input type="text" id="edit-public-vehicle-details" class="form-input w-full md:w-1/2">
+                                </div>
+                            </div>
+                        </fieldset>
+                        <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>5. ข้อมูลผู้ลงนาม</legend>
+                            <div class="mb-4">
+                                <label for="edit-department" class="form-label">กลุ่มสาระฯ / งาน</label>
+                                <select id="edit-department" class="form-input" required>
+                                    <option value="">-- เลือกกลุ่มสาระ/งาน --</option>
+                                    <option value="หัวหน้ากลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี">กลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี</option>
+                                    <option value="รองหัวหน้ากลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี">(รอง)กลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี</option>
+                                    <option value="หัวหน้ากลุ่มสาระการเรียนรู้คณิตศาสตร์">กลุ่มสาระการเรียนรู้คณิตศาสตร์</option>
+                                    <option value="หัวหน้ากลุ่มสาระการเรียนรู้ภาษาไทย">กลุ่มสาระการเรียนรู้ภาษาไทย</option>
+                                    <option value="หัวหน้ากลุ่มสาระการเรียนรู้ภาษาต่างประเทศ">กลุ่มสาระการเรียนรู้ภาษาต่างประเทศ</option>
+                                    <option value="หัวหน้ากลุ่มสาระการเรียนรู้สังคมศึกษา ศาสนา และวัฒนธรรม">กลุ่มสาระการเรียนรู้สังคมศึกษา ศาสนา และวัฒนธรรม</option>
+                                    <option value="หัวหน้ากลุ่มสาระการเรียนรู้สุขศึกษาและพลศึกษา">กลุ่มสาระการเรียนรู้สุขศึกษาและพลศึกษา</option>
+                                    <option value="หัวหน้ากลุ่มสาระการเรียนรู้ศิลปะ">กลุ่มสาระการเรียนรู้ศิลปะ</option>
+                                    <option value="หัวหน้ากลุ่มสาระการเรียนรู้การงานอาชีพ">กลุ่มสาระการเรียนรู้การงานอาชีพ</option>
+                                    <option value="รองผู้อำนวยการกลุ่มบริหารวิชาการ">รองผู้อำนวยการกลุ่มบริหารวิชาการ</option>
+                                    <option value="รองผู้อำนวยการกลุ่มบริหารงบประมาณ">รองผู้อำนวยการกลุ่มบริหารงบประมาณ</option>
+                                    <option value="รองผู้อำนวยการกลุ่มบริหารงานบุคคล">รองผู้อำนวยการกลุ่มบริหารงานบุคคล</option>
+                                    <option value="รองผู้อำนวยการกลุ่มบริหารทั่วไป">รองผู้อำนวยการกลุ่มบริหารทั่วไป</option>
+                                    <option value="หัวหน้ากลุ่มบริหารวิชาการ">หัวหน้ากลุ่มบริหารวิชาการ</option>
+                                    <option value="หัวหน้ากลุ่มบริหารงบประมาณ">หัวหน้ากลุ่มบริหารงบประมาณ</option>
+                                    <option value="หัวหน้ากลุ่มบริหารงานบุคคล">หัวหน้ากลุ่มบริหารงานบุคคล</option>
+                                    <option value="หัวหน้ากลุ่มบริหารทั่วไป">หัวหน้ากลุ่มบริหารทั่วไป</option>
+                                    <option value=".....................................">.....................................</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="edit-head-name" class="form-label">ชื่อหัวหน้ากลุ่มสาระ / หัวหน้างาน</label>
+                                <input type="text" id="edit-head-name" class="form-input bg-gray-200" readonly>
+                            </div>
+                        </fieldset>
+                        
+                        <div class="flex justify-center gap-4 mt-10 border-t pt-6 border-gray-200">
+
+                            <button type="button" id="generate-document-button" class="btn btn-primary text-lg">
+                                <div id="generate-doc-loader" class="loader hidden"></div>
+                                <span id="generate-doc-button-text">บันทึกและสร้างเอกสาร</span>
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <div id="edit-result" class="hidden mt-6 p-6 text-center">
+                        <h3 id="edit-result-title" class="font-bold text-lg"></h3>
+                        <p id="edit-result-message" class="mt-2 text-gray-700"></p>
+                        <div class="flex justify-center flex-wrap gap-4 mt-4">
+                            <a id="edit-result-link" href="#" target="_blank" class="btn btn-success">เปิดไฟล์ PDF ที่แก้ไข</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="profile-page" class="page-view hidden">
+                    <h2 class="text-2xl font-bold mb-6">ข้อมูลส่วนตัว</h2>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div class="bg-gray-50 p-6 rounded-lg">
+                            <h3 class="text-xl font-bold mb-4">แก้ไขข้อมูลส่วนตัว</h3>
+                            <form id="profile-form">
+                                <div class="mb-4">
+                                    <label for="profile-username" class="form-label">ชื่อผู้ใช้</label>
+                                    <input type="text" id="profile-username" class="form-input bg-gray-200" readonly>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="profile-loginname" class="form-label">ชื่อสำหรับล็อกอิน (ID ใหม่)</label>
+                                    <input type="text" id="profile-loginname" class="form-input" required>
+                                </div>
+                                    <div class="mb-4">
+                                    <label for="profile-fullname" class="form-label">ชื่อ-นามสกุล</label>
+                                    <input type="text" id="profile-fullname" class="form-input" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="profile-position" class="form-label">ตำแหน่ง</label>
+                                    <input type="text" id="profile-position" class="form-input" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="profile-department" class="form-label">กลุ่มสาระ/งาน</label>
+                                    <input type="text" id="profile-department" class="form-input" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="profile-email" class="form-label">อีเมล (สำหรับการแจ้งเตือน)</label>
+                                    <input type="email" id="profile-email" class="form-input" required>
+                                </div>
+                                <button type="submit" id="profile-submit-button" class="btn btn-primary w-full">
+                                    <div id="profile-loader" class="loader hidden"></div>
+                                    <span>อัปเดตข้อมูล</span>
+                                </button>
+                                </form>
+                                </div>
+                        
+                        <div class="bg-gray-50 p-6 rounded-lg">
+                            <h3 class="text-xl font-bold mb-4">เปลี่ยนรหัสผ่าน</h3>
+                            <form id="password-form">
+                                <div class="mb-4">
+                                    <label for="current-password" class="form-label">รหัสผ่านปัจจุบัน</label>
+                                    <input type="password" id="current-password" class="form-input" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="new-password" class="form-label">รหัสผ่านใหม่</label>
+                                    <input type="password" id="new-password" class="form-input" required>
+                                </div>
+                                <div class="mb-4 flex items-center">
+                                    <input type="checkbox" id="show-password-toggle" class="h-4 w-4">
+                                    <label for="show-password-toggle" class="ml-2 text-sm">แสดงรหัสผ่าน</label>
+                                </div>
+                                <button type="submit" id="password-submit-button" class="btn btn-primary w-full">
+                                    <div id="password-loader" class="loader hidden"></div>
+                                    <span>เปลี่ยนรหัสผ่าน</span>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <div id="admin-command-page" class="page-view hidden">
+                    <h2 class="text-2xl font-bold mb-6">ออกคำสั่งไปราชการ</h2>
+                <div id="admin-command-info"></div>
+                <div class="flex gap-4 mt-6">
+                <button id="generate-command-solo" class="btn btn-primary">ออกคำสั่งเดี่ยว</button>
+                <button id="generate-command-group-small" class="btn btn-primary">ออกคำสั่งกลุ่มเล็ก</button>
+                <button id="generate-command-group-large" class="btn btn-primary">ออกคำสั่งกลุ่มใหญ่</button>
+                </div>
+                </div>
+                <div id="admin-generate-command-page" class="page-view hidden">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold">แก้ไขและออกคำสั่งไปราชการ</h2>
+        <button id="back-to-admin-command" class="btn bg-gray-500 text-white">← กลับสู่หน้าจัดการ</button>
+    </div>
+    
+    <form id="admin-command-form">
+        <input type="hidden" id="admin-command-request-id">
+        
+        <fieldset class="border p-4 rounded-lg mb-6 bg-white/50">
+            <legend>ข้อมูลทั่วไป (แก้ไขได้)</legend>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="form-label">รหัสคำขอ</label>
+                    <input type="text" id="admin-command-request-id-display" class="form-input bg-gray-100 text-gray-500" readonly>
+                </div>
+                <div>
+                    <label class="form-label">วันที่เอกสาร</label>
+                    <input type="date" id="admin-command-doc-date" class="form-input">
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="form-label">ชื่อผู้ขอ</label>
+                    <input type="text" id="admin-command-requester-name" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">ตำแหน่ง</label>
+                    <input type="text" id="admin-command-requester-position" class="form-input">
+                </div>
+            </div>
+            <div class="mb-4">
+                <label class="form-label">สถานที่ไปราชการ</label>
+                <input type="text" id="admin-command-location" class="form-input">
+            </div>
+            <div class="mb-4">
+                <label class="form-label">วัตถุประสงค์</label>
+                <textarea id="admin-command-purpose" rows="2" class="form-input"></textarea>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="form-label">วันที่เริ่มต้น</label>
+                    <input type="date" id="admin-command-start-date" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">วันที่สิ้นสุด</label>
+                    <input type="date" id="admin-command-end-date" class="form-input">
+                </div>
+            </div>
+        </fieldset>
+        
+        <fieldset class="border p-4 rounded-lg mb-6 bg-white/50">
+            <legend>ผู้ร่วมเดินทาง (แก้ไขได้)</legend>
+            <div id="admin-command-attendees-list"></div>
+            <button type="button" id="admin-add-attendee-btn" class="btn btn-sm btn-success mt-2">+ เพิ่มผู้ร่วมเดินทาง</button>
+        </fieldset>
+        
+        <fieldset class="border p-4 rounded-lg mb-6 bg-gray-100">
+            <legend class="text-gray-500 text-sm">ข้อมูลประกอบ (แก้ไขที่ต้นทาง)</legend>
+            <div id="admin-command-expense-info" class="text-sm text-gray-600 mb-2"></div>
+            <div id="admin-command-vehicle-info" class="text-sm text-gray-600"></div>
+            <input type="hidden" id="admin-expense-option">
+            <input type="hidden" id="admin-expense-items">
+            <input type="hidden" id="admin-total-expense">
+            <input type="hidden" id="admin-vehicle-option">
+            <input type="hidden" id="admin-license-plate">
+        </fieldset>
+        
+        <fieldset class="border p-4 rounded-lg mb-6 bg-blue-50 border-blue-200">
+            <legend>รูปแบบคำสั่ง</legend>
+            <div class="space-y-3">
+                <div>
+                    <input type="radio" id="admin-command-type-solo" name="admin-command-type" value="solo" class="h-4 w-4">
+                    <label for="admin-command-type-solo" class="ml-2">คำสั่งเดี่ยว (1 คน)</label>
+                </div>
+                <div>
+                    <input type="radio" id="admin-command-type-group-small" name="admin-command-type" value="groupSmall" class="h-4 w-4">
+                    <label for="admin-command-type-group-small" class="ml-2">คำสั่งกลุ่มเล็ก (2-5 คน)</label>
+                </div>
+                <div>
+                    <input type="radio" id="admin-command-type-group-large" name="admin-command-type" value="groupLarge" class="h-4 w-4">
+                    <label for="admin-command-type-group-large" class="ml-2">คำสั่งกลุ่มใหญ่ (6 คนขึ้นไป)</label>
+                </div>
+            </div>
+        </fieldset>
+        
+        <div class="flex justify-center gap-4 mt-10 border-t pt-6 border-gray-200">
+            <button type="button" id="admin-generate-command-button" class="btn btn-primary text-lg shadow-lg">
+                <div id="admin-generate-command-loader" class="loader hidden"></div>
+                <span id="admin-generate-command-button-text">บันทึกการแก้ไขและสร้างคำสั่ง</span>
+            </button>
+        </div>
+    </form>
+    
+    <div id="admin-command-result" class="hidden mt-6 p-6 text-center bg-green-50 rounded-xl border border-green-200">
+        <h3 id="admin-command-result-title" class="font-bold text-lg text-green-800"></h3>
+        <p id="admin-command-result-message" class="mt-2 text-gray-700"></p>
+        <div class="flex justify-center flex-wrap gap-4 mt-4">
+            <a id="admin-command-result-link" href="#" target="_blank" class="btn btn-success transform hover:scale-105 transition">เปิดไฟล์คำสั่ง</a>
+            <button onclick="switchPage('command-generation-page')" class="btn bg-gray-500 text-white">กลับหน้าจัดการ</button>
+        </div>
+    </div>
+</div>
+                <div id="admin-users-page" class="page-view hidden">
+                    <h2 class="text-2xl font-bold mb-6">จัดการผู้ใช้</h2>
+                    
+                    <div class="mb-6 flex flex-wrap gap-4">
+                        <button id="add-user-button" class="btn btn-primary">เพิ่มผู้ใช้</button>
+                        <button id="download-user-template-button" class="btn bg-green-500 text-white">ดาวน์โหลดแม่แบบ</button>
+                        <button id="import-users-button" class="btn bg-blue-500 text-white">นำเข้าจาก Excel</button>
+                        <input type="file" id="user-excel-input" class="hidden" accept=".xlsx, .xls">
+                    </div>
+                    
+                    <div id="users-list" class="bg-white rounded-lg shadow">
+                        <div class="p-4 border-b">
+                            <h3 class="font-bold">รายชื่อผู้ใช้ทั้งหมด</h3>
+                        </div>
+                        <div id="users-content" class="p-4">
+                            <div class="text-center p-8">
+                                <div class="loader mx-auto"></div>
+                                <p class="mt-4">กำลังโหลดข้อมูลผู้ใช้...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="command-generation-page" class="page-view hidden">
+                    <h2 class="text-2xl font-bold mb-6">จัดการบันทึกและคำสั่ง</h2>
+                    
+                    <div class="flex gap-4 mb-6">
+                        <button id="admin-view-requests-tab" class="tab-button active">คำขอไปราชการ</button>
+                        <button id="admin-view-memos-tab" class="tab-button">บันทึกข้อความ</button>
+                    </div>
+                    
+                    <div id="admin-requests-view">
+                        <div class="mb-4">
+                            <input type="text" id="admin-search-requests" class="form-input" placeholder="ค้นหาคำขอ...">
+                        </div>
+                        <div id="admin-requests-list" class="space-y-4">
+                            <div class="text-center p-8">
+                                <div class="loader mx-auto"></div>
+                                <p class="mt-4">กำลังโหลดข้อมูลคำขอ...</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="admin-memos-view" class="hidden">
+                        <div class="mb-4">
+                            <input type="text" id="admin-search-memos" class="form-input" placeholder="ค้นหาบันทึกข้อความ...">
+                        </div>
+                        <div id="admin-memos-list" class="space-y-4">
+                            <div class="text-center p-8">
+                                <div class="loader mx-auto"></div>
+                                <p class="mt-4">กำลังโหลดข้อมูลบันทึกข้อความ...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="stats-page" class="page-view hidden">
+                    <h2 class="text-2xl font-bold mb-6">สถิติข้อมูล</h2>
+                    
+                    <div class="mb-6 flex flex-wrap gap-4">
+                        <button id="refresh-stats" class="btn btn-primary">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            รีเฟรชข้อมูล
+                        </button>
+                        <button id="export-stats" class="btn bg-green-500 text-white">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            ส่งออกรายงาน
+                        </button>
+                    </div>
+
+                    <div id="stats-overview" class="space-y-6">
+                        <div class="text-center p-8">
+                            <div class="loader mx-auto"></div>
+                            <p class="mt-4">กำลังโหลดสถิติ...</p>
+                        </div>
+                    </div>
+
+                    <div id="stats-charts" class="mt-8 hidden">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            
+                            <div class="chart-container">
+                                <h3 class="text-lg font-bold mb-4 text-gray-800">คำขอรายเดือน (6 เดือนล่าสุด)</h3>
+                                <canvas id="requests-chart" width="400" height="200"></canvas>
+                            </div>
+                            
+                            <div class="chart-container">
+                                <h3 class="text-lg font-bold mb-4 text-gray-800">สรุปสถานะคำขอ</h3>
+                                <canvas id="status-chart" width="400" height="200"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+            
+            <footer class="text-center text-sm text-gray-500 mt-8 pb-4">
+                <p>จัดทำโดยกลุ่มบริหารงานบุคคล โรงเรียนวังน้ำเย็นวิทยาคม </p>
+                <p>พัฒนาระบบโดย ครูกีรติ ประสพพรรังสี </p>
+            </footer>
+        </div></div>
+
+        <div id="register-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold">ลงทะเบียนผู้ใช้ใหม่</h3>
+                    <button id="register-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <form id="register-form">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label for="register-username" class="form-label">ชื่อผู้ใช้</label>
+                            <input type="text" id="register-username" class="form-input" required>
+                        </div>
+                        <div>
+                            <label for="register-password" class="form-label">รหัสผ่าน</label>
+                            <input type="password" id="register-password" class="form-input" required>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label for="register-fullname" class="form-label">ชื่อ-นามสกุล</label>
+                        <input type="text" id="register-fullname" class="form-input" required>
+                    </div>
+                    <div class="mb-4">
+                        <label for="register-position" class="form-label">ตำแหน่ง</label>
+                        <input type="text" id="register-position" class="form-input" required>
+                    </div>
+                    <div class="mb-4">
+                        <label for="register-department" class="form-label">กลุ่มสาระ/งาน</label>
+                        <input type="text" id="register-department" class="form-input" required>
+                    </div>
+                    <div class="mb-4">
+                        <label for="register-email" class="form-label">อีเมล (สำหรับการแจ้งเตือน)</label>
+                        <input type="email" id="register-email" class="form-input" required>
+                    </div>
+                    <div class="flex justify-end gap-4">
+                        <button type="button" id="register-modal-close-button2" class="btn bg-gray-500 text-white">ยกเลิก</button>
+                        <button type="submit" id="register-submit-button" class="btn btn-primary">
+                            <div id="register-loader" class="loader hidden"></div>
+                            <span>ลงทะเบียน</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="alert-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="alert-modal-title" class="text-xl font-bold">แจ้งเตือน</h3>
+                    <button id="alert-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <p id="alert-modal-message" class="mb-6"></p>
+                <div class="flex justify-end">
+                    <button id="alert-modal-ok-button" class="btn btn-primary">ตกลง</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="confirm-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="confirm-modal-title" class="text-xl font-bold">ยืนยันการดำเนินการ</h3>
+                    <button id="confirm-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <p id="confirm-modal-message" class="mb-6"></p>
+                <div class="flex justify-end gap-4">
+                    <button id="confirm-modal-no-button" class="btn bg-gray-500 text-white">ไม่</button>
+                    <button id="confirm-modal-yes-button" class="btn btn-primary">ใช่</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="send-memo-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold">ส่งบันทึกข้อความ</h3>
+                    <button id="send-memo-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <form id="send-memo-form">
+                    <input type="hidden" id="memo-modal-request-id">
+                    <div class="mb-4">
+                        <label class="form-label">ประเภทบันทึกข้อความ</label>
+                        <div class="space-y-2">
+                            <div>
+                                <input type="radio" id="memo_type_reimburse" name="modal_memo_type" value="reimburse" class="h-4 w-4">
+                                <label for="memo_type_reimburse" class="ml-2">เบิกค่าใช้จ่าย</label>
+                            </div>
+                            <div>
+                                <input type="radio" id="memo_type_non_reimburse" name="modal_memo_type" value="non_reimburse" class="h-4 w-4" checked>
+                                <label for="memo_type_non_reimburse" class="ml-2">ไม่เบิกค่าใช้จ่าย</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="modal-memo-file-container" class="mb-4">
+                        <label for="modal-memo-file" class="form-label">ไฟล์บันทึกข้อความ</label>
+                        <input type="file" id="modal-memo-file" class="form-input" accept=".pdf,.doc,.docx">
+                    </div>
+                    <div class="flex justify-end gap-4">
+                        <button type="button" id="send-memo-cancel-button" class="btn bg-gray-500 text-white">ยกเลิก</button>
+                        <button type="submit" id="send-memo-submit-button" class="btn btn-primary">
+                            <div id="send-memo-loader" class="loader hidden"></div>
+                            <span>ส่งบันทึกข้อความ</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="command-approval-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold">อนุมัติคำสั่งไปราชการ</h3>
+                    <button id="command-approval-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <form id="command-approval-form">
+                    <input type="hidden" id="command-request-id">
+                    <div class="mb-4">
+                        <label class="form-label">เลือกรูปแบบคำสั่ง</label>
+                        <div class="space-y-2">
+                            <div>
+                                <input type="radio" id="command_type_solo" name="command_type" value="solo" class="h-4 w-4">
+                                <label for="command_type_solo" class="ml-2">คำสั่งเดี่ยว (1 คน)</label>
+                            </div>
+                            <div>
+                                <input type="radio" id="command_type_group_small" name="command_type" value="groupSmall" class="h-4 w-4">
+                                <label for="command_type_group_small" class="ml-2">คำสั่งกลุ่มเล็ก (2-5 คน)</label>
+                            </div>
+                            <div>
+                                <input type="radio" id="command_type_group_large" name="command_type" value="groupLarge" class="h-4 w-4">
+                                <label for="command_type_group_large" class="ml-2">คำสั่งกลุ่มใหญ่ (6 คนขึ้นไป)</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-4">
+                        <button type="button" id="command-approval-cancel-button" class="btn bg-gray-500 text-white">ยกเลิก</button>
+                        <button type="submit" id="command-approval-submit-button" class="btn btn-primary">
+                            <div id="command-approval-loader" class="loader hidden"></div>
+                            <span>อนุมัติคำสั่ง</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="dispatch-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold">สร้างหนังสือส่ง</h3>
+                    <button id="dispatch-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <form id="dispatch-form">
+                    <input type="hidden" id="dispatch-request-id">
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label for="dispatch-month" class="form-label">เดือน</label>
+                            <select id="dispatch-month" class="form-input" required>
+                                <option value="">-- เลือกเดือน --</option>
+                                <option value="มกราคม">มกราคม</option>
+                                <option value="กุมภาพันธ์">กุมภาพันธ์</option>
+                                <option value="มีนาคม">มีนาคม</option>
+                                <option value="เมษายน">เมษายน</option>
+                                <option value="พฤษภาคม">พฤษภาคม</option>
+                                <option value="มิถุนายน">มิถุนายน</option>
+                                <option value="กรกฎาคม">กรกฎาคม</option>
+                                <option value="สิงหาคม">สิงหาคม</option>
+                                <option value="กันยายน">กันยายน</option>
+                                <option value="ตุลาคม">ตุลาคม</option>
+                                <option value="พฤศจิกายน">พฤศจิกายน</option>
+                                <option value="ธันวาคม">ธันวาคม</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="dispatch-year" class="form-label">ปี พ.ศ.</label>
+                            <input type="number" id="dispatch-year" class="form-input" min="2560" max="2580" required>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label for="command-count" class="form-label">จำนวนคำสั่ง</label>
+                            <input type="number" id="command-count" class="form-input" min="0" required>
+                        </div>
+                        <div>
+                            <label for="memo-count" class="form-label">จำนวนบันทึก</label>
+                            <input type="number" id="memo-count" class="form-input" min="0" required>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-4">
+                        <button type="button" id="dispatch-cancel-button" class="btn bg-gray-500 text-white">ยกเลิก</button>
+                        <button type="submit" id="dispatch-submit-button" class="btn btn-primary">
+                            <div id="dispatch-loader" class="loader hidden"></div>
+                            <span>สร้างหนังสือส่ง</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="admin-memo-action-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold">จัดการบันทึกข้อความ</h3>
+                    <button id="admin-memo-action-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <form id="admin-memo-action-form">
+                    <input type="hidden" id="admin-memo-id">
+                    <div class="mb-4">
+                        <label for="admin-memo-status" class="form-label">สถานะ</label>
+                        <select id="admin-memo-status" class="form-input" required>
+                            <option value="กำลังดำเนินการ">กำลังดำเนินการ</option>
+                            <option value="รอเอกสาร (เบิก)">รอเอกสาร (เบิก)</option>
+                            <option value="เสร็จสิ้นรอออกคำสั่งไปราชการ">เสร็จสิ้นรอออกคำสั่งไปราชการ</option>
+                            <option value="นำกลับไปแก้ไข">นำกลับไปแก้ไข</option>
+                            <option value="เสร็จสิ้น/รับไฟล์ไปใช้งาน">เสร็จสิ้น/รับไฟล์ไปใช้งาน</option>
+                        </select>
+                    </div>
+                    
+                    <div id="admin-file-uploads" class="space-y-4 hidden">
+                        <div>
+                            <label class="form-label">ไฟล์บันทึกข้อความที่สมบูรณ์</label>
+                            <input type="file" id="admin-completed-memo-file" class="form-input" accept=".pdf,.doc,.docx">
+                        </div>
+                        <div>
+                            <label class="form-label">ไฟล์คำสั่งที่สมบูรณ์</label>
+                            <input type="file" id="admin-completed-command-file" class="form-input" accept=".pdf,.doc,.docx">
+                        </div>
+                        <div>
+                            <label class="form-label">ไฟล์หนังสือส่ง</label>
+                            <input type="file" id="admin-dispatch-book-file" class="form-input" accept=".pdf,.doc,.docx">
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-end gap-4">
+                        <button type="button" id="admin-memo-cancel-button" class="btn bg-gray-500 text-white">ยกเลิก</button>
+                        <button type="submit" id="admin-memo-submit-button" class="btn btn-primary">
+                            <div id="admin-memo-loader" class="loader hidden"></div>
+                            <span>อัปเดตสถานะ</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div id="forgot-password-modal" class="modal">
+    <div class="modal-content">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">ลืมรหัสผ่าน</h3>
+            <button id="forgot-password-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+        </div>
+        <form id="forgot-password-form">
+            <div class="mb-4">
+                <label for="forgot-password-email" class="form-label">อีเมลที่ลงทะเบียนไว้</label>
+                <input type="text" id="forgot-password-email" class="form-input" required>
+            </div>
+            <div class="flex justify-end gap-4">
+                <button type="button" id="forgot-password-cancel-button" class="btn bg-gray-500 text-white">ยกเลิก</button>
+                <button type="submit" id="forgot-password-submit-button" class="btn btn-primary">
+                    <div id="forgot-password-loader" class="loader hidden"></div>
+                    <span>ส่งลิงก์รีเซ็ตรหัสผ่าน</span>
+                </button>
+            </div>
+        </form>
+    </div>
+            <div id="public-attendee-modal" class="modal">
+    <div class="modal-content">
+        <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <h3 class="text-xl font-bold text-indigo-700">รายละเอียดการเดินทาง</h3>
+            <button id="public-attendee-modal-close-button" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+        </div>
+        
+        <div class="space-y-4">
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                <p><strong>เรื่อง/วัตถุประสงค์:</strong> <span id="public-modal-purpose" class="text-gray-700"></span></p>
+                <p class="mt-1"><strong>สถานที่:</strong> <span id="public-modal-location" class="text-gray-700"></span></p>
+                <p class="mt-1"><strong>วันที่:</strong> <span id="public-modal-date" class="text-blue-600 font-bold"></span></p>
+            </div>
+
+            <div>
+                <h4 class="font-bold text-gray-800 mb-2 border-l-4 border-green-500 pl-2">รายชื่อผู้เดินทาง</h4>
+                <div class="overflow-y-auto max-h-60 border rounded-lg">
+                    <table class="w-full text-sm text-left">
+                        <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                            <tr>
+                                <th class="px-4 py-2">ลำดับ</th>
+                                <th class="px-4 py-2">ชื่อ-นามสกุล</th>
+                                <th class="px-4 py-2">ตำแหน่ง</th>
+                            </tr>
+                        </thead>
+                        <tbody id="public-modal-attendee-list" class="bg-white">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex justify-end mt-6">
+            <button type="button" id="public-attendee-modal-close-btn2" class="btn bg-gray-500 text-white">ปิดหน้าต่าง</button>
+        </div>
+    </div>
+</div>
+</div>
+</div>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+    <script src="js/config.js"></script>          <script src="js/utils.js"></script>
+    <script src="js/firebaseService.js"></script>  <script src="js/auth.js"></script>
+    <script src="js/requests.js"></script>
+    <script src="js/admin.js"></script>
+    <script src="js/stats.js"></script>
+    <script src="js/main.js"></script>
+    <script src="https://unpkg.com/pizzip@3.1.4/dist/pizzip.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/docxtemplater/3.50.0/docxtemplater.js"></script>
+</body>
+</html>
+</body>
+</html>
