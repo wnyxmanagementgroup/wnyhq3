@@ -501,7 +501,24 @@ function renderAdminRequestsList(requests) {
                 </button>
             `;
         }
-
+return `
+        <div class="border rounded-xl p-5 bg-white ... (class เดิม)">
+            <div class="flex justify-between items-start flex-wrap gap-4">
+                
+                <div class="flex-1 min-w-[250px]">
+                   </div>
+                
+                <div class="flex flex-col gap-2 items-end w-full md:w-auto">
+                    
+                    <button onclick="deleteRequestByAdmin('${safeId}')" class="btn bg-red-100 text-red-600 hover:bg-red-200 btn-xs mb-2 flex items-center gap-1 self-end" title="ลบรายการนี้">
+                        🗑️ ลบ
+                    </button>
+                    
+                    ${request.pdfUrl ? `<a href="${request.pdfUrl}" target="_blank" ...>...</a>` : ''}
+                    ${commandActionButtons}
+                    </div>
+            </div>
+        </div>`;
         // --- สร้าง HTML การ์ด ---
         return `
         <div class="border rounded-xl p-5 bg-white shadow-sm hover:shadow-md transition duration-200 mb-4 border-l-4 ${request.commandPdfUrl ? 'border-l-green-500' : 'border-l-yellow-400'}">
@@ -569,7 +586,23 @@ function renderAdminMemosList(memos) {
         const safeId = escapeHtml(memo.id);
         const safeRef = escapeHtml(memo.refNumber);
         const safeUser = escapeHtml(memo.submittedBy);
+// ... ใน renderAdminMemosList ...
+        return `
+        <div class="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition">
+            <div class="flex justify-between items-start flex-wrap gap-4">
+                <div class="flex-1">
+                    </div>
+                <div class="flex flex-col gap-2 w-full sm:w-auto items-end">
+                    
+                    <button onclick="deleteMemoByAdmin('${safeId}')" class="btn bg-red-100 text-red-600 hover:bg-red-200 btn-xs mb-2" title="ลบบันทึกนี้">
+                        🗑️ ลบ
+                    </button>
 
+                    ${memo.fileURL ? `<a href="${memo.fileURL}" ...>...</a>` : ''}
+                    <button onclick="openAdminMemoAction('${safeId}')" ...>...</button>
+                </div>
+            </div>
+        </div>`;
         return `
         <div class="border rounded-lg p-4 bg-white">
             <div class="flex justify-between items-start flex-wrap gap-4">
