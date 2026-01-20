@@ -88,10 +88,19 @@ async function handleDeleteRequest(requestId) {
 
 
 // ✅ [แก้ไข] ดึงข้อมูลและกรองเฉพาะของฉัน (สำหรับ Dashboard)
+// --- แก้ไขใน js/requests.js ---
+
 async function fetchUserRequests() {
     try {
         const user = getCurrentUser();
         if (!user) return;
+
+        // 1. ตรวจสอบปีที่เลือก
+        const yearSelect = document.getElementById('user-year-select');
+        const selectedYear = yearSelect ? parseInt(yearSelect.value) : (new Date().getFullYear() + 543);
+        const currentYear = new Date().getFullYear() + 543;
+        
+        const isHistoryMode = selectedYear !== currentYear; // เช็คว่าเป็นโหมดดูย้อนหลังหรือไม่
 
         document.getElementById('requests-loader').classList.remove('hidden');
         document.getElementById('requests-list').classList.add('hidden');
@@ -100,34 +109,46 @@ async function fetchUserRequests() {
         let requestsData = [];
         let memosData = [];
 
-        // 1. ดึงข้อมูลจาก Firebase
-        if (typeof fetchRequestsHybrid === 'function' && typeof USE_FIREBASE !== 'undefined' && USE_FIREBASE) {
-            const firebaseResult = await fetchRequestsHybrid(user);
+        // 2. Logic การดึงข้อมูลแยกตามโหมด
+        if (isHistoryMode) {
+            console.log(`📜 Fetching HISTORY data for year ${selectedYear} directly from GAS...`);
             
-            if (firebaseResult !== null) {
-                console.log("✅ Loaded requests from Firebase");
-                requestsData = firebaseResult;
+            // ★ ยิงตรงไป GAS (ไม่ผ่าน Firebase)
+            const res = await apiCall('GET', 'getRequestsByYear', { 
+                year: selectedYear, 
+                username: user.username 
+            });
+            
+            if (res.status === 'success') requestsData = res.data;
+            
+            // (Optional) อาจต้องดึง Memo ของปีนั้นด้วย ถ้า API แยกกัน
+            // const memoRes = await apiCall('GET', 'getMemosByYear', { ... });
+
+        } else {
+            // ★ โหมดปกติ (ปีปัจจุบัน) ใช้ Hybrid/Firebase เหมือนเดิม
+            if (typeof fetchRequestsHybrid === 'function' && typeof USE_FIREBASE !== 'undefined' && USE_FIREBASE) {
+                const firebaseResult = await fetchRequestsHybrid(user);
+                if (firebaseResult !== null) {
+                    requestsData = firebaseResult;
+                } else {
+                    const res = await apiCall('GET', 'getUserRequests', { username: user.username });
+                    if (res.status === 'success') requestsData = res.data;
+                }
             } else {
-                // Fallback GAS
                 const res = await apiCall('GET', 'getUserRequests', { username: user.username });
                 if (res.status === 'success') requestsData = res.data;
             }
-        } else {
-            // Standard GAS
-            const res = await apiCall('GET', 'getUserRequests', { username: user.username });
-            if (res.status === 'success') requestsData = res.data;
+            
+            // ดึง Memo ปัจจุบัน
+            const memosResult = await apiCall('GET', 'getSentMemos', { username: user.username });
+            if (memosResult.status === 'success') memosData = memosResult.data || [];
         }
 
-        // 2. ดึง Memo
-        const memosResult = await apiCall('GET', 'getSentMemos', { username: user.username });
-        if (memosResult.status === 'success') memosData = memosResult.data || [];
-        
-        // 3. ⚠️ สำคัญ: กรองข้อมูลให้เหลือเฉพาะของ user คนนั้น (Dashboard ส่วนตัว)
-        // แม้จะเป็น Admin ก็ให้เห็นแค่ของตัวเองในหน้านี้ (Admin มีหน้าจัดการแยก)
+        // 3. กรองและเรียงลำดับ
         if (requestsData && requestsData.length > 0) {
+            // ถ้าเป็น GAS (History) อาจจะกรองมาให้แล้ว แต่กรองซ้ำเพื่อความชัวร์
             requestsData = requestsData.filter(req => req.username === user.username);
             
-            // เรียงลำดับ ล่าสุด -> เก่าสุด
             requestsData.sort((a, b) => {
                 const dateA = new Date(a.timestamp || a.docDate || 0).getTime();
                 const dateB = new Date(b.timestamp || b.docDate || 0).getTime();
@@ -139,12 +160,15 @@ async function fetchUserRequests() {
         allRequestsCache = requestsData;
         userMemosCache = memosData;
         renderRequestsList(allRequestsCache, userMemosCache);
-        // [เพิ่มใหม่] อัปเดตการแจ้งเตือน
-        updateNotifications(allRequestsCache, userMemosCache);
+        
+        // ถ้าเป็นโหมดประวัติ อาจปิดการแจ้งเตือนหรือปุ่มแก้ไขบางอย่าง
+        if (!isHistoryMode) {
+            updateNotifications(allRequestsCache, userMemosCache);
+        }
 
     } catch (error) {
         console.error('Error fetching requests:', error);
-        showAlert('ผิดพลาด', 'ไม่สามารถโหลดข้อมูลคำขอได้');
+        showAlert('ผิดพลาด', 'ไม่สามารถโหลดข้อมูลได้');
     } finally {
         document.getElementById('requests-loader').classList.add('hidden');
     }
