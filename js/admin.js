@@ -375,8 +375,17 @@ async function generateOfficialPDF(requestData) {
             position: att.position
         }));
         
-        const vehicleText = requestData.vehicleOption === 'gov' ? 'รถราชการ' : 
-                            requestData.vehicleOption === 'private' ? ('รถส่วนตัว ' + (requestData.licensePlate||'')) : 'อื่นๆ';
+        // ตรวจสอบประเภทพาหนะ
+        let vehicleText = 'อื่นๆ';
+        
+        if (requestData.vehicleOption === 'gov') {
+            vehicleText = 'รถราชการ';
+        } else if (requestData.vehicleOption === 'private') {
+            vehicleText = `รถส่วนตัว ${requestData.licensePlate || ''}`.trim();
+        } else {
+            // กรณีเลือกอื่นๆ หรือไม่ระบุ -> ให้ใช้ข้อความที่พิมพ์มา (ถ้ามี) หรือใช้คำว่า "อื่นๆ"
+            vehicleText = requestData.licensePlate ? requestData.licensePlate : 'อื่นๆ';
+        }
 
         // --- 2. โหลดไฟล์ Template ---
         let templateFilename = '';
