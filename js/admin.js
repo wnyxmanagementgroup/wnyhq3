@@ -887,19 +887,30 @@ async function deleteRequestByAdmin(requestId) {
     try {
         console.log(`🗑️ Deleting Request: ${requestId}`);
 
-        // A. ลบจาก Firebase Firestore (เพื่อให้หายจากหน้าเว็บทันที)
+        // ★★★ แก้ไข: แปลง ID ให้เป็น Safe ID (เปลี่ยน / เป็น -) เพื่อไม่ให้ Firebase Error ★★★
+        const safeId = requestId.toString().replace(/[\/\\:\.]/g, '-');
+
+        // A. ลบจาก Firebase Firestore (ลบข้อมูลหน้าเว็บ)
         if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(requestId).delete();
-            console.log("- Deleted from Firestore");
+            try {
+                // ใช้ safeId ที่แปลงแล้วในการลบ
+                await db.collection('requests').doc(safeId).delete();
+                console.log("- Deleted from Firestore");
+            } catch (firestoreError) {
+                console.warn("Firestore delete warning:", firestoreError);
+            }
             
-            // (Optional) ลบไฟล์ใน Storage ด้วยถ้าต้องการ
+            // (Optional) ลบไฟล์ใน Storage ด้วย (ถ้าต้องการ)
              try {
                  const storageRef = firebase.storage().ref();
-                 // ลบโฟลเดอร์ commands/ID (ต้องลบทีละไฟล์ แต่อันนี้ละไว้ก่อน)
+                 // ตัวอย่าง: ถ้าไฟล์เก็บใน commands/safeId/...
+                 // await storageRef.child(`commands/${safeId}`).listAll().then(dir => {
+                 //     dir.items.forEach(fileRef => fileRef.delete());
+                 // });
              } catch(e) {}
         }
 
-        // B. ลบจาก Google Sheets (ฐานข้อมูลหลัก)
+        // B. ลบจาก Google Sheets (ส่ง requestId ตัวเดิมไป เพราะใน Sheet เก็บแบบมี / ได้)
         const result = await apiCall('POST', 'deleteRequest', { id: requestId });
         
         if (result.status === 'success') {
@@ -925,21 +936,23 @@ async function deleteMemoByAdmin(memoId) {
     try {
         console.log(`🗑️ Deleting Memo: ${memoId}`);
 
-        // A. ลบจาก Firebase (ถ้ามีการเก็บ Memos แยก collection)
+        // ★★★ แก้ไข: แปลง ID ให้เป็น Safe ID (เปลี่ยน / เป็น -) ★★★
+        const safeId = memoId.toString().replace(/[\/\\:\.]/g, '-');
+
+        // A. ลบจาก Firebase
         if (typeof db !== 'undefined') {
-            // เช็คก่อนว่าเก็บใน requests หรือ memos
-            // ถ้าเก็บรวมใน requests ให้ลบ doc นั้น หรือถ้าแยก collection ก็ลบที่นั่น
+            // ลองลบจาก collection 'memos' (ถ้ามี)
             try {
-                await db.collection('memos').doc(memoId).delete();
-            } catch (e) { /* ถ้าไม่มี collection นี้ก็ข้าม */ }
+                await db.collection('memos').doc(safeId).delete();
+            } catch (e) { }
             
-             // ถ้า Memo เก็บรวมกับ Requests ก็ต้องลบที่ requests ด้วย
+             // หรือถ้าเก็บรวมกับ 'requests' ก็ลบที่นั่นด้วย
              try {
-                await db.collection('requests').doc(memoId).delete();
+                await db.collection('requests').doc(safeId).delete();
              } catch (e) {}
         }
 
-        // B. ลบจาก Google Sheets (Sheet: Memos)
+        // B. ลบจาก Google Sheets (ใช้ memoId ตัวเดิม)
         const result = await apiCall('POST', 'deleteMemo', { id: memoId });
 
         if (result.status === 'success') {
