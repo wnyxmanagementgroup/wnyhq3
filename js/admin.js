@@ -65,9 +65,8 @@ async function fetchAllUsers() {
     } catch (error) { showAlert('ผิดพลาด', 'ไม่สามารถโหลดข้อมูลผู้ใช้ได้'); }
 }
 
-// --- HELPER FUNCTIONS (สำหรับเตรียมข้อมูลลง Word) ---
+// --- HELPER FUNCTIONS ---
 
-// แปลงเดือนไทย (สำหรับ {{MMMM}})
 function getThaiMonth(dateStr) {
     if (!dateStr) return '.......';
     const months = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
@@ -75,36 +74,22 @@ function getThaiMonth(dateStr) {
     return months[d.getMonth()];
 }
 
-// แปลงปีไทย (สำหรับ {{YYYY}})
 function getThaiYear(dateStr) {
     if (!dateStr) return '.......';
     const d = new Date(dateStr);
     return (d.getFullYear() + 543).toString();
 }
 
-// คำนวณจำนวนวัน (สำหรับ {{duration}})
-function calculateDuration(start, end) {
-    if (!start || !end) return '-';
-    const d1 = new Date(start);
-    const d2 = new Date(end);
-    const diffTime = Math.abs(d2 - d1);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // นับวันแรกและวันสุดท้าย
-    return diffDays;
-}
+// --- GENERATE COMMAND FUNCTIONS (ระบบ Hybrid Failover) ---
 
-// --- GENERATE COMMAND FUNCTIONS ---
-
-// ฟังก์ชันหลักที่ปุ่มกดเรียกใช้
-// --- แก้ไขในไฟล์ js/admin.js ---
-
-// 1. แก้ไขฟังก์ชัน handleAdminGenerateCommand
+// 1. ฟังก์ชันสร้างคำสั่ง (Command)
 async function handleAdminGenerateCommand() {
     const requestId = document.getElementById('admin-command-request-id').value;
     const commandType = document.querySelector('input[name="admin-command-type"]:checked')?.value;
     
     if (!commandType) { showAlert('ผิดพลาด', 'กรุณาเลือกรูปแบบคำสั่ง'); return; }
     
-    // เตรียมข้อมูล (เหมือนเดิม)
+    // เตรียมข้อมูล
     const attendees = [];
     document.querySelectorAll('#admin-command-attendees-list > div').forEach(div => {
         const name = div.querySelector('.admin-att-name').value.trim();
@@ -124,7 +109,6 @@ async function handleAdminGenerateCommand() {
         startDate: document.getElementById('admin-command-start-date').value, 
         endDate: document.getElementById('admin-command-end-date').value,
         attendees: attendees, 
-        // ... (ข้อมูลอื่นๆ)
         expenseOption: document.getElementById('admin-expense-option').value,
         expenseItems: document.getElementById('admin-expense-items').value, 
         totalExpense: document.getElementById('admin-total-expense').value,
@@ -132,33 +116,47 @@ async function handleAdminGenerateCommand() {
         licensePlate: document.getElementById('admin-license-plate').value
     };
     
-    // ★ เปลี่ยนมาใช้ระบบ Hybrid GAS ★
     toggleLoader('admin-generate-command-button', true);
     
+    // ★★★ ระบบ Hybrid Failover ★★★
     try {
-        // เรียกฟังก์ชันใหม่ใน firebaseService.js
-        const result = await generateCommandHybrid(requestData);
+        console.log("🚀 Attempt 1: Trying Cloud Run (Fast Mode)...");
+        // พยายามใช้ Cloud Run ก่อน (เร็วกว่า)
+        await generateOfficialPDF(requestData);
         
-        if (result.status === 'success') {
-            showAlert('สำเร็จ', 'สร้างคำสั่งเรียบร้อยแล้ว');
-            
-            // แสดงผลลัพธ์ 2 ลิงก์ (Doc และ PDF)
-            showDualLinkResult(
-                'admin-command-result', 
-                'สร้างคำสั่งสำเร็จ!', 
-                result.data.docUrl, 
-                result.data.pdfUrl
-            );
+        // ถ้าสำเร็จ ให้บันทึกสถานะลง Firebase ว่าพิมพ์แล้ว (Optional)
+        if (typeof db !== 'undefined') {
+            const docId = requestId.replace(/\//g, '-');
+            db.collection('requests').doc(docId).set({ commandStatus: 'เสร็จสิ้น (พิมพ์แล้ว)' }, { merge: true });
         }
-    } catch (error) {
-        console.error(error);
-        showAlert('ผิดพลาด', 'ไม่สามารถสร้างคำสั่งได้: ' + error.message);
+
+    } catch (cloudError) {
+        console.warn("⚠️ Cloud Run failed. Switching to GAS System (Backup)...", cloudError);
+        
+        try {
+            console.log("🔄 Attempt 2: Trying GAS (Reliable Mode)...");
+            // ถ้า Cloud Run ล่ม ให้เรียกใช้ GAS (ช้าหน่อยแต่ชัวร์ + ได้ไฟล์ลง Drive)
+            const result = await generateCommandHybrid(requestData);
+            
+            if (result.status === 'success') {
+                showAlert('สำเร็จ', 'สร้างคำสั่งเรียบร้อยแล้ว (ผ่านระบบสำรอง)');
+                showDualLinkResult(
+                    'admin-command-result', 
+                    'สร้างคำสั่งสำเร็จ (GAS)', 
+                    result.data.docUrl, 
+                    result.data.pdfUrl
+                );
+            }
+        } catch (gasError) {
+            console.error("❌ All systems failed.");
+            showAlert('ผิดพลาดร้ายแรง', 'ไม่สามารถสร้างเอกสารได้ทั้ง 2 ระบบ: ' + gasError.message);
+        }
     } finally {
         toggleLoader('admin-generate-command-button', false);
     }
 }
 
-// 2. แก้ไขฟังก์ชัน handleDispatchFormSubmit
+// 2. ฟังก์ชันสร้างหนังสือส่ง (Dispatch)
 async function handleDispatchFormSubmit(e) {
     e.preventDefault();
     const requestId = document.getElementById('dispatch-request-id').value;
@@ -174,97 +172,62 @@ async function handleDispatchFormSubmit(e) {
     
     toggleLoader('dispatch-submit-button', true);
     
+    // ★★★ ระบบ Hybrid Failover ★★★
     try {
-        // เรียกฟังก์ชันใหม่
-        const result = await generateDispatchHybrid(requestData);
+        console.log("🚀 Attempt 1: Trying Cloud Run (Fast Mode)...");
+        await generateOfficialPDF(requestData);
         
-        if (result.status === 'success') {
-            document.getElementById('dispatch-modal').style.display = 'none';
-            document.getElementById('dispatch-form').reset();
+        // ปิด Modal ถ้าสำเร็จ
+        document.getElementById('dispatch-modal').style.display = 'none';
+        document.getElementById('dispatch-form').reset();
+
+    } catch (cloudError) {
+        console.warn("⚠️ Cloud Run failed. Switching to GAS System (Backup)...", cloudError);
+        
+        try {
+            console.log("🔄 Attempt 2: Trying GAS (Reliable Mode)...");
+            const result = await generateDispatchHybrid(requestData);
             
-            // ใช้ Modal Alert หรือแสดงผลในหน้า Admin ก็ได้ (ในที่นี้ขอ Alert พร้อมปุ่มให้เลือก)
-            // หรือจะแสดงในหน้า Command Generation Page ก็ได้
-            
-            // เนื่องจากหน้า Dispatch เป็น Modal ซ้อน Modal ขอใช้ Alert ธรรมดาแจ้งก่อน
-            // แต่ถ้าต้องการให้แสดงลิงก์ ให้ใช้หน้าต่าง Result
-            showAlert('สำเร็จ', 'สร้างหนังสือส่งเรียบร้อยแล้ว กรุณาตรวจสอบลิงก์ในหน้าจัดการ');
-            
-            // รีโหลดข้อมูลเพื่อโชว์ปุ่มดูไฟล์
-            await fetchAllRequestsForCommand();
+            if (result.status === 'success') {
+                document.getElementById('dispatch-modal').style.display = 'none';
+                document.getElementById('dispatch-form').reset();
+                showAlert('สำเร็จ', 'สร้างหนังสือส่งเรียบร้อยแล้ว (ผ่านระบบสำรอง)');
+                await fetchAllRequestsForCommand();
+            }
+        } catch (gasError) {
+            showAlert('ผิดพลาด', 'ไม่สามารถสร้างหนังสือส่งได้: ' + gasError.message);
         }
-    } catch (error) {
-        showAlert('ผิดพลาด', error.message);
     } finally {
         toggleLoader('dispatch-submit-button', false);
     }
 }
 
-// 3. ฟังก์ชันช่วยแสดงผล 2 ปุ่ม (Doc & PDF)
-function showDualLinkResult(containerId, title, docUrl, pdfUrl) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-    
-    container.innerHTML = `
-        <h3 class="font-bold text-lg text-green-800">${title}</h3>
-        <p class="mt-2 text-gray-700">ท่านสามารถเลือกเปิดไฟล์ได้ 2 รูปแบบ:</p>
-        <div class="flex justify-center flex-wrap gap-4 mt-4">
-            ${docUrl ? `
-            <a href="${docUrl}" target="_blank" class="btn bg-blue-600 hover:bg-blue-700 text-white shadow-md flex items-center gap-2">
-                📝 แก้ไขใน Google Doc
-            </a>` : ''}
-            
-            ${pdfUrl ? `
-            <a href="${pdfUrl}" target="_blank" class="btn bg-red-600 hover:bg-red-700 text-white shadow-md flex items-center gap-2">
-                📄 เปิดไฟล์ PDF
-            </a>` : ''}
-            
-            <button onclick="switchPage('command-generation-page')" class="btn bg-gray-500 text-white">กลับหน้าจัดการ</button>
-        </div>
-    `;
-    
-    container.classList.remove('hidden');
-}
-
 // ==========================================
-// ★★★ ฟังก์ชันสร้าง PDF (หัวใจสำคัญ) ★★★
+// ★★★ ฟังก์ชันสร้าง PDF (Cloud Run Engine) ★★★
 // ==========================================
-
-// --- ค้นหาฟังก์ชัน generateOfficialPDF เดิมใน admin.js แล้วแทนที่ด้วยโค้ดนี้ ---
-
-// --- แก้ไขไฟล์ js/admin.js (ฟังก์ชัน generateOfficialPDF ฉบับสมบูรณ์) ---
 
 async function generateOfficialPDF(requestData) {
-    // 1. ระบุปุ่มที่จะแสดง Loader (เพื่อให้ User รู้ว่าระบบกำลังทำงาน)
-    let btnId = 'generate-document-button'; 
-    if (requestData.doctype === 'dispatch') btnId = 'dispatch-submit-button';
-    if (requestData.doctype === 'command') btnId = 'admin-generate-command-button';
+    // ฟังก์ชันนี้จะ Throw Error ออกไปถ้าทำงานไม่ได้ เพื่อให้ระบบ Failover ทำงานต่อ
     
-    toggleLoader(btnId, true); 
+    // 1. เตรียมข้อมูล
+    const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+    const docDateObj = requestData.docDate ? new Date(requestData.docDate) : new Date();
+    const docMMMM = thaiMonths[docDateObj.getMonth()];
+    const docYYYY = (docDateObj.getFullYear() + 543).toString();
+    const docDay = docDateObj.getDate().toString();
 
-    try {
-        // ==========================================
-        // ส่วนที่ 1: เตรียมข้อมูล (Data Preparation)
-        // ==========================================
+    let dateRangeStr = "";
+    let startDay = "", startMonth = "", startYear = "";
+    
+    if (requestData.startDate) {
+        const start = new Date(requestData.startDate);
+        startDay = start.getDate();
+        startMonth = thaiMonths[start.getMonth()];
+        startYear = start.getFullYear() + 543;
         
-        // 1.1 แปลงวันที่เอกสารเป็นภาษาไทย
-        const thaiMonths = [
-            "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
-            "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
-        ];
-        
-        const docDateObj = requestData.docDate ? new Date(requestData.docDate) : new Date();
-        const docMMMM = thaiMonths[docDateObj.getMonth()];
-        const docYYYY = (docDateObj.getFullYear() + 543).toString();
-
-        // 1.2 สร้างข้อความช่วงวันเดินทาง (date_range)
-        let dateRangeStr = "";
-        if (requestData.startDate && requestData.endDate) {
-            const start = new Date(requestData.startDate);
+        if (requestData.endDate) {
             const end = new Date(requestData.endDate);
-            
-            const startDay = start.getDate();
             const endDay = end.getDate();
-            const startMonth = thaiMonths[start.getMonth()];
             const endMonth = thaiMonths[end.getMonth()];
             const year = start.getFullYear() + 543;
 
@@ -276,161 +239,100 @@ async function generateOfficialPDF(requestData) {
                 dateRangeStr = `ระหว่างวันที่ ${startDay} เดือน ${startMonth} ถึงวันที่ ${endDay} เดือน ${endMonth} พ.ศ. ${year}`;
             }
         }
-
-        // 1.3 เตรียมรายชื่อผู้ร่วมเดินทาง (เพิ่มลำดับที่ i)
-        const attendeesWithIndex = (requestData.attendees || []).map((att, index) => ({
-            i: index + 1,
-            name: att.name || "",
-            position: att.position || ""
-        }));
-
-        // ==========================================
-        // ส่วนที่ 2: โหลดและจัดการแม่แบบ (Template)
-        // ==========================================
-
-        // 2.1 เลือกชื่อไฟล์แม่แบบ
-        let templateFilename = '';
-        if (requestData.doctype === 'command') {
-            switch (requestData.templateType) {
-                case 'groupSmall': templateFilename = 'template_command_small.docx'; break;
-                case 'groupLarge': templateFilename = 'template_command_large.docx'; break;
-                default: templateFilename = 'template_command_solo.docx'; break;
-            }
-        } else if (requestData.doctype === 'dispatch') {
-            templateFilename = 'template_dispatch.docx';
-        }
-
-        console.log(`📂 กำลังโหลดแม่แบบ: ${templateFilename}`);
-
-        // 2.2 โหลดไฟล์จาก Server
-        const response = await fetch(`./${templateFilename}`);
-        if (!response.ok) {
-            throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}" กรุณาตรวจสอบว่าอัปโหลดไฟล์แล้ว`);
-        }
-        
-        const content = await response.arrayBuffer();
-
-        // 2.3 เริ่มต้นระบบ Word Engine (PizZip + Docxtemplater)
-        const zip = new PizZip(content);
-        
-        const doc = new window.docxtemplater(zip, {
-            paragraphLoop: true,
-            linebreaks: true,
-            
-            // ★ ฟีเจอร์ผ่อนปรน (Lenient Parser): ช่วยแก้ปัญหาโค้ดสี/ฟอนต์แทรกในตัวแปร
-            parser: function(tag) {
-                // ลบช่องว่างและอักขระแปลกปลอมออกจากชื่อตัวแปร
-                const cleanTag = tag.trim().replace(/^\s+|\s+$/g, '');
-                
-                return {
-                    get: function(scope, context) {
-                        if (cleanTag === '.') return scope;
-                        return scope[cleanTag];
-                    }
-                };
-            }
-        });
-
-        // ==========================================
-        // ส่วนที่ 3: แทนที่ข้อมูล (Rendering)
-        // ==========================================
-
-        // ข้อมูลที่จะส่งเข้าไปแทนที่ใน Word
-        const dataToRender = {
-            YYYY: docYYYY,
-            MMMM: docMMMM,
-            purpose: requestData.purpose || "",
-            location: requestData.location || "",
-            date_range: dateRangeStr,
-            requesterName: requestData.requesterName || "",
-            attendees: attendeesWithIndex, // ตารางรายชื่อ
-            dispatch_month: requestData.dispatchMonth || "",
-            dispatch_year: requestData.dispatchYear || "",
-            command_count: requestData.commandCount || "",
-            memo_count: requestData.memoCount || ""
-        };
-
-        console.log("Data rendering:", dataToRender);
-
-        // สั่งทำงานแทนที่ข้อมูล
-        doc.render(dataToRender);
-
-        // ==========================================
-        // ส่วนที่ 4: สร้าง PDF (Cloud Run)
-        // ==========================================
-
-        // 4.1 สร้างไฟล์ Word (.docx) ที่สมบูรณ์
-        const docxBlob = doc.getZip().generate({
-            type: "blob",
-            mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        });
-
-        // 4.2 เตรียมส่งไปแปลงเป็น PDF
-        const formData = new FormData();
-        formData.append("files", docxBlob, "document.docx");
-
-        // ตรวจสอบ URL ของ PDF Engine (ใช้ Config ถ้ามี หรือใช้ Default)
-        const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') 
-            ? PDF_ENGINE_CONFIG.BASE_URL 
-            : "https://pdf-engine-660310608742.asia-southeast1.run.app";
-        
-        // ตั้งเวลา Timeout 20 วินาที (ป้องกันการรอนานเกินไป)
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 20000); 
-
-        console.log("🚀 กำลังส่งไปแปลงเป็น PDF...");
-
-        const cloudRunResponse = await fetch(`${cloudRunBaseUrl}/forms/libreoffice/convert`, {
-            method: "POST",
-            body: formData,
-            signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!cloudRunResponse.ok) {
-            throw new Error(`Server Error (${cloudRunResponse.status}) - แปลงไฟล์ไม่สำเร็จ`);
-        }
-
-        // 4.3 เปิดไฟล์ PDF
-        const pdfBlob = await cloudRunResponse.blob();
-        const pdfUrl = window.URL.createObjectURL(pdfBlob);
-        window.open(pdfUrl, '_blank');
-
-    } catch (error) {
-        console.error("PDF Generation Error:", error);
-        
-        // ==========================================
-        // ส่วนที่ 5: แจ้งเตือนข้อผิดพลาด (Error Handling)
-        // ==========================================
-        if (error.properties && error.properties.errors) {
-            // กรณีเป็น Error จากไฟล์ Template (เช่น ปีกกาซ้อนกัน)
-            const errorMessages = error.properties.errors.map(e => {
-                let msg = e.message;
-                // แปล Error ให้อ่านง่าย
-                if (msg.includes("Duplicate open tag")) return `- พบปีกกาเปิด {{ ซ้ำกัน (กรุณาลบแล้วพิมพ์ใหม่)`;
-                if (msg.includes("Duplicate close tag")) return `- พบปีกกาปิด }} ซ้ำกัน`;
-                if (msg.includes("Unclosed tag")) return `- ลืมปิดปีกกา }}`;
-                if (msg.includes("Multi error")) return `- มีข้อผิดพลาดหลายจุดใน Template`;
-                return `- ${msg} (Tag: ${e.properties.id || 'ไม่ระบุ'})`;
-            }).join('\n');
-            
-            alert(`❌ ไฟล์แม่แบบ Word ผิดพลาด:\n${errorMessages}\n\nคำแนะนำ: ให้เปิดไฟล์ Word แล้วลบตัวแปรที่มีปัญหาทิ้ง แล้วพิมพ์ใหม่ด้วยมือ`);
-        } else {
-            // กรณี Error อื่นๆ (เน็ตหลุด, Server ล่ม)
-            let msg = error.message;
-            if (error.name === 'AbortError') msg = "การเชื่อมต่อหมดเวลา (Timeout) - ระบบ PDF ทำงานหนัก กรุณาลองใหม่";
-            if (msg.includes('Failed to fetch')) msg = "ไม่สามารถเชื่อมต่อ Server แปลงไฟล์ได้ (ตรวจสอบอินเทอร์เน็ต)";
-            
-            alert(`❌ เกิดข้อผิดพลาด: ${msg}`);
-        }
-        
-    } finally {
-        toggleLoader(btnId, false);
     }
+
+    const attendeesWithIndex = (requestData.attendees || []).map((att, index) => ({
+        i: index + 1,
+        name: att.name || "",
+        position: att.position || ""
+    }));
+
+    let vehicleText = "รถราชการ";
+    if (requestData.vehicleOption === 'private') vehicleText = `รถส่วนตัว ทะเบียน ${requestData.licensePlate || '-'}`;
+    if (requestData.vehicleOption === 'public') vehicleText = `รถโดยสารสาธารณะ`;
+
+    // 2. เลือก Template
+    let templateFilename = '';
+    if (requestData.doctype === 'command') {
+        switch (requestData.templateType) {
+            case 'groupSmall': templateFilename = 'template_command_small.docx'; break;
+            case 'groupLarge': templateFilename = 'template_command_large.docx'; break;
+            default: templateFilename = 'template_command_solo.docx'; break;
+        }
+    } else if (requestData.doctype === 'dispatch') {
+        templateFilename = 'template_dispatch.docx';
+    }
+
+    // 3. โหลด Template
+    const response = await fetch(`./${templateFilename}`);
+    if (!response.ok) throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}"`);
+    
+    const content = await response.arrayBuffer();
+    const zip = new PizZip(content);
+    const doc = new window.docxtemplater(zip, {
+        paragraphLoop: true,
+        linebreaks: true,
+        parser: function(tag) {
+            const cleanTag = tag.trim().replace(/^\s+|\s+$/g, '');
+            return {
+                get: function(scope, context) {
+                    if (cleanTag === '.') return scope;
+                    return scope[cleanTag];
+                }
+            };
+        }
+    });
+
+    // 4. Render ข้อมูล
+    doc.render({
+        dd: docDay, MMMM: docMMMM, YYYY: docYYYY,
+        id: requestData.id || ".......",
+        purpose: requestData.purpose || "",
+        location: requestData.location || "",
+        date_range: dateRangeStr,
+        start_day: startDay, start_month: startMonth, start_year: startYear,
+        requesterName: requestData.requesterName || "",
+        requesterPosition: requestData.requesterPosition || "",
+        attendees: attendeesWithIndex,
+        vehicle_txt: vehicleText,
+        dispatch_month: requestData.dispatchMonth || "",
+        dispatch_year: requestData.dispatchYear || "",
+        command_count: requestData.commandCount || "",
+        memo_count: requestData.memoCount || ""
+    });
+
+    // 5. ส่งไป Cloud Run
+    const docxBlob = doc.getZip().generate({
+        type: "blob",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+
+    const formData = new FormData();
+    formData.append("files", docxBlob, "document.docx");
+
+    const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') ? PDF_ENGINE_CONFIG.BASE_URL : "https://pdf-engine-660310608742.asia-southeast1.run.app";
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000); 
+
+    const cloudRunResponse = await fetch(`${cloudRunBaseUrl}/forms/libreoffice/convert`, {
+        method: "POST",
+        body: formData,
+        signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!cloudRunResponse.ok) {
+        throw new Error(`Server Error (${cloudRunResponse.status})`);
+    }
+
+    // 6. เปิด PDF
+    const pdfBlob = await cloudRunResponse.blob();
+    const pdfUrl = window.URL.createObjectURL(pdfBlob);
+    window.open(pdfUrl, '_blank');
 }
-// ... (ส่วน Render และ User Management ให้คงไว้ตามเดิม หรือ Copy จากไฟล์เดิมมาต่อท้าย) ...
-// --- RENDER FUNCTIONS ---
+
+// --- RENDER FUNCTIONS (ส่วนแสดงผลคงเดิม) ---
 
 function renderUsersList(users) {
     const container = document.getElementById('users-content');
@@ -640,37 +542,6 @@ async function handleCommandApproval(e) {
     }
 }
 
-async function handleDispatchFormSubmit(e) {
-    e.preventDefault();
-    const requestId = document.getElementById('dispatch-request-id').value;
-    const dispatchMonth = document.getElementById('dispatch-month').value;
-    const dispatchYear = document.getElementById('dispatch-year').value;
-    const commandCount = document.getElementById('command-count').value;
-    const memoCount = document.getElementById('memo-count').value;
-    
-    if (!dispatchMonth || !dispatchYear || !commandCount || !memoCount) { 
-        showAlert('ผิดพลาด', 'กรุณากรอกข้อมูลให้ครบถ้วน'); 
-        return; 
-    }
-    
-    // เตรียมข้อมูลสำหรับส่งไปสร้าง PDF
-    const requestData = {
-        doctype: 'dispatch', // ★ ระบุว่าเป็นหนังสือส่ง
-        id: requestId, 
-        dispatchMonth: dispatchMonth, 
-        dispatchYear: dispatchYear, 
-        commandCount: commandCount, 
-        memoCount: memoCount 
-    };
-    
-    // เรียกใช้ฟังก์ชันใหม่
-    await generateOfficialPDF(requestData);
-    
-    // ปิด Modal (Optional: อาจจะรอ PDF เด้งก่อน)
-    document.getElementById('dispatch-modal').style.display = 'none'; 
-    document.getElementById('dispatch-form').reset(); 
-}
-
 async function handleAdminMemoActionSubmit(e) {
     e.preventDefault();
     const memoId = document.getElementById('admin-memo-id').value;
@@ -812,37 +683,28 @@ function addAdminAttendeeField(name = '', position = '') {
     `;
     list.appendChild(div);
 }
-// --- เพิ่มต่อท้ายไฟล์ admin.js ---
 
-// ฟังก์ชันแสดงผลลัพธ์ 2 ปุ่ม (Google Doc และ PDF)
 function showDualLinkResult(containerId, title, docUrl, pdfUrl) {
     const container = document.getElementById(containerId);
     if (!container) return;
     
-    // สร้าง HTML แสดงปุ่ม
     container.innerHTML = `
         <h3 class="font-bold text-lg text-green-800">${title}</h3>
         <p class="mt-2 text-gray-700">ดำเนินการเสร็จสิ้น ท่านสามารถเลือกเปิดไฟล์ได้ 2 รูปแบบ:</p>
-        
-        <div class="flex justify-center flex-wrap gap-4 mt-6">
+        <div class="flex justify-center flex-wrap gap-4 mt-4">
             ${docUrl ? `
-            <a href="${docUrl}" target="_blank" class="btn bg-blue-600 hover:bg-blue-700 text-white shadow-md flex items-center gap-2 px-6 py-2">
+            <a href="${docUrl}" target="_blank" class="btn bg-blue-600 hover:bg-blue-700 text-white shadow-md flex items-center gap-2">
                 📝 แก้ไขใน Google Doc
             </a>` : ''}
             
             ${pdfUrl ? `
-            <a href="${pdfUrl}" target="_blank" class="btn bg-red-600 hover:bg-red-700 text-white shadow-md flex items-center gap-2 px-6 py-2">
+            <a href="${pdfUrl}" target="_blank" class="btn bg-red-600 hover:bg-red-700 text-white shadow-md flex items-center gap-2">
                 📄 เปิดไฟล์ PDF
             </a>` : ''}
-        </div>
-        
-        <div class="mt-4">
-            <button onclick="switchPage('command-generation-page')" class="btn bg-gray-500 text-white btn-sm">กลับหน้าจัดการ</button>
+            
+            <button onclick="switchPage('command-generation-page')" class="btn bg-gray-500 text-white">กลับหน้าจัดการ</button>
         </div>
     `;
     
     container.classList.remove('hidden');
-    
-    // เลื่อนหน้าจอลงมาให้เห็นผลลัพธ์
-    container.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
