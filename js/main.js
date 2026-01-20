@@ -385,7 +385,7 @@ async function checkPDFServerStatus() {
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('App Initializing...');
-    
+    setupYearSelectors();
     // Check Config
     if (typeof escapeHtml !== 'function') {
         console.error("Config.js not loaded or missing escapeHtml!");
@@ -415,3 +415,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const user = getCurrentUser();
     if (user) { initializeUserSession(user); } else { showLoginScreen(); }
 });
+// ฟังก์ชันสร้างตัวเลือกปี (ย้อนหลัง 3 ปี)
+function setupYearSelectors() {
+    const currentYear = new Date().getFullYear() + 543;
+    const years = [currentYear, currentYear - 1, currentYear - 2]; // กำหนดจำนวนปีที่ต้องการ
+    
+    const createOptions = (selectId) => {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        
+        select.innerHTML = years.map(y => 
+            `<option value="${y}" ${y === currentYear ? 'selected' : ''}>📂 ปีงบประมาณ ${y} ${y === currentYear ? '(ปัจจุบัน)' : ''}</option>`
+        ).join('');
+
+        // เมื่อเปลี่ยนปี ให้โหลดข้อมูลใหม่ทันที
+        select.addEventListener('change', async (e) => {
+            if (selectId === 'user-year-select') {
+                await fetchUserRequests();
+            } else if (selectId === 'admin-year-select') {
+                await fetchAllRequestsForCommand();
+            }
+        });
+    };
+
+    createOptions('user-year-select');
+    createOptions('admin-year-select');
+}
