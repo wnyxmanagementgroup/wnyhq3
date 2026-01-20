@@ -268,9 +268,6 @@ async function handleDispatchFormSubmit(e) {
 // ==========================================
 // ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
 // ==========================================
-// ==========================================
-// ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
-// ==========================================
 async function generateOfficialPDF(requestData) {
     // กำหนดปุ่ม Loader
     let btnId = 'generate-document-button'; 
@@ -310,11 +307,35 @@ async function generateOfficialPDF(requestData) {
             }
         }
 
-        const attendeesWithIndex = (requestData.attendees || []).map((att, index) => ({
+        // --- ★★★ [ส่วนที่แก้ไข] จัดการรายชื่อแนบ (ผู้ขออยู่คนแรกเสมอ) ★★★ ---
+        const requesterName = (requestData.requesterName || "").trim();
+        const requesterPos = (requestData.requesterPosition || "").trim();
+        
+        let mergedAttendees = [];
+        
+        // 1. เริ่มต้นด้วยชื่อผู้ขอก่อนเสมอ (ถ้ามี)
+        if (requesterName) {
+            mergedAttendees.push({ name: requesterName, position: requesterPos });
+        }
+
+        // 2. ตามด้วยรายชื่ออื่น (เช็คไม่ให้ซ้ำกับชื่อผู้ขอ)
+        if (requestData.attendees && Array.isArray(requestData.attendees)) {
+            requestData.attendees.forEach(att => {
+                const attName = (att.name || "").trim();
+                // ถ้าชื่อไม่ซ้ำกับผู้ขอ ให้เพิ่มเข้าไปต่อท้าย
+                if (attName && attName !== requesterName) {
+                    mergedAttendees.push({ name: attName, position: att.position || "" });
+                }
+            });
+        }
+
+        // 3. ใส่ลำดับที่ (1, 2, 3...)
+        const attendeesWithIndex = mergedAttendees.map((att, index) => ({
             i: index + 1,
-            name: att.name || "",
-            position: att.position || ""
+            name: att.name,
+            position: att.position
         }));
+        // -------------------------------------------------------------
         
         const vehicleText = requestData.vehicleOption === 'gov' ? 'รถราชการ' : 
                             requestData.vehicleOption === 'private' ? ('รถส่วนตัว ' + (requestData.licensePlate||'')) : 'อื่นๆ';
@@ -360,7 +381,10 @@ async function generateOfficialPDF(requestData) {
             start_day: startDay, start_month: startMonth, start_year: startYear,
             requesterName: requestData.requesterName || "",
             requesterPosition: requestData.requesterPosition || "",
+            
+            // ใช้ตัวแปรใหม่ที่จัดเรียงแล้ว
             attendees: attendeesWithIndex,
+            
             vehicle_txt: vehicleText,
             dispatch_month: requestData.dispatchMonth || "",
             dispatch_year: requestData.dispatchYear || "",
