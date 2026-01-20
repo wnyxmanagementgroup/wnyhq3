@@ -108,7 +108,8 @@ async function handleAdminGenerateCommand() {
         purpose: document.getElementById('admin-command-purpose').value.trim(),
         startDate: document.getElementById('admin-command-start-date').value, 
         endDate: document.getElementById('admin-command-end-date').value,
-        attendees: attendees, 
+        attendees: attendees,
+        // ... ข้อมูลอื่นๆ
         expenseOption: document.getElementById('admin-expense-option').value,
         expenseItems: document.getElementById('admin-expense-items').value, 
         totalExpense: document.getElementById('admin-total-expense').value,
@@ -118,44 +119,54 @@ async function handleAdminGenerateCommand() {
     
     toggleLoader('admin-generate-command-button', true);
     
-    // ★★★ ระบบ Hybrid Failover ★★★
     try {
-        console.log("🚀 Attempt 1: Trying Cloud Run (Fast Mode)...");
-        // พยายามใช้ Cloud Run ก่อน (เร็วกว่า)
-        await generateOfficialPDF(requestData);
+        // 1. เรียกสร้าง PDF (ตอนนี้จะ return Blob กลับมา ไม่เปิดอัตโนมัติ)
+        const pdfBlob = await generateOfficialPDF(requestData, true); // true = ขอ Blob คืน
         
-        // ถ้าสำเร็จ ให้บันทึกสถานะลง Firebase ว่าพิมพ์แล้ว (Optional)
+        // 2. ตั้งชื่อไฟล์ให้สื่อความหมาย
+        const safeId = requestId.replace(/[\/\\:\.]/g, '-'); // แปลง / เป็น -
+        const fileName = `คำสั่ง_${safeId}.pdf`;
+        
+        // 3. อัปโหลดลง Firebase Storage
+        console.log("⬆️ กำลังอัปโหลดไฟล์ลง Storage...");
+        const storagePath = `commands/${safeId}/${fileName}`;
+        const downloadUrl = await uploadBlobToStorage(pdfBlob, storagePath);
+        
+        console.log("✅ อัปโหลดเสร็จสิ้น: ", downloadUrl);
+
+        // 4. อัปเดตข้อมูลลง Firestore (บันทึกลิงก์ถาวร)
         if (typeof db !== 'undefined') {
-            const docId = requestId.replace(/\//g, '-');
-            db.collection('requests').doc(docId).set({ commandStatus: 'เสร็จสิ้น (พิมพ์แล้ว)' }, { merge: true });
+            await db.collection('requests').doc(safeId).set({
+                commandStatus: 'เสร็จสิ้น',
+                commandPdfUrl: downloadUrl, // ลิงก์ไฟล์ PDF
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
         }
 
-    } catch (cloudError) {
-        console.warn("⚠️ Cloud Run failed. Switching to GAS System (Backup)...", cloudError);
+        // 5. แสดงผลลัพธ์และปุ่มใหม่
+        showAlert('สำเร็จ', 'สร้างและบันทึกคำสั่งเรียบร้อยแล้ว');
         
-        try {
-            console.log("🔄 Attempt 2: Trying GAS (Reliable Mode)...");
-            // ถ้า Cloud Run ล่ม ให้เรียกใช้ GAS (ช้าหน่อยแต่ชัวร์ + ได้ไฟล์ลง Drive)
-            const result = await generateCommandHybrid(requestData);
-            
-            if (result.status === 'success') {
-                showAlert('สำเร็จ', 'สร้างคำสั่งเรียบร้อยแล้ว (ผ่านระบบสำรอง)');
-                showDualLinkResult(
-                    'admin-command-result', 
-                    'สร้างคำสั่งสำเร็จ (GAS)', 
-                    result.data.docUrl, 
-                    result.data.pdfUrl
-                );
-            }
-        } catch (gasError) {
-            console.error("❌ All systems failed.");
-            showAlert('ผิดพลาดร้ายแรง', 'ไม่สามารถสร้างเอกสารได้ทั้ง 2 ระบบ: ' + gasError.message);
-        }
+        // เปิดไฟล์ทันที
+        window.open(downloadUrl, '_blank');
+        
+        // อัปเดตหน้าจอ Result ให้มีปุ่ม
+        showDualLinkResult(
+            'admin-command-result', 
+            'บันทึกคำสั่งเรียบร้อยแล้ว', 
+            null, // ถ้ามี Doc URL ให้ใส่ตรงนี้
+            downloadUrl // PDF URL ใหม่
+        );
+        
+        // รีโหลดรายการเพื่ออัปเดตปุ่มในหน้า Dashboard
+        await fetchAllRequestsForCommand();
+
+    } catch (error) {
+        console.error(error);
+        showAlert('ผิดพลาด', 'เกิดข้อผิดพลาด: ' + error.message);
     } finally {
         toggleLoader('admin-generate-command-button', false);
     }
 }
-
 // 2. ฟังก์ชันสร้างหนังสือส่ง (Dispatch)
 async function handleDispatchFormSubmit(e) {
     e.preventDefault();
@@ -203,11 +214,10 @@ async function handleDispatchFormSubmit(e) {
 }
 
 // ==========================================
-// ★★★ ฟังก์ชันสร้าง PDF ผ่าน Google Cloud Run (ฉบับสมบูรณ์) ★★★
+// ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
 // ==========================================
-
-async function generateOfficialPDF(requestData) {
-    // กำหนดปุ่มที่จะแสดง Loader (เพื่อให้ User รู้ว่าระบบกำลังทำงาน)
+async function generateOfficialPDF(requestData, returnBlob = false) {
+    // กำหนดปุ่มที่จะแสดง Loader
     let btnId = 'generate-document-button'; 
     if (requestData.doctype === 'dispatch') btnId = 'dispatch-submit-button';
     if (requestData.doctype === 'command') btnId = 'admin-generate-command-button';
@@ -215,25 +225,16 @@ async function generateOfficialPDF(requestData) {
     toggleLoader(btnId, true); 
 
     try {
-        // ==========================================
-        // ส่วนที่ 1: เตรียมข้อมูล (Data Preparation)
-        // ==========================================
-        
-        const thaiMonths = [
-            "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
-            "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
-        ];
-        
-        // 1.1 แปลงวันที่เอกสาร
+        // --- ส่วนที่ 1: เตรียมข้อมูล (Data Preparation) ---
+        const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
         const docDateObj = requestData.docDate ? new Date(requestData.docDate) : new Date();
         const docMMMM = thaiMonths[docDateObj.getMonth()];
         const docYYYY = (docDateObj.getFullYear() + 543).toString();
         const docDay = docDateObj.getDate().toString();
 
-        // 1.2 สร้างข้อความช่วงวันเดินทาง (date_range)
+        // คำนวณช่วงวันที่
         let dateRangeStr = "";
         let startDay = "", startMonth = "", startYear = "";
-        
         if (requestData.startDate) {
             const start = new Date(requestData.startDate);
             startDay = start.getDate();
@@ -256,24 +257,14 @@ async function generateOfficialPDF(requestData) {
             }
         }
 
-        // 1.3 เตรียมรายชื่อผู้ร่วมเดินทาง (สำหรับ Table Loop)
-        // สำคัญ: ต้องมีฟิลด์ i (ลำดับ), name, position ให้ครบ
+        // เตรียมรายชื่อ
         const attendeesWithIndex = (requestData.attendees || []).map((att, index) => ({
             i: index + 1,
             name: att.name || "",
             position: att.position || ""
         }));
 
-        // 1.4 เตรียมข้อมูลพาหนะ
-        let vehicleText = "รถราชการ";
-        if (requestData.vehicleOption === 'private') vehicleText = `รถส่วนตัว ทะเบียน ${requestData.licensePlate || '-'}`;
-        if (requestData.vehicleOption === 'public') vehicleText = `รถโดยสารสาธารณะ`;
-
-        // ==========================================
-        // ส่วนที่ 2: โหลดและจัดการแม่แบบ (Template)
-        // ==========================================
-
-        // 2.1 เลือกไฟล์แม่แบบตามเงื่อนไข
+        // --- ส่วนที่ 2: โหลด Template ---
         let templateFilename = '';
         if (requestData.doctype === 'command') {
             switch (requestData.templateType) {
@@ -285,22 +276,15 @@ async function generateOfficialPDF(requestData) {
             templateFilename = 'template_dispatch.docx';
         }
 
-        console.log(`📂 กำลังโหลดแม่แบบ: ${templateFilename}`);
-
-        // 2.2 โหลดไฟล์ .docx จาก Server
         const response = await fetch(`./${templateFilename}`);
-        if (!response.ok) {
-            throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}" กรุณาตรวจสอบว่าอัปโหลดไฟล์แล้ว`);
-        }
-        
+        if (!response.ok) throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}"`);
         const content = await response.arrayBuffer();
 
-        // 2.3 เริ่มต้น Docxtemplater (Word Engine)
+        // --- ส่วนที่ 3: Render ข้อมูลลง Word ---
         const zip = new PizZip(content);
         const doc = new window.docxtemplater(zip, {
             paragraphLoop: true,
             linebreaks: true,
-            // Parser พิเศษ: ช่วยลบช่องว่างในชื่อตัวแปรให้อัตโนมัติ ป้องกัน Error
             parser: function(tag) {
                 const cleanTag = tag.trim().replace(/^\s+|\s+$/g, '');
                 return {
@@ -311,6 +295,77 @@ async function generateOfficialPDF(requestData) {
                 };
             }
         });
+
+        // ข้อมูลที่จะส่งเข้า Word
+        const dataToRender = {
+            dd: docDay, MMMM: docMMMM, YYYY: docYYYY,
+            id: requestData.id || ".......",
+            purpose: requestData.purpose || "",
+            location: requestData.location || "",
+            date_range: dateRangeStr,
+            start_day: startDay, start_month: startMonth, start_year: startYear,
+            requesterName: requestData.requesterName || "",
+            requesterPosition: requestData.requesterPosition || "",
+            attendees: attendeesWithIndex,
+            vehicle_txt: requestData.vehicleOption === 'private' ? `รถส่วนตัว ทะเบียน ${requestData.licensePlate||'-'}` : (requestData.vehicleOption === 'public' ? 'รถโดยสารสาธารณะ' : 'รถราชการ'),
+            dispatch_month: requestData.dispatchMonth || "",
+            dispatch_year: requestData.dispatchYear || "",
+            command_count: requestData.commandCount || "",
+            memo_count: requestData.memoCount || ""
+        };
+
+        doc.render(dataToRender);
+
+        // --- ส่วนที่ 4: แปลงเป็น PDF ผ่าน Cloud Run ---
+        const docxBlob = doc.getZip().generate({
+            type: "blob",
+            mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        });
+
+        const formData = new FormData();
+        // ส่งชื่อไฟล์ภาษาอังกฤษชั่วคราวไปแปลง (กัน Error ฝั่ง Server)
+        formData.append("files", docxBlob, "temp_doc.docx");
+
+        const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') ? PDF_ENGINE_CONFIG.BASE_URL : "https://pdf-engine-660310608742.asia-southeast1.run.app";
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 วินาที
+
+        const cloudRunResponse = await fetch(`${cloudRunBaseUrl}/forms/libreoffice/convert`, {
+            method: "POST",
+            body: formData,
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!cloudRunResponse.ok) throw new Error(`Server Error (${cloudRunResponse.status})`);
+
+        const pdfBlob = await cloudRunResponse.blob();
+
+        // ★ ถ้าสั่งให้ return blob ให้ส่งกลับไปให้ฟังก์ชันแม่จัดการต่อ (เพื่ออัปโหลด)
+        if (returnBlob) {
+            return pdfBlob;
+        }
+
+        // ถ้าไม่สั่ง (แบบเก่า) ให้เปิดเลย
+        const pdfUrl = window.URL.createObjectURL(pdfBlob);
+        window.open(pdfUrl, '_blank');
+
+    } catch (error) {
+        console.error("PDF Generation Error:", error);
+        if (error.properties && error.properties.errors) {
+             const msgs = error.properties.errors.map(e => `- ${e.message}`).join('\n');
+             alert(`❌ Template Error:\n${msgs}`);
+        } else {
+             alert(`❌ เกิดข้อผิดพลาด: ${error.message}`);
+        }
+        // Throw ต่อเพื่อให้ฟังก์ชันแม่รู้ว่า Error
+        throw error;
+    } finally {
+        toggleLoader(btnId, false);
+    }
+}
+
 
         // ==========================================
         // ส่วนที่ 3: แทนที่ข้อมูล (Rendering)
@@ -478,47 +533,112 @@ function renderUsersList(users) {
 
 function renderAdminRequestsList(requests) {
     const container = document.getElementById('admin-requests-list');
-    if (!requests || requests.length === 0) { container.innerHTML = '<p class="text-center text-gray-500">ไม่พบคำขอไปราชการ</p>'; return; }
+    
+    // กรณีไม่มีข้อมูล
+    if (!requests || requests.length === 0) { 
+        container.innerHTML = `
+            <div class="text-center py-10">
+                <p class="text-gray-400 text-lg">ไม่พบคำขอไปราชการ</p>
+                <p class="text-gray-300 text-sm">รายการคำขอใหม่จะปรากฏที่นี่</p>
+            </div>`; 
+        return; 
+    }
     
     container.innerHTML = requests.map(request => {
+        // คำนวณจำนวนคน
         const attendeeCount = request.attendeeCount || 0;
         const totalPeople = attendeeCount + 1;
-        let peopleCategory = totalPeople === 1 ? "คำสั่งเดี่ยว (1 คน)" : (totalPeople <= 5 ? "คำสั่งกลุ่มเล็ก (2-5 คน)" : "คำสั่งกลุ่มใหญ่ (6 คนขึ้นไป)");
+        let peopleCategory = totalPeople === 1 ? "คำสั่งเดี่ยว" : (totalPeople <= 5 ? "คำสั่งกลุ่มเล็ก" : "คำสั่งกลุ่มใหญ่");
         
+        // ป้องกัน XSS
         const safeId = escapeHtml(request.id);
         const safeName = escapeHtml(request.requesterName);
         const safePurpose = escapeHtml(request.purpose);
         const safeLocation = escapeHtml(request.location);
         const safeDate = `${formatDisplayDate(request.startDate)} - ${formatDisplayDate(request.endDate)}`;
 
-        return `
-        <div class="border rounded-lg p-4 bg-white">
-            <div class="flex justify-between items-start flex-wrap gap-4">
-                <div class="flex-1 min-w-[200px]">
-                    <h4 class="font-bold text-indigo-700">${safeId}</h4>
-                    <p class="text-sm text-gray-600">โดย: ${safeName} | ${safePurpose}</p>
-                    <p class="text-sm text-gray-500">${safeLocation} | ${safeDate}</p>
-                    <p class="text-sm text-gray-700">ผู้ร่วมเดินทาง: ${attendeeCount} คน</p>
-                    <p class="text-sm font-medium text-blue-700">👥 รวมทั้งหมด: ${totalPeople} คน (${peopleCategory})</p>
-                    <p class="text-sm">สถานะคำขอ: <span class="font-medium">${translateStatus(request.status)}</span></p>
-                    <p class="text-sm">สถานะคำสั่ง: <span class="font-medium">${request.commandStatus || 'รอดำเนินการ'}</span></p>
+        // --- ส่วนตรวจสอบสถานะปุ่ม (Logic ใหม่) ---
+        let commandActionButtons = '';
+        
+        if (request.commandPdfUrl) {
+            // ✅ กรณีมีไฟล์คำสั่งแล้ว: แสดงปุ่ม "ดูไฟล์" และ "แก้ไข"
+            commandActionButtons = `
+                <div class="flex flex-wrap gap-2 justify-end">
+                    <a href="${request.commandPdfUrl}" target="_blank" class="btn bg-blue-600 hover:bg-blue-700 text-white btn-sm flex items-center gap-1 shadow-sm px-3">
+                        📄 ดูคำสั่ง
+                    </a>
+                    <button onclick="openAdminGenerateCommand('${safeId}')" class="btn bg-yellow-500 hover:bg-yellow-600 text-white btn-sm flex items-center gap-1 shadow-sm px-3">
+                        ✏️ แก้ไข/ออกใหม่
+                    </button>
                 </div>
-                <div class="flex flex-col gap-2 w-full sm:w-auto">
-                    ${request.pdfUrl ? `<a href="${request.pdfUrl}" target="_blank" class="btn btn-success btn-sm">ดูคำขอ</a>` : ''}
-                    <div class="flex gap-1 flex-wrap">
-                        ${request.commandPdfUrl ? 
-                            `<a href="${request.commandPdfUrl}" target="_blank" class="btn bg-blue-500 text-white btn-sm">ดูคำสั่ง</a>` : 
-                            `<button onclick="openAdminGenerateCommand('${safeId}')" class="btn bg-green-500 text-white btn-sm">ออกคำสั่ง</button>`
-                        }
-                        ${!request.dispatchBookPdfUrl ? `<button onclick="openDispatchModal('${safeId}')" class="btn bg-orange-500 text-white btn-sm">ออกหนังสือส่ง</button>` : ''}
+            `;
+        } else {
+            // ⚠️ กรณียังไม่มีไฟล์: แสดงปุ่ม "ออกคำสั่ง" ปุ่มเดียว
+            commandActionButtons = `
+                <button onclick="openAdminGenerateCommand('${safeId}')" class="btn bg-green-500 hover:bg-green-600 text-white btn-sm shadow-sm w-full md:w-auto">
+                    ✅ ออกคำสั่ง (${peopleCategory})
+                </button>
+            `;
+        }
+
+        // --- สร้าง HTML การ์ด ---
+        return `
+        <div class="border rounded-xl p-5 bg-white shadow-sm hover:shadow-md transition duration-200 mb-4 border-l-4 ${request.commandPdfUrl ? 'border-l-green-500' : 'border-l-yellow-400'}">
+            <div class="flex justify-between items-start flex-wrap gap-4">
+                
+                <div class="flex-1 min-w-[250px]">
+                    <div class="flex items-center gap-2 mb-1">
+                        <h4 class="font-bold text-indigo-700 text-lg">${safeId}</h4>
+                        <span class="text-xs px-2 py-0.5 rounded-full ${request.commandPdfUrl ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">
+                            ${request.commandPdfUrl ? 'ออกคำสั่งแล้ว' : 'รอออกคำสั่ง'}
+                        </span>
                     </div>
-                    <button onclick="openCommandApproval('${safeId}')" class="btn bg-purple-500 text-white btn-sm">อนุมัติด่วน</button>
+                    
+                    <p class="text-gray-800 font-bold text-md mb-1">${safeName}</p>
+                    <p class="text-gray-600 text-sm mb-2">${safePurpose}</p>
+                    
+                    <div class="flex items-center gap-4 text-sm text-gray-500 bg-gray-50 p-2 rounded-lg inline-block">
+                        <div class="flex items-center gap-1">
+                            <span>📍</span> ${safeLocation}
+                        </div>
+                        <div class="border-l pl-4 flex items-center gap-1">
+                            <span>📅</span> ${safeDate}
+                        </div>
+                    </div>
+                    
+                    <p class="text-xs text-gray-400 mt-2">
+                        ผู้ร่วมเดินทาง: ${attendeeCount} คน (รวม ${totalPeople} คน)
+                    </p>
+                </div>
+                
+                <div class="flex flex-col gap-2 items-end w-full md:w-auto">
+                    ${request.pdfUrl ? 
+                        `<a href="${request.pdfUrl}" target="_blank" class="text-xs text-indigo-500 hover:text-indigo-700 underline mb-2 flex items-center gap-1">
+                            📎 ดูบันทึกข้อความต้นเรื่อง
+                        </a>` : ''
+                    }
+                    
+                    ${commandActionButtons}
+
+                    <div class="w-full border-t my-1"></div>
+
+                    ${!request.dispatchBookPdfUrl ? 
+                        `<button onclick="openDispatchModal('${safeId}')" class="btn bg-purple-50 text-purple-700 hover:bg-purple-100 btn-sm w-full md:w-auto border border-purple-200">
+                            📦 ออกหนังสือส่ง
+                        </button>` : 
+                        `<a href="${request.dispatchBookPdfUrl}" target="_blank" class="btn bg-purple-600 text-white btn-sm w-full md:w-auto">
+                            📦 ดูหนังสือส่ง
+                        </a>`
+                    }
+                    
+                    <button onclick="openCommandApproval('${safeId}')" class="text-xs text-gray-300 hover:text-gray-500 mt-2 underline" title="อนุมัติโดยไม่สร้างไฟล์">
+                        อนุมัติด่วน (Bypass)
+                    </button>
                 </div>
             </div>
         </div>`;
     }).join('');
 }
-
 function renderAdminMemosList(memos) {
     const container = document.getElementById('admin-memos-list');
     if (!memos || memos.length === 0) { container.innerHTML = '<p class="text-center text-gray-500">ไม่พบบันทึกข้อความ</p>'; return; }
