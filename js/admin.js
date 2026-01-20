@@ -110,7 +110,7 @@ async function handleAdminGenerateCommand() {
     
     if (!commandType) { showAlert('ผิดพลาด', 'กรุณาเลือกรูปแบบคำสั่ง'); return; }
     
-    // เตรียมข้อมูล
+    // เตรียมข้อมูล (เหมือนเดิม)
     const attendees = [];
     document.querySelectorAll('#admin-command-attendees-list > div').forEach(div => {
         const name = div.querySelector('.admin-att-name').value.trim();
@@ -141,12 +141,25 @@ async function handleAdminGenerateCommand() {
     toggleLoader('admin-generate-command-button', true);
     
     try {
-        // 1. สร้างไฟล์ผ่าน Cloud Run
+        // 1. สร้างไฟล์ผ่าน Cloud Run (เร็ว)
         console.log("🚀 Generating PDF via Cloud Run...");
         const { pdfBlob, docxBlob } = await generateOfficialPDF(requestData);
         
-        // 2. อัปโหลดไฟล์ลง Google Drive (ผ่าน GAS)
-        console.log("☁️ Uploading to Google Drive...");
+        // ★★★ UX Improvement: เปิดไฟล์ให้ดูทันที! ไม่ต้องรออัปโหลด ★★★
+        const tempPdfUrl = URL.createObjectURL(pdfBlob);
+        window.open(tempPdfUrl, '_blank');
+        
+        // แจ้งเตือนผู้ใช้ว่ากำลังบันทึก (เปลี่ยนจาก Alert เป็น Toast หรือข้อความเล็กๆ ถ้ามี แต่ใช้ Alert ชั่วคราวได้)
+        // หมายเหตุ: ไม่ใช้ showAlert ที่มี await เพื่อไม่ให้บล็อกการทำงาน
+        const statusDiv = document.getElementById('admin-command-result');
+        if(statusDiv) {
+            statusDiv.innerHTML = `<div class="text-blue-600 font-bold animate-pulse">📄 เปิดเอกสารแล้ว... กำลังบันทึกลงระบบเบื้องหลัง กรุณาอย่าปิดหน้านี้...</div>`;
+            statusDiv.classList.remove('hidden');
+        }
+
+        console.log("⏳ Background Process: Uploading to Drive...");
+
+        // 2. ทำงานเบื้องหลัง: อัปโหลดลง Google Drive
         const pdfBase64 = await blobToBase64(pdfBlob);
         const docBase64 = await blobToBase64(docxBlob);
         
@@ -167,35 +180,40 @@ async function handleAdminGenerateCommand() {
         });
 
         if (pdfUpload.status !== 'success') throw new Error("Upload PDF failed");
-        const pdfUrl = pdfUpload.url;
-        const docUrl = docUpload.status === 'success' ? docUpload.url : null;
+        
+        // ลิงก์ถาวรจาก Google Drive
+        const permanentPdfUrl = pdfUpload.url; 
+        const permanentDocUrl = docUpload.status === 'success' ? docUpload.url : null;
 
-        // 3. บันทึกข้อมูลลง Sheet (ส่ง URL ไปด้วย เพื่อไม่ให้ GAS สร้างซ้ำ)
-        requestData.preGeneratedPdfUrl = pdfUrl;
-        requestData.preGeneratedDocUrl = docUrl;
+        // 3. ทำงานเบื้องหลัง: บันทึกข้อมูลลง Sheet
+        requestData.preGeneratedPdfUrl = permanentPdfUrl;
+        requestData.preGeneratedDocUrl = permanentDocUrl;
         
         await apiCall('POST', 'approveCommand', requestData);
 
-        // 4. บันทึกลิงก์ลง Firestore
+        // 4. ทำงานเบื้องหลัง: บันทึกลิงก์ลง Firestore
         const safeId = requestId.replace(/[\/\\:\.]/g, '-');
         if (typeof db !== 'undefined') {
             try {
                 await db.collection('requests').doc(safeId).set({
                     commandStatus: 'เสร็จสิ้น',
-                    commandPdfUrl: pdfUrl,
+                    commandPdfUrl: permanentPdfUrl,
                     lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                 }, { merge: true });
             } catch (e) {}
         }
 
-        showAlert('สำเร็จ', 'ออกคำสั่งเรียบร้อยแล้ว');
-        window.open(pdfUrl, '_blank');
-        showDualLinkResult('admin-command-result', 'บันทึกคำสั่งเรียบร้อยแล้ว', docUrl, pdfUrl);
+        // เสร็จสิ้นทุกกระบวนการ
+        console.log("✅ Background Process: Complete");
+        showAlert('สำเร็จ', 'บันทึกข้อมูลลงระบบเรียบร้อยแล้ว');
+        
+        // อัปเดต UI ด้วยลิงก์ถาวร
+        showDualLinkResult('admin-command-result', 'บันทึกคำสั่งเรียบร้อยแล้ว', permanentDocUrl, permanentPdfUrl);
         await fetchAllRequestsForCommand();
 
     } catch (error) {
         console.error(error);
-        showAlert('ผิดพลาด', error.message);
+        showAlert('แจ้งเตือน', 'เปิดเอกสารสำเร็จ แต่การบันทึกลงระบบขัดข้อง: ' + error.message);
     } finally {
         toggleLoader('admin-generate-command-button', false);
     }
@@ -224,8 +242,23 @@ async function handleDispatchFormSubmit(e) {
         console.log("🚀 Generating Dispatch via Cloud Run...");
         const { pdfBlob } = await generateOfficialPDF(requestData);
         
-        // 2. อัปโหลดลง Drive
-        console.log("☁️ Uploading to Drive...");
+        // ★★★ UX Improvement: เปิดไฟล์ทันที ★★★
+        const tempPdfUrl = URL.createObjectURL(pdfBlob);
+        window.open(tempPdfUrl, '_blank');
+        
+        // แจ้งเตือนสถานะ
+        const modalBody = document.querySelector('#dispatch-modal .modal-content'); // หรือจุดที่ต้องการแสดง
+        if(modalBody) {
+            // สร้าง element แจ้งเตือนชั่วคราว
+            const msg = document.createElement('div');
+            msg.id = 'dispatch-saving-msg';
+            msg.className = 'text-center text-blue-600 font-bold mt-2 animate-pulse';
+            msg.innerText = 'กำลังบันทึกไฟล์ลงระบบ...';
+            modalBody.appendChild(msg);
+        }
+
+        // 2. Background Process: อัปโหลด
+        console.log("⏳ Uploading to Drive...");
         const pdfBase64 = await blobToBase64(pdfBlob);
         
         const uploadResult = await apiCall('POST', 'uploadGeneratedFile', {
@@ -236,35 +269,42 @@ async function handleDispatchFormSubmit(e) {
         });
         
         if (uploadResult.status !== 'success') throw new Error("Upload failed");
-        const pdfUrl = uploadResult.url;
+        const permanentPdfUrl = uploadResult.url;
 
-        // 3. บันทึกลง Sheet (ส่ง URL ไป)
-        requestData.preGeneratedPdfUrl = pdfUrl;
-        await apiCall('POST', 'generateDispatchBook', requestData); // แก้ชื่อฟังก์ชันเรียก GAS ให้ตรง
+        // 3. Background Process: บันทึก Sheet
+        requestData.preGeneratedPdfUrl = permanentPdfUrl;
+        await apiCall('POST', 'generateDispatchBook', requestData);
 
-        // 4. บันทึกลง Firestore
+        // 4. Background Process: บันทึก Firestore
         const safeId = requestId.replace(/[\/\\:\.]/g, '-');
         if (typeof db !== 'undefined') {
              try {
                 await db.collection('requests').doc(safeId).set({
-                    dispatchBookPdfUrl: pdfUrl
+                    dispatchBookPdfUrl: permanentPdfUrl
                 }, { merge: true });
              } catch (e) {}
         }
 
+        // เสร็จสิ้น
+        const msg = document.getElementById('dispatch-saving-msg');
+        if(msg) msg.remove();
+
         document.getElementById('dispatch-modal').style.display = 'none';
         document.getElementById('dispatch-form').reset();
-        showAlert('สำเร็จ', 'สร้างหนังสือส่งเรียบร้อยแล้ว');
-        window.open(pdfUrl, '_blank');
+        showAlert('สำเร็จ', 'บันทึกหนังสือส่งเรียบร้อยแล้ว');
+        
         await fetchAllRequestsForCommand();
 
     } catch (error) {
-        showAlert('ผิดพลาด', error.message);
+        showAlert('แจ้งเตือน', 'เปิดไฟล์สำเร็จ แต่บันทึกไม่ผ่าน: ' + error.message);
     } finally {
         toggleLoader('dispatch-submit-button', false);
     }
 }
 
+// ==========================================
+// ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
+// ==========================================
 // ==========================================
 // ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
 // ==========================================
@@ -277,14 +317,13 @@ async function generateOfficialPDF(requestData) {
     toggleLoader(btnId, true); 
 
     try {
-        // --- 1. เตรียมข้อมูลสำหรับ Template (เหมือนเดิม) ---
+        // --- 1. เตรียมข้อมูลสำหรับ Template ---
         const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
         const docDateObj = requestData.docDate ? new Date(requestData.docDate) : new Date();
         const docMMMM = thaiMonths[docDateObj.getMonth()];
         const docYYYY = (docDateObj.getFullYear() + 543).toString();
         const docDay = docDateObj.getDate().toString();
 
-        // (คำนวณวันเหมือนเดิม...)
         let dateRangeStr = "";
         let startDay = "", startMonth = "", startYear = "";
         if (requestData.startDate) {
@@ -292,50 +331,49 @@ async function generateOfficialPDF(requestData) {
             startDay = start.getDate();
             startMonth = thaiMonths[start.getMonth()];
             startYear = start.getFullYear() + 543;
+            
             if (requestData.endDate) {
                 const end = new Date(requestData.endDate);
                 const endDay = end.getDate();
                 const endMonth = thaiMonths[end.getMonth()];
                 const year = start.getFullYear() + 543;
+
+                // --- ★★★ ส่วนที่แก้ไข: ตัดคำว่า "เดือน" ออกตามรูปแบบที่ขอ ★★★ ---
                 if (requestData.startDate === requestData.endDate) {
-                    dateRangeStr = `ในวันที่ ${startDay} เดือน ${startMonth} พ.ศ. ${year}`;
+                    // กรณีวันเดียว: ในวันที่ 20 มกราคม พ.ศ. 2569
+                    dateRangeStr = `ในวันที่ ${startDay} ${startMonth} พ.ศ. ${year}`;
                 } else if (start.getMonth() === end.getMonth()) {
-                    dateRangeStr = `ระหว่างวันที่ ${startDay} - ${endDay} เดือน ${startMonth} พ.ศ. ${year}`;
+                    // กรณีเดือนเดียวกัน: ระหว่างวันที่ 20 - 25 มกราคม พ.ศ. 2569
+                    dateRangeStr = `ระหว่างวันที่ ${startDay} - ${endDay} ${startMonth} พ.ศ. ${year}`;
                 } else {
-                    dateRangeStr = `ระหว่างวันที่ ${startDay} เดือน ${startMonth} ถึงวันที่ ${endDay} เดือน ${endMonth} พ.ศ. ${year}`;
+                    // กรณีคนละเดือน: ระหว่างวันที่ 30 มกราคม - 2 กุมภาพันธ์ พ.ศ. 2569
+                    dateRangeStr = `ระหว่างวันที่ ${startDay} ${startMonth} - ${endDay} ${endMonth} พ.ศ. ${year}`;
                 }
+                // -------------------------------------------------------------
             }
         }
 
-        // --- ★★★ [ส่วนที่แก้ไข] จัดการรายชื่อแนบ (ผู้ขออยู่คนแรกเสมอ) ★★★ ---
+        // จัดการรายชื่อแนบ (ผู้ขออยู่คนแรกเสมอ)
         const requesterName = (requestData.requesterName || "").trim();
         const requesterPos = (requestData.requesterPosition || "").trim();
         
         let mergedAttendees = [];
-        
-        // 1. เริ่มต้นด้วยชื่อผู้ขอก่อนเสมอ (ถ้ามี)
         if (requesterName) {
             mergedAttendees.push({ name: requesterName, position: requesterPos });
         }
-
-        // 2. ตามด้วยรายชื่ออื่น (เช็คไม่ให้ซ้ำกับชื่อผู้ขอ)
         if (requestData.attendees && Array.isArray(requestData.attendees)) {
             requestData.attendees.forEach(att => {
                 const attName = (att.name || "").trim();
-                // ถ้าชื่อไม่ซ้ำกับผู้ขอ ให้เพิ่มเข้าไปต่อท้าย
                 if (attName && attName !== requesterName) {
                     mergedAttendees.push({ name: attName, position: att.position || "" });
                 }
             });
         }
-
-        // 3. ใส่ลำดับที่ (1, 2, 3...)
         const attendeesWithIndex = mergedAttendees.map((att, index) => ({
             i: index + 1,
             name: att.name,
             position: att.position
         }));
-        // -------------------------------------------------------------
         
         const vehicleText = requestData.vehicleOption === 'gov' ? 'รถราชการ' : 
                             requestData.vehicleOption === 'private' ? ('รถส่วนตัว ' + (requestData.licensePlate||'')) : 'อื่นๆ';
@@ -356,7 +394,7 @@ async function generateOfficialPDF(requestData) {
         if (!response.ok) throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}"`);
         const content = await response.arrayBuffer();
 
-        // --- 3. Render ข้อมูลลง Word (Client-side) ---
+        // --- 3. Render ข้อมูลลง Word ---
         const zip = new PizZip(content);
         const doc = new window.docxtemplater(zip, {
             paragraphLoop: true,
@@ -377,14 +415,11 @@ async function generateOfficialPDF(requestData) {
             id: requestData.id || ".......",
             purpose: requestData.purpose || "",
             location: requestData.location || "",
-            date_range: dateRangeStr,
+            date_range: dateRangeStr, // ใช้ตัวแปรที่เราแก้ Format แล้ว
             start_day: startDay, start_month: startMonth, start_year: startYear,
             requesterName: requestData.requesterName || "",
             requesterPosition: requestData.requesterPosition || "",
-            
-            // ใช้ตัวแปรใหม่ที่จัดเรียงแล้ว
             attendees: attendeesWithIndex,
-            
             vehicle_txt: vehicleText,
             dispatch_month: requestData.dispatchMonth || "",
             dispatch_year: requestData.dispatchYear || "",
@@ -399,7 +434,6 @@ async function generateOfficialPDF(requestData) {
         const formData = new FormData();
         formData.append("files", docxBlob, "document.docx");
 
-        // ใช้ URL จาก Config หรือ Default
         const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') ? PDF_ENGINE_CONFIG.BASE_URL : "https://pdf-engine-660310608742.asia-southeast1.run.app";
         
         console.log("🚀 ส่งไป Cloud Run...");
@@ -410,10 +444,7 @@ async function generateOfficialPDF(requestData) {
 
         if (!cloudRunResponse.ok) throw new Error(`Cloud Run Error: ${cloudRunResponse.status}`);
         
-        // ได้ไฟล์ PDF กลับมา
         const pdfBlob = await cloudRunResponse.blob();
-        
-        // คืนค่าทั้ง PDF Blob และ Word Blob (เผื่อเอาไปอัปโหลด)
         return { pdfBlob, docxBlob };
 
     } catch (error) {
