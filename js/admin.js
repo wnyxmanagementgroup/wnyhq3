@@ -854,3 +854,82 @@ function showDualLinkResult(containerId, title, docUrl, pdfUrl) {
     
     container.classList.remove('hidden');
 }
+// --- DELETE FUNCTIONS (สำหรับ Admin) ---
+
+// 1. ลบคำขอไปราชการ (Requests)
+async function deleteRequestByAdmin(requestId) {
+    if (!await showConfirm("ยืนยันการลบ", `คุณแน่ใจหรือไม่ที่จะลบคำขอเลขที่ ${requestId}?\n\nข้อมูลจะถูกลบถาวรทั้งจากเว็บไซต์และฐานข้อมูล`)) return;
+    
+    toggleLoader('admin-requests-list', true); // แสดง Loading ทับรายการ
+
+    try {
+        console.log(`🗑️ Deleting Request: ${requestId}`);
+
+        // A. ลบจาก Firebase Firestore (เพื่อให้หายจากหน้าเว็บทันที)
+        if (typeof db !== 'undefined') {
+            await db.collection('requests').doc(requestId).delete();
+            console.log("- Deleted from Firestore");
+            
+            // (Optional) ลบไฟล์ใน Storage ด้วยถ้าต้องการ
+             try {
+                 const storageRef = firebase.storage().ref();
+                 // ลบโฟลเดอร์ commands/ID (ต้องลบทีละไฟล์ แต่อันนี้ละไว้ก่อน)
+             } catch(e) {}
+        }
+
+        // B. ลบจาก Google Sheets (ฐานข้อมูลหลัก)
+        const result = await apiCall('POST', 'deleteRequest', { id: requestId });
+        
+        if (result.status === 'success') {
+            showAlert('สำเร็จ', 'ลบข้อมูลเรียบร้อยแล้ว');
+            await fetchAllRequestsForCommand(); // รีโหลดรายการ
+        } else {
+            throw new Error(result.message);
+        }
+
+    } catch (error) {
+        console.error(error);
+        showAlert('ผิดพลาด', 'เกิดข้อผิดพลาดในการลบ: ' + error.message);
+        await fetchAllRequestsForCommand(); // รีโหลดเพื่อความชัวร์
+    }
+}
+
+// 2. ลบบันทึกข้อความ (Memos)
+async function deleteMemoByAdmin(memoId) {
+    if (!await showConfirm("ยืนยันการลบ", `คุณแน่ใจหรือไม่ที่จะลบบันทึกข้อความเลขที่ ${memoId}?`)) return;
+
+    toggleLoader('admin-memos-list', true);
+
+    try {
+        console.log(`🗑️ Deleting Memo: ${memoId}`);
+
+        // A. ลบจาก Firebase (ถ้ามีการเก็บ Memos แยก collection)
+        if (typeof db !== 'undefined') {
+            // เช็คก่อนว่าเก็บใน requests หรือ memos
+            // ถ้าเก็บรวมใน requests ให้ลบ doc นั้น หรือถ้าแยก collection ก็ลบที่นั่น
+            try {
+                await db.collection('memos').doc(memoId).delete();
+            } catch (e) { /* ถ้าไม่มี collection นี้ก็ข้าม */ }
+            
+             // ถ้า Memo เก็บรวมกับ Requests ก็ต้องลบที่ requests ด้วย
+             try {
+                await db.collection('requests').doc(memoId).delete();
+             } catch (e) {}
+        }
+
+        // B. ลบจาก Google Sheets (Sheet: Memos)
+        const result = await apiCall('POST', 'deleteMemo', { id: memoId });
+
+        if (result.status === 'success') {
+            showAlert('สำเร็จ', 'ลบบันทึกข้อความเรียบร้อยแล้ว');
+            await fetchAllMemos(); // รีโหลดรายการ
+        } else {
+            throw new Error(result.message);
+        }
+
+    } catch (error) {
+        console.error(error);
+        showAlert('ผิดพลาด', 'ไม่สามารถลบได้: ' + error.message);
+        await fetchAllMemos();
+    }
+}
