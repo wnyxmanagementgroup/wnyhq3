@@ -478,7 +478,7 @@ function renderAdminRequestsList(requests) {
         const safeLocation = escapeHtml(request.location);
         const safeDate = `${formatDisplayDate(request.startDate)} - ${formatDisplayDate(request.endDate)}`;
 
-        // --- ส่วนตรวจสอบสถานะปุ่ม (Logic ใหม่) ---
+        // --- ส่วนตรวจสอบสถานะปุ่ม ---
         let commandActionButtons = '';
         
         if (request.commandPdfUrl) {
@@ -501,24 +501,7 @@ function renderAdminRequestsList(requests) {
                 </button>
             `;
         }
-return `
-        <div class="border rounded-xl p-5 bg-white ... (class เดิม)">
-            <div class="flex justify-between items-start flex-wrap gap-4">
-                
-                <div class="flex-1 min-w-[250px]">
-                   </div>
-                
-                <div class="flex flex-col gap-2 items-end w-full md:w-auto">
-                    
-                    <button onclick="deleteRequestByAdmin('${safeId}')" class="btn bg-red-100 text-red-600 hover:bg-red-200 btn-xs mb-2 flex items-center gap-1 self-end" title="ลบรายการนี้">
-                        🗑️ ลบ
-                    </button>
-                    
-                    ${request.pdfUrl ? `<a href="${request.pdfUrl}" target="_blank" ...>...</a>` : ''}
-                    ${commandActionButtons}
-                    </div>
-            </div>
-        </div>`;
+
         // --- สร้าง HTML การ์ด ---
         return `
         <div class="border rounded-xl p-5 bg-white shadow-sm hover:shadow-md transition duration-200 mb-4 border-l-4 ${request.commandPdfUrl ? 'border-l-green-500' : 'border-l-yellow-400'}">
@@ -550,6 +533,11 @@ return `
                 </div>
                 
                 <div class="flex flex-col gap-2 items-end w-full md:w-auto">
+                    
+                    <button onclick="deleteRequestByAdmin('${safeId}')" class="btn bg-red-100 text-red-600 hover:bg-red-200 btn-xs mb-2 flex items-center gap-1 self-end" title="ลบรายการนี้">
+                        🗑️ ลบ
+                    </button>
+                    
                     ${request.pdfUrl ? 
                         `<a href="${request.pdfUrl}" target="_blank" class="text-xs text-indigo-500 hover:text-indigo-700 underline mb-2 flex items-center gap-1">
                             📎 ดูบันทึกข้อความต้นเรื่อง
@@ -577,9 +565,15 @@ return `
         </div>`;
     }).join('');
 }
+
 function renderAdminMemosList(memos) {
     const container = document.getElementById('admin-memos-list');
-    if (!memos || memos.length === 0) { container.innerHTML = '<p class="text-center text-gray-500">ไม่พบบันทึกข้อความ</p>'; return; }
+    
+    // กรณีไม่มีข้อมูล
+    if (!memos || memos.length === 0) { 
+        container.innerHTML = '<p class="text-center text-gray-500">ไม่พบบันทึกข้อความ</p>'; 
+        return; 
+    }
     
     container.innerHTML = memos.map(memo => {
         const hasCompletedFiles = memo.completedMemoUrl || memo.completedCommandUrl || memo.dispatchBookUrl;
@@ -588,8 +582,9 @@ function renderAdminMemosList(memos) {
         const safeUser = escapeHtml(memo.submittedBy);
 
         return `
-        <div class="border rounded-lg p-4 bg-white">
+        <div class="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition">
             <div class="flex justify-between items-start flex-wrap gap-4">
+                
                 <div class="flex-1">
                     <h4 class="font-bold">${safeId}</h4>
                     <p class="text-sm text-gray-600">โดย: ${safeUser} | อ้างอิง: ${safeRef}</p>
@@ -600,29 +595,22 @@ function renderAdminMemosList(memos) {
                         ${memo.dispatchBookUrl ? `<div>✓ หนังสือส่งสมบูรณ์</div>` : ''}
                     </div>
                 </div>
-                <div class="flex flex-col gap-2 w-full sm:w-auto">
-                    ${memo.fileURL ? `<a href="${memo.fileURL}" target="_blank" class="btn btn-success btn-sm">ดูไฟล์ต้นทาง</a>` : ''}
-                    ${memo.completedMemoUrl ? `<a href="${memo.completedMemoUrl}" target="_blank" class="btn bg-blue-500 text-white btn-sm">ดูบันทึกสมบูรณ์</a>` : ''}
-                    ${memo.completedCommandUrl ? `<a href="${memo.completedCommandUrl}" target="_blank" class="btn bg-blue-500 text-white btn-sm">ดูคำสั่งสมบูรณ์</a>` : ''}
-                    ${memo.dispatchBookUrl ? `<a href="${memo.dispatchBookUrl}" target="_blank" class="btn bg-purple-500 text-white btn-sm">ดูหนังสือส่ง</a>` : ''}
-                    <button onclick="openAdminMemoAction('${safeId}')" class="btn bg-green-500 text-white btn-sm">${hasCompletedFiles ? 'จัดการไฟล์' : 'อัพโหลดไฟล์'}</button>
-                </div>
-            </div>
-        </div>`;
-        // ... ใน renderAdminMemosList ...
-        return `
-        <div class="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition">
-            <div class="flex justify-between items-start flex-wrap gap-4">
-                <div class="flex-1">
-                    </div>
+                
                 <div class="flex flex-col gap-2 w-full sm:w-auto items-end">
                     
                     <button onclick="deleteMemoByAdmin('${safeId}')" class="btn bg-red-100 text-red-600 hover:bg-red-200 btn-xs mb-2" title="ลบบันทึกนี้">
                         🗑️ ลบ
                     </button>
 
-                    ${memo.fileURL ? `<a href="${memo.fileURL}" ...>...</a>` : ''}
-                    <button onclick="openAdminMemoAction('${safeId}')" ...>...</button>
+                    ${memo.fileURL ? `<a href="${memo.fileURL}" target="_blank" class="btn btn-success btn-sm">ดูไฟล์ต้นทาง</a>` : ''}
+                    
+                    ${memo.completedMemoUrl ? `<a href="${memo.completedMemoUrl}" target="_blank" class="btn bg-blue-500 text-white btn-sm">ดูบันทึกสมบูรณ์</a>` : ''}
+                    
+                    ${memo.completedCommandUrl ? `<a href="${memo.completedCommandUrl}" target="_blank" class="btn bg-blue-500 text-white btn-sm">ดูคำสั่งสมบูรณ์</a>` : ''}
+                    
+                    ${memo.dispatchBookUrl ? `<a href="${memo.dispatchBookUrl}" target="_blank" class="btn bg-purple-500 text-white btn-sm">ดูหนังสือส่ง</a>` : ''}
+                    
+                    <button onclick="openAdminMemoAction('${safeId}')" class="btn bg-green-500 text-white btn-sm">${hasCompletedFiles ? 'จัดการไฟล์' : 'อัพโหลดไฟล์'}</button>
                 </div>
             </div>
         </div>`;
