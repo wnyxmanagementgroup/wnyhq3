@@ -21,7 +21,7 @@ const firebaseConfig = {
 };
 // 5. Cloud Run Configuration (PDF Engine)
 const PDF_ENGINE_CONFIG = {
-    BASE_URL: "https://pdf-engine-660310608742.asia-southeast1.run.app", // URL เดิมของคุณ
+    BASE_URL: "https://wny-pdf-engine-660310608742.asia-southeast1.run.app/", // URL เดิมของคุณ
     TIMEOUT: 15000, // เวลาสูงสุดที่รอได้ (15 วินาที)
     TEMPLATES: {
         COMMAND_SOLO: 'template_command_solo.docx',
