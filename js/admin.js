@@ -12,8 +12,6 @@ function checkAdminAccess() {
 
 // --- FETCH DATA ---
 
-// --- แก้ไขใน js/admin.js ---
-
 async function fetchAllRequestsForCommand() {
     try {
         if (!checkAdminAccess()) return;
@@ -25,7 +23,7 @@ async function fetchAllRequestsForCommand() {
         
         const isHistoryMode = selectedYear !== currentYear;
 
-        // แสดง Loader (อาจต้องสร้าง loader element หรือใช้ toggleLoader ถ้ามีปุ่ม)
+        // แสดง Loader
         const listContainer = document.getElementById('admin-requests-list');
         listContainer.innerHTML = '<div class="text-center p-8"><div class="loader mx-auto"></div><p class="mt-4">กำลังโหลดข้อมูล...</p></div>';
 
@@ -33,17 +31,13 @@ async function fetchAllRequestsForCommand() {
 
         if (isHistoryMode) {
             console.log(`👮‍♂️ Admin: Fetching HISTORY data for ${selectedYear} from GAS...`);
-            
-            // ★ ยิงตรงไป GAS (ดึงทั้งหมดของปีนั้น)
             const result = await apiCall('GET', 'getRequestsByYear', { 
                 year: selectedYear,
-                username: 'ADMIN_ALL' // ส่ง flag บอกว่าขอทั้งหมด
+                username: 'ADMIN_ALL' 
             });
-            
             if (result.status === 'success') requests = result.data || [];
 
         } else {
-            // ★ โหมดปกติ (ปีปัจจุบัน)
             const result = await apiCall('GET', 'getAllRequests');
             if (result.status === 'success') requests = result.data || [];
         }
@@ -57,11 +51,6 @@ async function fetchAllRequestsForCommand() {
 
         // 3. แสดงผล
         renderAdminRequestsList(requests);
-        
-        // ถ้าเป็นโหมดประวัติ อาจแจ้งเตือนเล็กน้อยว่า "กำลังดูข้อมูลเก่า"
-        if (isHistoryMode) {
-            // (Optional) อาจเปลี่ยนสี Border หรือใส่ข้อความแจ้งเตือน
-        }
 
     } catch (error) { 
         console.error(error);
@@ -75,14 +64,11 @@ async function fetchAllMemos() {
         const result = await apiCall('GET', 'getAllMemos');
         if (result.status === 'success') {
             let memos = result.data || [];
-            
-            // เรียงลำดับ: ล่าสุดก่อน
             memos.sort((a, b) => {
                 const timeA = new Date(a.timestamp || 0).getTime();
                 const timeB = new Date(b.timestamp || 0).getTime();
                 return timeB - timeA;
             });
-
             renderAdminMemosList(memos);
         }
     } catch (error) { 
@@ -116,7 +102,7 @@ function getThaiYear(dateStr) {
     return (d.getFullYear() + 543).toString();
 }
 
-// --- GENERATE COMMAND FUNCTIONS (ระบบ Hybrid Failover) ---
+// --- GENERATE COMMAND FUNCTIONS ---
 
 // 1. ฟังก์ชันสร้างคำสั่ง (Command)
 async function handleAdminGenerateCommand() {
@@ -125,7 +111,6 @@ async function handleAdminGenerateCommand() {
     
     if (!commandType) { showAlert('ผิดพลาด', 'กรุณาเลือกรูปแบบคำสั่ง'); return; }
     
-    // เตรียมข้อมูล
     const attendees = [];
     document.querySelectorAll('#admin-command-attendees-list > div').forEach(div => {
         const name = div.querySelector('.admin-att-name').value.trim();
@@ -145,7 +130,6 @@ async function handleAdminGenerateCommand() {
         startDate: document.getElementById('admin-command-start-date').value, 
         endDate: document.getElementById('admin-command-end-date').value,
         attendees: attendees,
-        // ... ข้อมูลอื่นๆ
         expenseOption: document.getElementById('admin-expense-option').value,
         expenseItems: document.getElementById('admin-expense-items').value, 
         totalExpense: document.getElementById('admin-total-expense').value,
@@ -156,44 +140,28 @@ async function handleAdminGenerateCommand() {
     toggleLoader('admin-generate-command-button', true);
     
     try {
-        // 1. เรียกสร้าง PDF (ตอนนี้จะ return Blob กลับมา ไม่เปิดอัตโนมัติ)
-        const pdfBlob = await generateOfficialPDF(requestData, true); // true = ขอ Blob คืน
-        
-        // 2. ตั้งชื่อไฟล์ให้สื่อความหมาย
-        const safeId = requestId.replace(/[\/\\:\.]/g, '-'); // แปลง / เป็น -
+        const pdfBlob = await generateOfficialPDF(requestData, true);
+        const safeId = requestId.replace(/[\/\\:\.]/g, '-');
         const fileName = `คำสั่ง_${safeId}.pdf`;
         
-        // 3. อัปโหลดลง Firebase Storage
         console.log("⬆️ กำลังอัปโหลดไฟล์ลง Storage...");
         const storagePath = `commands/${safeId}/${fileName}`;
         const downloadUrl = await uploadBlobToStorage(pdfBlob, storagePath);
         
         console.log("✅ อัปโหลดเสร็จสิ้น: ", downloadUrl);
 
-        // 4. อัปเดตข้อมูลลง Firestore (บันทึกลิงก์ถาวร)
         if (typeof db !== 'undefined') {
             await db.collection('requests').doc(safeId).set({
                 commandStatus: 'เสร็จสิ้น',
-                commandPdfUrl: downloadUrl, // ลิงก์ไฟล์ PDF
+                commandPdfUrl: downloadUrl,
                 lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
         }
 
-        // 5. แสดงผลลัพธ์และปุ่มใหม่
         showAlert('สำเร็จ', 'สร้างและบันทึกคำสั่งเรียบร้อยแล้ว');
-        
-        // เปิดไฟล์ทันที
         window.open(downloadUrl, '_blank');
         
-        // อัปเดตหน้าจอ Result ให้มีปุ่ม
-        showDualLinkResult(
-            'admin-command-result', 
-            'บันทึกคำสั่งเรียบร้อยแล้ว', 
-            null, // ถ้ามี Doc URL ให้ใส่ตรงนี้
-            downloadUrl // PDF URL ใหม่
-        );
-        
-        // รีโหลดรายการเพื่ออัปเดตปุ่มในหน้า Dashboard
+        showDualLinkResult('admin-command-result', 'บันทึกคำสั่งเรียบร้อยแล้ว', null, downloadUrl);
         await fetchAllRequestsForCommand();
 
     } catch (error) {
@@ -203,6 +171,7 @@ async function handleAdminGenerateCommand() {
         toggleLoader('admin-generate-command-button', false);
     }
 }
+
 // 2. ฟังก์ชันสร้างหนังสือส่ง (Dispatch)
 async function handleDispatchFormSubmit(e) {
     e.preventDefault();
@@ -219,22 +188,18 @@ async function handleDispatchFormSubmit(e) {
     
     toggleLoader('dispatch-submit-button', true);
     
-    // ★★★ ระบบ Hybrid Failover ★★★
     try {
-        console.log("🚀 Attempt 1: Trying Cloud Run (Fast Mode)...");
+        console.log("🚀 Attempt 1: Trying Cloud Run...");
         await generateOfficialPDF(requestData);
         
-        // ปิด Modal ถ้าสำเร็จ
         document.getElementById('dispatch-modal').style.display = 'none';
         document.getElementById('dispatch-form').reset();
 
     } catch (cloudError) {
-        console.warn("⚠️ Cloud Run failed. Switching to GAS System (Backup)...", cloudError);
-        
+        console.warn("⚠️ Cloud Run failed. Switching to GAS System...", cloudError);
         try {
-            console.log("🔄 Attempt 2: Trying GAS (Reliable Mode)...");
+            console.log("🔄 Attempt 2: Trying GAS...");
             const result = await generateDispatchHybrid(requestData);
-            
             if (result.status === 'success') {
                 document.getElementById('dispatch-modal').style.display = 'none';
                 document.getElementById('dispatch-form').reset();
@@ -249,11 +214,10 @@ async function handleDispatchFormSubmit(e) {
     }
 }
 
-        // ==========================================
+// ==========================================
 // ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
 // ==========================================
 async function generateOfficialPDF(requestData, returnBlob = false) {
-    // กำหนดปุ่มที่จะแสดง Loader
     let btnId = 'generate-document-button'; 
     if (requestData.doctype === 'dispatch') btnId = 'dispatch-submit-button';
     if (requestData.doctype === 'command') btnId = 'admin-generate-command-button';
@@ -261,14 +225,12 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
     toggleLoader(btnId, true); 
 
     try {
-        // --- ส่วนที่ 1: เตรียมข้อมูล (Data Preparation) ---
         const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
         const docDateObj = requestData.docDate ? new Date(requestData.docDate) : new Date();
         const docMMMM = thaiMonths[docDateObj.getMonth()];
         const docYYYY = (docDateObj.getFullYear() + 543).toString();
         const docDay = docDateObj.getDate().toString();
 
-        // คำนวณช่วงวันที่
         let dateRangeStr = "";
         let startDay = "", startMonth = "", startYear = "";
         if (requestData.startDate) {
@@ -293,18 +255,15 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
             }
         }
 
-        // เตรียมรายชื่อ
         const attendeesWithIndex = (requestData.attendees || []).map((att, index) => ({
             i: index + 1,
             name: att.name || "",
             position: att.position || ""
         }));
         
-        // เตรียมข้อความยานพาหนะ
         const vehicleText = requestData.vehicleOption === 'gov' ? 'รถราชการ' : 
                             requestData.vehicleOption === 'private' ? ('รถส่วนตัว ' + (requestData.licensePlate||'')) : 'อื่นๆ';
 
-        // --- ส่วนที่ 2: โหลด Template ---
         let templateFilename = '';
         if (requestData.doctype === 'command') {
             switch (requestData.templateType) {
@@ -322,7 +281,6 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
         if (!response.ok) throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}"`);
         const content = await response.arrayBuffer();
 
-        // --- ส่วนที่ 3: Render ข้อมูลลง Word ---
         const zip = new PizZip(content);
         const doc = new window.docxtemplater(zip, {
             paragraphLoop: true,
@@ -338,7 +296,6 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
             }
         });
 
-        // ข้อมูลที่จะส่งเข้า Word
         const dataToRender = {
             dd: docDay, MMMM: docMMMM, YYYY: docYYYY,
             id: requestData.id || ".......",
@@ -350,12 +307,6 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
             requesterPosition: requestData.requesterPosition || "",
             attendees: attendeesWithIndex,
             vehicle_txt: vehicleText,
-            
-            // ข้อมูลสำหรับบันทึกข้อความ (Memo)
-            department: requestData.department || "",
-            headName: requestData.headName || "",
-            totalExpense: requestData.totalExpense || "",
-            
             dispatch_month: requestData.dispatchMonth || "",
             dispatch_year: requestData.dispatchYear || "",
             command_count: requestData.commandCount || "",
@@ -364,19 +315,17 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
 
         doc.render(dataToRender);
 
-        // --- ส่วนที่ 4: แปลงเป็น PDF ผ่าน Cloud Run ---
         const docxBlob = doc.getZip().generate({
             type: "blob",
             mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         });
 
         const formData = new FormData();
-        // ส่งชื่อไฟล์ภาษาอังกฤษชั่วคราวไปแปลง (กัน Error ฝั่ง Server)
         formData.append("files", docxBlob, "temp_doc.docx");
 
         const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') ? PDF_ENGINE_CONFIG.BASE_URL : "https://pdf-engine-660310608742.asia-southeast1.run.app";
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 วินาที
+        const timeoutId = setTimeout(() => controller.abort(), 90000);
 
         const cloudRunResponse = await fetch(`${cloudRunBaseUrl}/forms/libreoffice/convert`, {
             method: "POST",
@@ -390,12 +339,10 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
 
         const pdfBlob = await cloudRunResponse.blob();
 
-        // ★ ถ้าสั่งให้ return blob ให้ส่งกลับไปให้ฟังก์ชันแม่จัดการต่อ (เพื่ออัปโหลด)
         if (returnBlob) {
             return pdfBlob;
         }
 
-        // ถ้าไม่สั่ง (แบบเก่า) ให้เปิดเลย
         const pdfUrl = window.URL.createObjectURL(pdfBlob);
         window.open(pdfUrl, '_blank');
 
@@ -407,13 +354,13 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
         } else {
              alert(`❌ เกิดข้อผิดพลาด: ${error.message}`);
         }
-        // Throw ต่อเพื่อให้ฟังก์ชันแม่รู้ว่า Error
         throw error;
     } finally {
         toggleLoader(btnId, false);
     }
 }
-// --- RENDER FUNCTIONS (ส่วนแสดงผลคงเดิม) ---
+
+// --- RENDER FUNCTIONS ---
 
 function renderUsersList(users) {
     const container = document.getElementById('users-content');
@@ -455,7 +402,6 @@ function renderUsersList(users) {
 function renderAdminRequestsList(requests) {
     const container = document.getElementById('admin-requests-list');
     
-    // กรณีไม่มีข้อมูล
     if (!requests || requests.length === 0) { 
         container.innerHTML = `
             <div class="text-center py-10">
@@ -466,23 +412,18 @@ function renderAdminRequestsList(requests) {
     }
     
     container.innerHTML = requests.map(request => {
-        // คำนวณจำนวนคน
         const attendeeCount = request.attendeeCount || 0;
         const totalPeople = attendeeCount + 1;
         let peopleCategory = totalPeople === 1 ? "คำสั่งเดี่ยว" : (totalPeople <= 5 ? "คำสั่งกลุ่มเล็ก" : "คำสั่งกลุ่มใหญ่");
         
-        // ป้องกัน XSS
         const safeId = escapeHtml(request.id);
         const safeName = escapeHtml(request.requesterName);
         const safePurpose = escapeHtml(request.purpose);
         const safeLocation = escapeHtml(request.location);
         const safeDate = `${formatDisplayDate(request.startDate)} - ${formatDisplayDate(request.endDate)}`;
 
-        // --- ส่วนตรวจสอบสถานะปุ่ม ---
         let commandActionButtons = '';
-        
         if (request.commandPdfUrl) {
-            // ✅ กรณีมีไฟล์คำสั่งแล้ว: แสดงปุ่ม "ดูไฟล์" และ "แก้ไข"
             commandActionButtons = `
                 <div class="flex flex-wrap gap-2 justify-end">
                     <a href="${request.commandPdfUrl}" target="_blank" class="btn bg-blue-600 hover:bg-blue-700 text-white btn-sm flex items-center gap-1 shadow-sm px-3">
@@ -494,7 +435,6 @@ function renderAdminRequestsList(requests) {
                 </div>
             `;
         } else {
-            // ⚠️ กรณียังไม่มีไฟล์: แสดงปุ่ม "ออกคำสั่ง" ปุ่มเดียว
             commandActionButtons = `
                 <button onclick="openAdminGenerateCommand('${safeId}')" class="btn bg-green-500 hover:bg-green-600 text-white btn-sm shadow-sm w-full md:w-auto">
                     ✅ ออกคำสั่ง (${peopleCategory})
@@ -502,7 +442,6 @@ function renderAdminRequestsList(requests) {
             `;
         }
 
-        // --- สร้าง HTML การ์ด ---
         return `
         <div class="border rounded-xl p-5 bg-white shadow-sm hover:shadow-md transition duration-200 mb-4 border-l-4 ${request.commandPdfUrl ? 'border-l-green-500' : 'border-l-yellow-400'}">
             <div class="flex justify-between items-start flex-wrap gap-4">
@@ -569,7 +508,6 @@ function renderAdminRequestsList(requests) {
 function renderAdminMemosList(memos) {
     const container = document.getElementById('admin-memos-list');
     
-    // กรณีไม่มีข้อมูล
     if (!memos || memos.length === 0) { 
         container.innerHTML = '<p class="text-center text-gray-500">ไม่พบบันทึกข้อความ</p>'; 
         return; 
@@ -876,6 +814,26 @@ function showDualLinkResult(containerId, title, docUrl, pdfUrl) {
     
     container.classList.remove('hidden');
 }
+
+// ฟังก์ชันช่วยอัปโหลดไฟล์ Blob ลง Firebase Storage
+async function uploadBlobToStorage(blob, path) {
+    return new Promise((resolve, reject) => {
+        const storageRef = firebase.storage().ref();
+        const fileRef = storageRef.child(path);
+        const uploadTask = fileRef.put(blob);
+
+        uploadTask.on('state_changed', 
+            (snapshot) => { /* ดู Progress ได้ถ้าต้องการ */ }, 
+            (error) => { reject(error); }, 
+            () => {
+                uploadTask.snapshot.ref.getDownloadURL().then((downloadURL) => {
+                    resolve(downloadURL);
+                });
+            }
+        );
+    });
+}
+
 // --- DELETE FUNCTIONS (สำหรับ Admin) ---
 
 // 1. ลบคำขอไปราชการ (Requests)
@@ -887,35 +845,25 @@ async function deleteRequestByAdmin(requestId) {
     try {
         console.log(`🗑️ Deleting Request: ${requestId}`);
 
-        // ★★★ แก้ไข: แปลง ID ให้เป็น Safe ID (เปลี่ยน / เป็น -) เพื่อไม่ให้ Firebase Error ★★★
         const safeId = requestId.toString().replace(/[\/\\:\.]/g, '-');
 
-        // A. ลบจาก Firebase Firestore (ลบข้อมูลหน้าเว็บ)
         if (typeof db !== 'undefined') {
             try {
-                // ใช้ safeId ที่แปลงแล้วในการลบ
                 await db.collection('requests').doc(safeId).delete();
                 console.log("- Deleted from Firestore");
             } catch (firestoreError) {
                 console.warn("Firestore delete warning:", firestoreError);
             }
-            
-            // (Optional) ลบไฟล์ใน Storage ด้วย (ถ้าต้องการ)
              try {
                  const storageRef = firebase.storage().ref();
-                 // ตัวอย่าง: ถ้าไฟล์เก็บใน commands/safeId/...
-                 // await storageRef.child(`commands/${safeId}`).listAll().then(dir => {
-                 //     dir.items.forEach(fileRef => fileRef.delete());
-                 // });
              } catch(e) {}
         }
 
-        // B. ลบจาก Google Sheets (ส่ง requestId ตัวเดิมไป เพราะใน Sheet เก็บแบบมี / ได้)
         const result = await apiCall('POST', 'deleteRequest', { id: requestId });
         
         if (result.status === 'success') {
             showAlert('สำเร็จ', 'ลบข้อมูลเรียบร้อยแล้ว');
-            await fetchAllRequestsForCommand(); // รีโหลดรายการ
+            await fetchAllRequestsForCommand();
         } else {
             throw new Error(result.message);
         }
@@ -923,7 +871,7 @@ async function deleteRequestByAdmin(requestId) {
     } catch (error) {
         console.error(error);
         showAlert('ผิดพลาด', 'เกิดข้อผิดพลาดในการลบ: ' + error.message);
-        await fetchAllRequestsForCommand(); // รีโหลดเพื่อความชัวร์
+        await fetchAllRequestsForCommand();
     }
 }
 
@@ -936,28 +884,23 @@ async function deleteMemoByAdmin(memoId) {
     try {
         console.log(`🗑️ Deleting Memo: ${memoId}`);
 
-        // ★★★ แก้ไข: แปลง ID ให้เป็น Safe ID (เปลี่ยน / เป็น -) ★★★
         const safeId = memoId.toString().replace(/[\/\\:\.]/g, '-');
 
-        // A. ลบจาก Firebase
         if (typeof db !== 'undefined') {
-            // ลองลบจาก collection 'memos' (ถ้ามี)
             try {
                 await db.collection('memos').doc(safeId).delete();
             } catch (e) { }
             
-             // หรือถ้าเก็บรวมกับ 'requests' ก็ลบที่นั่นด้วย
              try {
                 await db.collection('requests').doc(safeId).delete();
              } catch (e) {}
         }
 
-        // B. ลบจาก Google Sheets (ใช้ memoId ตัวเดิม)
         const result = await apiCall('POST', 'deleteMemo', { id: memoId });
 
         if (result.status === 'success') {
             showAlert('สำเร็จ', 'ลบบันทึกข้อความเรียบร้อยแล้ว');
-            await fetchAllMemos(); // รีโหลดรายการ
+            await fetchAllMemos();
         } else {
             throw new Error(result.message);
         }
