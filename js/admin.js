@@ -249,50 +249,6 @@ async function handleDispatchFormSubmit(e) {
     }
 }
 
-
-        // ==========================================
-        // ส่วนที่ 3: แทนที่ข้อมูล (Rendering)
-        // ==========================================
-
-        const dataToRender = {
-            // วันที่เอกสาร
-            dd: docDay,
-            MMMM: docMMMM,
-            YYYY: docYYYY,
-            
-            // ข้อมูลหลัก
-            id: requestData.id || ".......",
-            purpose: requestData.purpose || "",
-            location: requestData.location || "",
-            
-            // วันที่เดินทาง
-            date_range: dateRangeStr,
-            start_day: startDay,
-            start_month: startMonth,
-            start_year: startYear,
-
-            // ข้อมูลผู้ขอ (สำหรับคำสั่งเดี่ยว)
-            requesterName: requestData.requesterName || "",
-            requesterPosition: requestData.requesterPosition || "",
-            
-            // รายชื่อ (สำหรับคำสั่งกลุ่ม - Loop Table)
-            attendees: attendeesWithIndex,
-            
-            // ข้อมูลพาหนะ
-            vehicle_txt: vehicleText,
-            
-            // ข้อมูลหนังสือส่ง (Dispatch)
-            dispatch_month: requestData.dispatchMonth || "",
-            dispatch_year: requestData.dispatchYear || "",
-            command_count: requestData.commandCount || "",
-            memo_count: requestData.memoCount || ""
-        };
-
-        console.log("Data rendering:", dataToRender);
-        
-        // สั่ง Render ข้อมูลลง Word
-        doc.render(dataToRender);
-
         // ==========================================
 // ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
 // ==========================================
