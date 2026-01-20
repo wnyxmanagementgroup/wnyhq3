@@ -302,6 +302,7 @@ async function handleDispatchFormSubmit(e) {
     }
 }
 
+
 // ==========================================
 // ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
 // ==========================================
@@ -309,7 +310,6 @@ async function handleDispatchFormSubmit(e) {
 // ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
 // ==========================================
 async function generateOfficialPDF(requestData) {
-    // กำหนดปุ่ม Loader
     let btnId = 'generate-document-button'; 
     if (requestData.doctype === 'dispatch') btnId = 'dispatch-submit-button';
     if (requestData.doctype === 'command') btnId = 'admin-generate-command-button';
@@ -317,7 +317,6 @@ async function generateOfficialPDF(requestData) {
     toggleLoader(btnId, true); 
 
     try {
-        // --- 1. เตรียมข้อมูลสำหรับ Template ---
         const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
         const docDateObj = requestData.docDate ? new Date(requestData.docDate) : new Date();
         const docMMMM = thaiMonths[docDateObj.getMonth()];
@@ -331,29 +330,22 @@ async function generateOfficialPDF(requestData) {
             startDay = start.getDate();
             startMonth = thaiMonths[start.getMonth()];
             startYear = start.getFullYear() + 543;
-            
             if (requestData.endDate) {
                 const end = new Date(requestData.endDate);
                 const endDay = end.getDate();
                 const endMonth = thaiMonths[end.getMonth()];
                 const year = start.getFullYear() + 543;
 
-                // --- ★★★ ส่วนที่แก้ไข: ตัดคำว่า "เดือน" ออกตามรูปแบบที่ขอ ★★★ ---
                 if (requestData.startDate === requestData.endDate) {
-                    // กรณีวันเดียว: ในวันที่ 20 มกราคม พ.ศ. 2569
                     dateRangeStr = `ในวันที่ ${startDay} ${startMonth} พ.ศ. ${year}`;
                 } else if (start.getMonth() === end.getMonth()) {
-                    // กรณีเดือนเดียวกัน: ระหว่างวันที่ 20 - 25 มกราคม พ.ศ. 2569
                     dateRangeStr = `ระหว่างวันที่ ${startDay} - ${endDay} ${startMonth} พ.ศ. ${year}`;
                 } else {
-                    // กรณีคนละเดือน: ระหว่างวันที่ 30 มกราคม - 2 กุมภาพันธ์ พ.ศ. 2569
                     dateRangeStr = `ระหว่างวันที่ ${startDay} ${startMonth} - ${endDay} ${endMonth} พ.ศ. ${year}`;
                 }
-                // -------------------------------------------------------------
             }
         }
 
-        // จัดการรายชื่อแนบ (ผู้ขออยู่คนแรกเสมอ)
         const requesterName = (requestData.requesterName || "").trim();
         const requesterPos = (requestData.requesterPosition || "").trim();
         
@@ -375,19 +367,18 @@ async function generateOfficialPDF(requestData) {
             position: att.position
         }));
         
-        // ตรวจสอบประเภทพาหนะ
+        // --- ส่วนจัดการพาหนะ (ส่งเข้าตัวแปร license_plate) ---
         let vehicleText = 'อื่นๆ';
-        
         if (requestData.vehicleOption === 'gov') {
             vehicleText = 'รถราชการ';
         } else if (requestData.vehicleOption === 'private') {
             vehicleText = `รถส่วนตัว ${requestData.licensePlate || ''}`.trim();
         } else {
-            // กรณีเลือกอื่นๆ หรือไม่ระบุ -> ให้ใช้ข้อความที่พิมพ์มา (ถ้ามี) หรือใช้คำว่า "อื่นๆ"
+            // กรณีอื่นๆ ให้เอาข้อความจากช่อง LicensePlate มาแสดงเลย
             vehicleText = requestData.licensePlate ? requestData.licensePlate : 'อื่นๆ';
         }
+        // --------------------------------------------------
 
-        // --- 2. โหลดไฟล์ Template ---
         let templateFilename = '';
         if (requestData.doctype === 'command') {
             switch (requestData.templateType) {
@@ -403,7 +394,6 @@ async function generateOfficialPDF(requestData) {
         if (!response.ok) throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}"`);
         const content = await response.arrayBuffer();
 
-        // --- 3. Render ข้อมูลลง Word ---
         const zip = new PizZip(content);
         const doc = new window.docxtemplater(zip, {
             paragraphLoop: true,
@@ -424,12 +414,15 @@ async function generateOfficialPDF(requestData) {
             id: requestData.id || ".......",
             purpose: requestData.purpose || "",
             location: requestData.location || "",
-            date_range: dateRangeStr, // ใช้ตัวแปรที่เราแก้ Format แล้ว
+            date_range: dateRangeStr,
             start_day: startDay, start_month: startMonth, start_year: startYear,
             requesterName: requestData.requesterName || "",
             requesterPosition: requestData.requesterPosition || "",
             attendees: attendeesWithIndex,
-            vehicle_txt: vehicleText,
+            
+            // ★★★ แก้ไขตรงนี้: ส่งค่าไปที่ตัวแปร license_plate ตามที่ขอ ★★★
+            license_plate: vehicleText, 
+            
             dispatch_month: requestData.dispatchMonth || "",
             dispatch_year: requestData.dispatchYear || "",
             command_count: requestData.commandCount || "",
@@ -438,7 +431,6 @@ async function generateOfficialPDF(requestData) {
 
         doc.render(dataToRender);
 
-        // --- 4. ส่งไปแปลงเป็น PDF ที่ Cloud Run ---
         const docxBlob = doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
         const formData = new FormData();
         formData.append("files", docxBlob, "document.docx");
