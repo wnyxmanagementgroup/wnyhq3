@@ -114,7 +114,7 @@ async function handleAdminGenerateCommand() {
     
     if (!commandType) { showAlert('ผิดพลาด', 'กรุณาเลือกรูปแบบคำสั่ง'); return; }
     
-    // เตรียมข้อมูล
+    // เตรียมข้อมูลรายชื่อ
     const attendees = [];
     document.querySelectorAll('#admin-command-attendees-list > div').forEach(div => {
         const name = div.querySelector('.admin-att-name').value.trim();
@@ -123,10 +123,9 @@ async function handleAdminGenerateCommand() {
     });
     
     const requestData = {
-        doctype: 'command', // ใช้เงื่อนไขนี้เพื่อบอกว่าเป็นคำสั่ง
+        doctype: 'command',
         templateType: commandType,
-        requestId: requestId, // ใช้ requestId ให้ตรงกับหลังบ้าน
-        id: requestId,
+        requestId: requestId, id: requestId,
         docDate: document.getElementById('admin-command-doc-date').value,
         requesterName: document.getElementById('admin-command-requester-name').value.trim(), 
         requesterPosition: document.getElementById('admin-command-requester-position').value.trim(),
@@ -134,66 +133,46 @@ async function handleAdminGenerateCommand() {
         purpose: document.getElementById('admin-command-purpose').value.trim(),
         startDate: document.getElementById('admin-command-start-date').value, 
         endDate: document.getElementById('admin-command-end-date').value,
-        attendees: attendees, // ส่ง Array ไปเลย หลังบ้านจะจัดการเอง
-        // ข้อมูลเพิ่มเติม
+        attendees: attendees,
         expenseOption: document.getElementById('admin-expense-option').value,
         expenseItems: document.getElementById('admin-expense-items').value, 
         totalExpense: document.getElementById('admin-total-expense').value,
         vehicleOption: document.getElementById('admin-vehicle-option').value, 
         licensePlate: document.getElementById('admin-license-plate').value,
-        // ข้อมูลสำหรับอ้างอิง
         createdby: getCurrentUser() ? getCurrentUser().username : 'admin'
     };
     
     toggleLoader('admin-generate-command-button', true);
     
     try {
-        console.log("🔄 กำลังสั่งงาน Google Apps Script (Google Drive Mode)...");
-
-        // ★ เรียกใช้ฟังก์ชัน 'approveCommand' ของ GAS 
-        // (ฟังก์ชันนี้ทำครบ: สร้าง PDF ลง Drive + อัปเดต Sheet + คืนค่า URL)
+        console.log("🔄 กำลังสร้างไฟล์บน Google Drive...");
+        // 1. เรียก GAS สร้างไฟล์ (GAS จะคืนค่า pdfUrl มาให้)
         const result = await apiCall('POST', 'approveCommand', requestData);
         
         if (result.status === 'success') {
             const { pdfUrl, docUrl } = result.data;
             const safeId = requestId.replace(/[\/\\:\.]/g, '-');
 
-            console.log("✅ สร้างไฟล์สำเร็จ: ", pdfUrl);
+            console.log("✅ ได้รับลิงก์จาก Drive: ", pdfUrl);
 
-            // อัปเดตสถานะบนหน้าเว็บให้เป็น "เสร็จสิ้น" ทันที (เพราะไฟล์อยู่บน Drive แล้ว)
+            // 2. บันทึกลิงก์ลง Firestore ทันที (เพื่อความเร็วในการแสดงผลครั้งหน้า)
             if (typeof db !== 'undefined') {
                 try {
                     await db.collection('requests').doc(safeId).set({
                         commandStatus: 'เสร็จสิ้น',
-                        commandPdfUrl: pdfUrl, // ใช้ลิงก์จาก Google Drive
+                        commandPdfUrl: pdfUrl, // ลิงก์จาก Google Drive
                         lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                     }, { merge: true });
-                } catch (e) {
-                    console.warn("Firestore update skipped:", e);
-                }
+                } catch (e) { console.warn("Firestore update error:", e); }
             }
 
-            // แสดงผลลัพธ์
-            showAlert('สำเร็จ', 'ออกคำสั่งและบันทึกลง Google Drive เรียบร้อยแล้ว');
-            
-            // เปิดไฟล์ทันที
+            showAlert('สำเร็จ', 'ออกคำสั่งเรียบร้อยแล้ว');
             window.open(pdfUrl, '_blank');
-            
-            // อัปเดตหน้าจอ Result
-            showDualLinkResult(
-                'admin-command-result', 
-                'บันทึกคำสั่งเรียบร้อยแล้ว', 
-                docUrl, 
-                pdfUrl 
-            );
-            
-            // รีโหลดรายการ
+            showDualLinkResult('admin-command-result', 'บันทึกคำสั่งเรียบร้อยแล้ว', docUrl, pdfUrl);
             await fetchAllRequestsForCommand();
-
         } else {
             throw new Error(result.message);
         }
-
     } catch (error) {
         console.error(error);
         showAlert('ผิดพลาด', 'เกิดข้อผิดพลาด: ' + error.message);
@@ -213,32 +192,39 @@ async function handleDispatchFormSubmit(e) {
         dispatchMonth: document.getElementById('dispatch-month').value, 
         dispatchYear: document.getElementById('dispatch-year').value, 
         commandCount: document.getElementById('command-count').value, 
-        memoCount: document.getElementById('memo-count').value 
+        memoCount: document.getElementById('memo-count').value,
+        createdby: getCurrentUser() ? getCurrentUser().username : 'admin'
     };
     
     toggleLoader('dispatch-submit-button', true);
     
     try {
-        console.log("🚀 Attempt 1: Trying Cloud Run...");
-        await generateOfficialPDF(requestData);
+        console.log("🔄 กำลังสร้างหนังสือส่งบน Google Drive...");
+        const result = await apiCall('POST', 'generateDispatch', requestData);
         
-        document.getElementById('dispatch-modal').style.display = 'none';
-        document.getElementById('dispatch-form').reset();
+        if (result.status === 'success') {
+            const { pdfUrl } = result.data;
+            const safeId = requestId.replace(/[\/\\:\.]/g, '-');
 
-    } catch (cloudError) {
-        console.warn("⚠️ Cloud Run failed. Switching to GAS System...", cloudError);
-        try {
-            console.log("🔄 Attempt 2: Trying GAS...");
-            const result = await generateDispatchHybrid(requestData);
-            if (result.status === 'success') {
-                document.getElementById('dispatch-modal').style.display = 'none';
-                document.getElementById('dispatch-form').reset();
-                showAlert('สำเร็จ', 'สร้างหนังสือส่งเรียบร้อยแล้ว (ผ่านระบบสำรอง)');
-                await fetchAllRequestsForCommand();
+            // บันทึกลิงก์ลง Firestore
+            if (typeof db !== 'undefined') {
+                 try {
+                    await db.collection('requests').doc(safeId).set({
+                        dispatchBookPdfUrl: pdfUrl // ลิงก์จาก Google Drive
+                    }, { merge: true });
+                 } catch (e) {}
             }
-        } catch (gasError) {
-            showAlert('ผิดพลาด', 'ไม่สามารถสร้างหนังสือส่งได้: ' + gasError.message);
+
+            document.getElementById('dispatch-modal').style.display = 'none';
+            document.getElementById('dispatch-form').reset();
+            showAlert('สำเร็จ', 'สร้างหนังสือส่งเรียบร้อยแล้ว');
+            window.open(pdfUrl, '_blank');
+            await fetchAllRequestsForCommand();
+        } else {
+            throw new Error(result.message);
         }
+    } catch (error) {
+        showAlert('ผิดพลาด', 'ไม่สามารถสร้างหนังสือส่งได้: ' + error.message);
     } finally {
         toggleLoader('dispatch-submit-button', false);
     }
@@ -682,10 +668,12 @@ async function handleAdminMemoActionSubmit(e) {
     e.preventDefault();
     const memoId = document.getElementById('admin-memo-id').value;
     const status = document.getElementById('admin-memo-status').value;
+    
     const completedMemoFile = document.getElementById('admin-completed-memo-file').files[0];
     const completedCommandFile = document.getElementById('admin-completed-command-file').files[0];
     const dispatchBookFile = document.getElementById('admin-dispatch-book-file').files[0];
     
+    // แปลงไฟล์เป็น Base64 ส่งไปให้ GAS
     let completedMemoFileObject = null; 
     let completedCommandFileObject = null; 
     let dispatchBookFileObject = null;
@@ -695,7 +683,9 @@ async function handleAdminMemoActionSubmit(e) {
     if (dispatchBookFile) dispatchBookFileObject = await fileToObject(dispatchBookFile);
     
     toggleLoader('admin-memo-submit-button', true);
+    
     try {
+        // ส่งไฟล์ไปให้ GAS อัปโหลดลง Drive
         const result = await apiCall('POST', 'updateMemoStatus', { 
             id: memoId, 
             status: status, 
@@ -705,6 +695,24 @@ async function handleAdminMemoActionSubmit(e) {
         });
         
         if (result.status === 'success') {
+            // ★ รับ URLs ที่ GAS ส่งกลับมา (จากที่เราแก้ Code.gs ข้อ 1.2)
+            const urls = result.data || {}; 
+            const safeId = memoId.replace(/[\/\\:\.]/g, '-');
+
+            // อัปเดต Firestore เพื่อให้เห็นไฟล์ทันทีโดยไม่ต้องรอ Sync
+            if (typeof db !== 'undefined') {
+                 const updateData = { status: status };
+                 if (urls.completedMemoUrl) updateData.completedMemoUrl = urls.completedMemoUrl;
+                 if (urls.completedCommandUrl) updateData.completedCommandUrl = urls.completedCommandUrl;
+                 if (urls.dispatchBookUrl) updateData.dispatchBookUrl = urls.dispatchBookUrl;
+
+                 try {
+                    // อัปเดตทั้งใน Memos และ Requests (เผื่อเก็บแยก)
+                    await db.collection('memos').doc(safeId).set(updateData, { merge: true });
+                    await db.collection('requests').doc(safeId).set(updateData, { merge: true });
+                 } catch (e) { console.warn("Firestore update error:", e); }
+            }
+
             if (status === 'เสร็จสิ้น/รับไฟล์ไปใช้งาน') { 
                 const memo = allMemosCache.find(m => m.id === memoId); 
                 if (memo && memo.submittedBy) { 
@@ -873,76 +881,44 @@ async function uploadBlobToStorage(blob, path) {
 // --- DELETE FUNCTIONS (สำหรับ Admin) ---
 
 // 1. ลบคำขอไปราชการ (Requests)
+// ลบคำขอ
 async function deleteRequestByAdmin(requestId) {
-    if (!await showConfirm("ยืนยันการลบ", `คุณแน่ใจหรือไม่ที่จะลบคำขอเลขที่ ${requestId}?\n\nข้อมูลจะถูกลบถาวรทั้งจากเว็บไซต์และฐานข้อมูล`)) return;
-    
-    toggleLoader('admin-requests-list', true); // แสดง Loading ทับรายการ
-
+    if (!await showConfirm("ยืนยันการลบ", `คุณแน่ใจหรือไม่ที่จะลบคำขอเลขที่ ${requestId}?`)) return;
+    toggleLoader('admin-requests-list', true);
     try {
-        console.log(`🗑️ Deleting Request: ${requestId}`);
-
         const safeId = requestId.toString().replace(/[\/\\:\.]/g, '-');
-
-        if (typeof db !== 'undefined') {
-            try {
-                await db.collection('requests').doc(safeId).delete();
-                console.log("- Deleted from Firestore");
-            } catch (firestoreError) {
-                console.warn("Firestore delete warning:", firestoreError);
-            }
-             try {
-                 const storageRef = firebase.storage().ref();
-             } catch(e) {}
-        }
-
+        // ลบจาก Firestore
+        if (typeof db !== 'undefined') { try { await db.collection('requests').doc(safeId).delete(); } catch (e) {} }
+        // ลบจาก Sheet/Drive (ผ่าน GAS)
         const result = await apiCall('POST', 'deleteRequest', { id: requestId });
-        
         if (result.status === 'success') {
             showAlert('สำเร็จ', 'ลบข้อมูลเรียบร้อยแล้ว');
             await fetchAllRequestsForCommand();
-        } else {
-            throw new Error(result.message);
-        }
-
+        } else { throw new Error(result.message); }
     } catch (error) {
-        console.error(error);
-        showAlert('ผิดพลาด', 'เกิดข้อผิดพลาดในการลบ: ' + error.message);
+        showAlert('ผิดพลาด', 'เกิดข้อผิดพลาด: ' + error.message);
         await fetchAllRequestsForCommand();
     }
 }
 
-// 2. ลบบันทึกข้อความ (Memos)
+// ลบบันทึกข้อความ
 async function deleteMemoByAdmin(memoId) {
     if (!await showConfirm("ยืนยันการลบ", `คุณแน่ใจหรือไม่ที่จะลบบันทึกข้อความเลขที่ ${memoId}?`)) return;
-
     toggleLoader('admin-memos-list', true);
-
     try {
-        console.log(`🗑️ Deleting Memo: ${memoId}`);
-
         const safeId = memoId.toString().replace(/[\/\\:\.]/g, '-');
-
-        if (typeof db !== 'undefined') {
-            try {
-                await db.collection('memos').doc(safeId).delete();
-            } catch (e) { }
-            
-             try {
-                await db.collection('requests').doc(safeId).delete();
-             } catch (e) {}
+        // ลบจาก Firestore
+        if (typeof db !== 'undefined') { 
+            try { await db.collection('memos').doc(safeId).delete(); } catch (e) {}
+            try { await db.collection('requests').doc(safeId).delete(); } catch (e) {}
         }
-
+        // ลบจาก Sheet/Drive (ผ่าน GAS)
         const result = await apiCall('POST', 'deleteMemo', { id: memoId });
-
         if (result.status === 'success') {
-            showAlert('สำเร็จ', 'ลบบันทึกข้อความเรียบร้อยแล้ว');
+            showAlert('สำเร็จ', 'ลบข้อมูลเรียบร้อยแล้ว');
             await fetchAllMemos();
-        } else {
-            throw new Error(result.message);
-        }
-
+        } else { throw new Error(result.message); }
     } catch (error) {
-        console.error(error);
         showAlert('ผิดพลาด', 'ไม่สามารถลบได้: ' + error.message);
         await fetchAllMemos();
     }
