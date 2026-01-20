@@ -294,31 +294,134 @@ async function handleDispatchFormSubmit(e) {
         doc.render(dataToRender);
 
         // ==========================================
-        // ส่วนที่ 4: สร้าง PDF ผ่าน Cloud Run
-        // ==========================================
+// ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
+// ==========================================
+async function generateOfficialPDF(requestData, returnBlob = false) {
+    // กำหนดปุ่มที่จะแสดง Loader
+    let btnId = 'generate-document-button'; 
+    if (requestData.doctype === 'dispatch') btnId = 'dispatch-submit-button';
+    if (requestData.doctype === 'command') btnId = 'admin-generate-command-button';
+    
+    toggleLoader(btnId, true); 
 
-        // 4.1 สร้างไฟล์ Word (.docx) ที่สมบูรณ์จาก JS
+    try {
+        // --- ส่วนที่ 1: เตรียมข้อมูล (Data Preparation) ---
+        const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        const docDateObj = requestData.docDate ? new Date(requestData.docDate) : new Date();
+        const docMMMM = thaiMonths[docDateObj.getMonth()];
+        const docYYYY = (docDateObj.getFullYear() + 543).toString();
+        const docDay = docDateObj.getDate().toString();
+
+        // คำนวณช่วงวันที่
+        let dateRangeStr = "";
+        let startDay = "", startMonth = "", startYear = "";
+        if (requestData.startDate) {
+            const start = new Date(requestData.startDate);
+            startDay = start.getDate();
+            startMonth = thaiMonths[start.getMonth()];
+            startYear = start.getFullYear() + 543;
+            
+            if (requestData.endDate) {
+                const end = new Date(requestData.endDate);
+                const endDay = end.getDate();
+                const endMonth = thaiMonths[end.getMonth()];
+                const year = start.getFullYear() + 543;
+
+                if (requestData.startDate === requestData.endDate) {
+                    dateRangeStr = `ในวันที่ ${startDay} เดือน ${startMonth} พ.ศ. ${year}`;
+                } else if (start.getMonth() === end.getMonth()) {
+                    dateRangeStr = `ระหว่างวันที่ ${startDay} - ${endDay} เดือน ${startMonth} พ.ศ. ${year}`;
+                } else {
+                    dateRangeStr = `ระหว่างวันที่ ${startDay} เดือน ${startMonth} ถึงวันที่ ${endDay} เดือน ${endMonth} พ.ศ. ${year}`;
+                }
+            }
+        }
+
+        // เตรียมรายชื่อ
+        const attendeesWithIndex = (requestData.attendees || []).map((att, index) => ({
+            i: index + 1,
+            name: att.name || "",
+            position: att.position || ""
+        }));
+        
+        // เตรียมข้อความยานพาหนะ
+        const vehicleText = requestData.vehicleOption === 'gov' ? 'รถราชการ' : 
+                            requestData.vehicleOption === 'private' ? ('รถส่วนตัว ' + (requestData.licensePlate||'')) : 'อื่นๆ';
+
+        // --- ส่วนที่ 2: โหลด Template ---
+        let templateFilename = '';
+        if (requestData.doctype === 'command') {
+            switch (requestData.templateType) {
+                case 'groupSmall': templateFilename = 'template_command_small.docx'; break;
+                case 'groupLarge': templateFilename = 'template_command_large.docx'; break;
+                default: templateFilename = 'template_command_solo.docx'; break;
+            }
+        } else if (requestData.doctype === 'dispatch') {
+            templateFilename = 'template_dispatch.docx';
+        } else if (requestData.doctype === 'memo') {
+            templateFilename = 'template_memo.docx'; 
+        }
+
+        const response = await fetch(`./${templateFilename}`);
+        if (!response.ok) throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}"`);
+        const content = await response.arrayBuffer();
+
+        // --- ส่วนที่ 3: Render ข้อมูลลง Word ---
+        const zip = new PizZip(content);
+        const doc = new window.docxtemplater(zip, {
+            paragraphLoop: true,
+            linebreaks: true,
+            parser: function(tag) {
+                const cleanTag = tag.trim().replace(/^\s+|\s+$/g, '');
+                return {
+                    get: function(scope, context) {
+                        if (cleanTag === '.') return scope;
+                        return scope[cleanTag];
+                    }
+                };
+            }
+        });
+
+        // ข้อมูลที่จะส่งเข้า Word
+        const dataToRender = {
+            dd: docDay, MMMM: docMMMM, YYYY: docYYYY,
+            id: requestData.id || ".......",
+            purpose: requestData.purpose || "",
+            location: requestData.location || "",
+            date_range: dateRangeStr,
+            start_day: startDay, start_month: startMonth, start_year: startYear,
+            requesterName: requestData.requesterName || "",
+            requesterPosition: requestData.requesterPosition || "",
+            attendees: attendeesWithIndex,
+            vehicle_txt: vehicleText,
+            
+            // ข้อมูลสำหรับบันทึกข้อความ (Memo)
+            department: requestData.department || "",
+            headName: requestData.headName || "",
+            totalExpense: requestData.totalExpense || "",
+            
+            dispatch_month: requestData.dispatchMonth || "",
+            dispatch_year: requestData.dispatchYear || "",
+            command_count: requestData.commandCount || "",
+            memo_count: requestData.memoCount || ""
+        };
+
+        doc.render(dataToRender);
+
+        // --- ส่วนที่ 4: แปลงเป็น PDF ผ่าน Cloud Run ---
         const docxBlob = doc.getZip().generate({
             type: "blob",
             mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         });
 
-        // 4.2 เตรียม Form Data ส่งไป Cloud Run
         const formData = new FormData();
-        formData.append("files", docxBlob, "document.docx");
+        // ส่งชื่อไฟล์ภาษาอังกฤษชั่วคราวไปแปลง (กัน Error ฝั่ง Server)
+        formData.append("files", docxBlob, "temp_doc.docx");
 
-        // ตรวจสอบ URL จาก Config
-        const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') 
-            ? PDF_ENGINE_CONFIG.BASE_URL 
-            : "https://pdf-engine-660310608742.asia-southeast1.run.app";
-        
-        // ตั้งเวลา Timeout 90 วินาที
+        const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') ? PDF_ENGINE_CONFIG.BASE_URL : "https://pdf-engine-660310608742.asia-southeast1.run.app";
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 90000); 
+        const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 วินาที
 
-        console.log("🚀 กำลังส่งไปแปลงเป็น PDF ที่ Cloud Run...");
-
-        // ยิง Request ไปที่ Cloud Run
         const cloudRunResponse = await fetch(`${cloudRunBaseUrl}/forms/libreoffice/convert`, {
             method: "POST",
             body: formData,
@@ -327,54 +430,33 @@ async function handleDispatchFormSubmit(e) {
 
         clearTimeout(timeoutId);
 
-        if (!cloudRunResponse.ok) {
-            throw new Error(`Server Error (${cloudRunResponse.status}) - แปลงไฟล์ไม่สำเร็จ`);
+        if (!cloudRunResponse.ok) throw new Error(`Server Error (${cloudRunResponse.status})`);
+
+        const pdfBlob = await cloudRunResponse.blob();
+
+        // ★ ถ้าสั่งให้ return blob ให้ส่งกลับไปให้ฟังก์ชันแม่จัดการต่อ (เพื่ออัปโหลด)
+        if (returnBlob) {
+            return pdfBlob;
         }
 
-        // 4.3 รับไฟล์ PDF กลับมาและเปิดในหน้าต่างใหม่
-        const pdfBlob = await cloudRunResponse.blob();
+        // ถ้าไม่สั่ง (แบบเก่า) ให้เปิดเลย
         const pdfUrl = window.URL.createObjectURL(pdfBlob);
-        
-        // เปิด PDF ทันที
         window.open(pdfUrl, '_blank');
 
     } catch (error) {
         console.error("PDF Generation Error:", error);
-        
-        // ==========================================
-        // ส่วนที่ 5: จัดการ Error (แก้ไขปรับปรุงใหม่)
-        // ==========================================
-        
         if (error.properties && error.properties.errors) {
-            // กรณีเป็น Multi Error จาก Template (เช่น ปีกกาซ้อน, Loop พัง)
-            const errorMessages = error.properties.errors.map((e, index) => {
-                let explain = "";
-                if (e.message.includes("Duplicate open tag")) explain = " (ปีกกาเปิด {{ ซ้ำ)";
-                if (e.message.includes("Duplicate close tag")) explain = " (ปีกกาปิด }} ซ้ำ)";
-                if (e.message.includes("Unclosed tag")) explain = " (ลืมปิด Tag หรือ Loop)";
-                
-                return `${index + 1}. ${e.message}${explain} - Tag: "${e.properties.xtag || '?'}"`;
-            }).join('\n');
-
-            alert(`❌ พบข้อผิดพลาดในไฟล์ Word Template (${error.properties.errors.length} จุด):\n\n${errorMessages}\n\nคำแนะนำ:\n1. ตรวจสอบตารางรายชื่อว่าใส่ {#attendees} และ {/attendees} ครบถ้วน\n2. ลบตัวแปรที่มีปัญหาแล้วพิมพ์ใหม่ด้วยมือ`);
+             const msgs = error.properties.errors.map(e => `- ${e.message}`).join('\n');
+             alert(`❌ Template Error:\n${msgs}`);
         } else {
-            // Error ทั่วไป (Network, Server)
-            let msg = error.message;
-            if (error.name === 'AbortError') msg = "การเชื่อมต่อ Cloud Run หมดเวลา (Timeout) กรุณาลองใหม่";
-            if (msg.includes("Failed to fetch")) msg = "ไม่สามารถเชื่อมต่อ Server ได้ (ตรวจสอบอินเทอร์เน็ต)";
-            
-            alert(`❌ เกิดข้อผิดพลาด: ${msg}`);
+             alert(`❌ เกิดข้อผิดพลาด: ${error.message}`);
         }
-        
-        // (Optional) Throw ต่อเพื่อให้ระบบ Hybrid Failover ทำงาน (ถ้ามี)
-        throw error; 
-        
+        // Throw ต่อเพื่อให้ฟังก์ชันแม่รู้ว่า Error
+        throw error;
     } finally {
         toggleLoader(btnId, false);
     }
 }
-
-
 // --- RENDER FUNCTIONS (ส่วนแสดงผลคงเดิม) ---
 
 function renderUsersList(users) {
