@@ -586,23 +586,7 @@ function renderAdminMemosList(memos) {
         const safeId = escapeHtml(memo.id);
         const safeRef = escapeHtml(memo.refNumber);
         const safeUser = escapeHtml(memo.submittedBy);
-// ... ใน renderAdminMemosList ...
-        return `
-        <div class="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition">
-            <div class="flex justify-between items-start flex-wrap gap-4">
-                <div class="flex-1">
-                    </div>
-                <div class="flex flex-col gap-2 w-full sm:w-auto items-end">
-                    
-                    <button onclick="deleteMemoByAdmin('${safeId}')" class="btn bg-red-100 text-red-600 hover:bg-red-200 btn-xs mb-2" title="ลบบันทึกนี้">
-                        🗑️ ลบ
-                    </button>
 
-                    ${memo.fileURL ? `<a href="${memo.fileURL}" ...>...</a>` : ''}
-                    <button onclick="openAdminMemoAction('${safeId}')" ...>...</button>
-                </div>
-            </div>
-        </div>`;
         return `
         <div class="border rounded-lg p-4 bg-white">
             <div class="flex justify-between items-start flex-wrap gap-4">
@@ -622,6 +606,23 @@ function renderAdminMemosList(memos) {
                     ${memo.completedCommandUrl ? `<a href="${memo.completedCommandUrl}" target="_blank" class="btn bg-blue-500 text-white btn-sm">ดูคำสั่งสมบูรณ์</a>` : ''}
                     ${memo.dispatchBookUrl ? `<a href="${memo.dispatchBookUrl}" target="_blank" class="btn bg-purple-500 text-white btn-sm">ดูหนังสือส่ง</a>` : ''}
                     <button onclick="openAdminMemoAction('${safeId}')" class="btn bg-green-500 text-white btn-sm">${hasCompletedFiles ? 'จัดการไฟล์' : 'อัพโหลดไฟล์'}</button>
+                </div>
+            </div>
+        </div>`;
+        // ... ใน renderAdminMemosList ...
+        return `
+        <div class="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition">
+            <div class="flex justify-between items-start flex-wrap gap-4">
+                <div class="flex-1">
+                    </div>
+                <div class="flex flex-col gap-2 w-full sm:w-auto items-end">
+                    
+                    <button onclick="deleteMemoByAdmin('${safeId}')" class="btn bg-red-100 text-red-600 hover:bg-red-200 btn-xs mb-2" title="ลบบันทึกนี้">
+                        🗑️ ลบ
+                    </button>
+
+                    ${memo.fileURL ? `<a href="${memo.fileURL}" ...>...</a>` : ''}
+                    <button onclick="openAdminMemoAction('${safeId}')" ...>...</button>
                 </div>
             </div>
         </div>`;
