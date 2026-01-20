@@ -12,23 +12,59 @@ function checkAdminAccess() {
 
 // --- FETCH DATA ---
 
+// --- แก้ไขใน js/admin.js ---
+
 async function fetchAllRequestsForCommand() {
     try {
         if (!checkAdminAccess()) return;
-        const result = await apiCall('GET', 'getAllRequests');
-        if (result.status === 'success') {
-            let requests = result.data || [];
-            
-            // เรียงลำดับ: ล่าสุดก่อน
-            requests.sort((a, b) => {
-                const timeA = new Date(a.timestamp || a.docDate || 0).getTime();
-                const timeB = new Date(b.timestamp || b.docDate || 0).getTime();
-                return timeB - timeA;
-            });
+        
+        // 1. ตรวจสอบปีที่เลือก
+        const yearSelect = document.getElementById('admin-year-select');
+        const selectedYear = yearSelect ? parseInt(yearSelect.value) : (new Date().getFullYear() + 543);
+        const currentYear = new Date().getFullYear() + 543;
+        
+        const isHistoryMode = selectedYear !== currentYear;
 
-            renderAdminRequestsList(requests);
+        // แสดง Loader (อาจต้องสร้าง loader element หรือใช้ toggleLoader ถ้ามีปุ่ม)
+        const listContainer = document.getElementById('admin-requests-list');
+        listContainer.innerHTML = '<div class="text-center p-8"><div class="loader mx-auto"></div><p class="mt-4">กำลังโหลดข้อมูล...</p></div>';
+
+        let requests = [];
+
+        if (isHistoryMode) {
+            console.log(`👮‍♂️ Admin: Fetching HISTORY data for ${selectedYear} from GAS...`);
+            
+            // ★ ยิงตรงไป GAS (ดึงทั้งหมดของปีนั้น)
+            const result = await apiCall('GET', 'getRequestsByYear', { 
+                year: selectedYear,
+                username: 'ADMIN_ALL' // ส่ง flag บอกว่าขอทั้งหมด
+            });
+            
+            if (result.status === 'success') requests = result.data || [];
+
+        } else {
+            // ★ โหมดปกติ (ปีปัจจุบัน)
+            const result = await apiCall('GET', 'getAllRequests');
+            if (result.status === 'success') requests = result.data || [];
         }
+
+        // 2. เรียงลำดับ
+        requests.sort((a, b) => {
+            const timeA = new Date(a.timestamp || a.docDate || 0).getTime();
+            const timeB = new Date(b.timestamp || b.docDate || 0).getTime();
+            return timeB - timeA;
+        });
+
+        // 3. แสดงผล
+        renderAdminRequestsList(requests);
+        
+        // ถ้าเป็นโหมดประวัติ อาจแจ้งเตือนเล็กน้อยว่า "กำลังดูข้อมูลเก่า"
+        if (isHistoryMode) {
+            // (Optional) อาจเปลี่ยนสี Border หรือใส่ข้อความแจ้งเตือน
+        }
+
     } catch (error) { 
+        console.error(error);
         showAlert('ผิดพลาด', 'ไม่สามารถโหลดข้อมูลคำขอได้'); 
     }
 }
