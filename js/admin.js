@@ -374,9 +374,9 @@ async function generateOfficialPDF(requestData) {
             ? PDF_ENGINE_CONFIG.BASE_URL 
             : "https://pdf-engine-660310608742.asia-southeast1.run.app";
         
-        // ตั้งเวลา Timeout 20 วินาที
+        // ตั้งเวลา Timeout 90 วินาที
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 20000); 
+        const timeoutId = setTimeout(() => controller.abort(), 90000); 
 
         console.log("🚀 กำลังส่งไปแปลงเป็น PDF ที่ Cloud Run...");
 
