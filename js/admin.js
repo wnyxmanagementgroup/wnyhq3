@@ -104,17 +104,13 @@ function getThaiYear(dateStr) {
 
 // --- GENERATE COMMAND FUNCTIONS ---
 
-// 1. ฟังก์ชันสร้างคำสั่ง (Command)
-// แก้ไขใน js/admin.js
-
-// 1. ฟังก์ชันสร้างคำสั่ง (Command) - แบบใช้ Google Drive (แก้ปัญหา Firebase Storage)
 async function handleAdminGenerateCommand() {
     const requestId = document.getElementById('admin-command-request-id').value;
     const commandType = document.querySelector('input[name="admin-command-type"]:checked')?.value;
     
     if (!commandType) { showAlert('ผิดพลาด', 'กรุณาเลือกรูปแบบคำสั่ง'); return; }
     
-    // เตรียมข้อมูลรายชื่อ
+    // เตรียมข้อมูล
     const attendees = [];
     document.querySelectorAll('#admin-command-attendees-list > div').forEach(div => {
         const name = div.querySelector('.admin-att-name').value.trim();
@@ -145,41 +141,66 @@ async function handleAdminGenerateCommand() {
     toggleLoader('admin-generate-command-button', true);
     
     try {
-        console.log("🔄 กำลังสร้างไฟล์บน Google Drive...");
-        // 1. เรียก GAS สร้างไฟล์ (GAS จะคืนค่า pdfUrl มาให้)
-        const result = await apiCall('POST', 'approveCommand', requestData);
+        // 1. สร้างไฟล์ผ่าน Cloud Run
+        console.log("🚀 Generating PDF via Cloud Run...");
+        const { pdfBlob, docxBlob } = await generateOfficialPDF(requestData);
         
-        if (result.status === 'success') {
-            const { pdfUrl, docUrl } = result.data;
-            const safeId = requestId.replace(/[\/\\:\.]/g, '-');
+        // 2. อัปโหลดไฟล์ลง Google Drive (ผ่าน GAS)
+        console.log("☁️ Uploading to Google Drive...");
+        const pdfBase64 = await blobToBase64(pdfBlob);
+        const docBase64 = await blobToBase64(docxBlob);
+        
+        // อัปโหลด PDF
+        const pdfUpload = await apiCall('POST', 'uploadGeneratedFile', {
+            data: pdfBase64,
+            filename: `คำสั่ง_${requestId.replace(/\//g,'-')}.pdf`,
+            mimeType: 'application/pdf',
+            username: requestData.createdby
+        });
 
-            console.log("✅ ได้รับลิงก์จาก Drive: ", pdfUrl);
+        // อัปโหลด Word (Backup)
+        const docUpload = await apiCall('POST', 'uploadGeneratedFile', {
+            data: docBase64,
+            filename: `คำสั่ง_${requestId.replace(/\//g,'-')}.docx`,
+            mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            username: requestData.createdby
+        });
 
-            // 2. บันทึกลิงก์ลง Firestore ทันที (เพื่อความเร็วในการแสดงผลครั้งหน้า)
-            if (typeof db !== 'undefined') {
-                try {
-                    await db.collection('requests').doc(safeId).set({
-                        commandStatus: 'เสร็จสิ้น',
-                        commandPdfUrl: pdfUrl, // ลิงก์จาก Google Drive
-                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-                    }, { merge: true });
-                } catch (e) { console.warn("Firestore update error:", e); }
-            }
+        if (pdfUpload.status !== 'success') throw new Error("Upload PDF failed");
+        const pdfUrl = pdfUpload.url;
+        const docUrl = docUpload.status === 'success' ? docUpload.url : null;
 
-            showAlert('สำเร็จ', 'ออกคำสั่งเรียบร้อยแล้ว');
-            window.open(pdfUrl, '_blank');
-            showDualLinkResult('admin-command-result', 'บันทึกคำสั่งเรียบร้อยแล้ว', docUrl, pdfUrl);
-            await fetchAllRequestsForCommand();
-        } else {
-            throw new Error(result.message);
+        // 3. บันทึกข้อมูลลง Sheet (ส่ง URL ไปด้วย เพื่อไม่ให้ GAS สร้างซ้ำ)
+        requestData.preGeneratedPdfUrl = pdfUrl;
+        requestData.preGeneratedDocUrl = docUrl;
+        
+        await apiCall('POST', 'approveCommand', requestData);
+
+        // 4. บันทึกลิงก์ลง Firestore
+        const safeId = requestId.replace(/[\/\\:\.]/g, '-');
+        if (typeof db !== 'undefined') {
+            try {
+                await db.collection('requests').doc(safeId).set({
+                    commandStatus: 'เสร็จสิ้น',
+                    commandPdfUrl: pdfUrl,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            } catch (e) {}
         }
+
+        showAlert('สำเร็จ', 'ออกคำสั่งเรียบร้อยแล้ว');
+        window.open(pdfUrl, '_blank');
+        showDualLinkResult('admin-command-result', 'บันทึกคำสั่งเรียบร้อยแล้ว', docUrl, pdfUrl);
+        await fetchAllRequestsForCommand();
+
     } catch (error) {
         console.error(error);
-        showAlert('ผิดพลาด', 'เกิดข้อผิดพลาด: ' + error.message);
+        showAlert('ผิดพลาด', error.message);
     } finally {
         toggleLoader('admin-generate-command-button', false);
     }
 }
+
 
 // 2. ฟังก์ชันสร้างหนังสือส่ง (Dispatch)
 async function handleDispatchFormSubmit(e) {
@@ -199,32 +220,46 @@ async function handleDispatchFormSubmit(e) {
     toggleLoader('dispatch-submit-button', true);
     
     try {
-        console.log("🔄 กำลังสร้างหนังสือส่งบน Google Drive...");
-        const result = await apiCall('POST', 'generateDispatch', requestData);
+        // 1. สร้างผ่าน Cloud Run
+        console.log("🚀 Generating Dispatch via Cloud Run...");
+        const { pdfBlob } = await generateOfficialPDF(requestData);
         
-        if (result.status === 'success') {
-            const { pdfUrl } = result.data;
-            const safeId = requestId.replace(/[\/\\:\.]/g, '-');
+        // 2. อัปโหลดลง Drive
+        console.log("☁️ Uploading to Drive...");
+        const pdfBase64 = await blobToBase64(pdfBlob);
+        
+        const uploadResult = await apiCall('POST', 'uploadGeneratedFile', {
+            data: pdfBase64,
+            filename: `หนังสือส่ง_${requestId.replace(/\//g,'-')}.pdf`,
+            mimeType: 'application/pdf',
+            username: requestData.createdby
+        });
+        
+        if (uploadResult.status !== 'success') throw new Error("Upload failed");
+        const pdfUrl = uploadResult.url;
 
-            // บันทึกลิงก์ลง Firestore
-            if (typeof db !== 'undefined') {
-                 try {
-                    await db.collection('requests').doc(safeId).set({
-                        dispatchBookPdfUrl: pdfUrl // ลิงก์จาก Google Drive
-                    }, { merge: true });
-                 } catch (e) {}
-            }
+        // 3. บันทึกลง Sheet (ส่ง URL ไป)
+        requestData.preGeneratedPdfUrl = pdfUrl;
+        await apiCall('POST', 'generateDispatchBook', requestData); // แก้ชื่อฟังก์ชันเรียก GAS ให้ตรง
 
-            document.getElementById('dispatch-modal').style.display = 'none';
-            document.getElementById('dispatch-form').reset();
-            showAlert('สำเร็จ', 'สร้างหนังสือส่งเรียบร้อยแล้ว');
-            window.open(pdfUrl, '_blank');
-            await fetchAllRequestsForCommand();
-        } else {
-            throw new Error(result.message);
+        // 4. บันทึกลง Firestore
+        const safeId = requestId.replace(/[\/\\:\.]/g, '-');
+        if (typeof db !== 'undefined') {
+             try {
+                await db.collection('requests').doc(safeId).set({
+                    dispatchBookPdfUrl: pdfUrl
+                }, { merge: true });
+             } catch (e) {}
         }
+
+        document.getElementById('dispatch-modal').style.display = 'none';
+        document.getElementById('dispatch-form').reset();
+        showAlert('สำเร็จ', 'สร้างหนังสือส่งเรียบร้อยแล้ว');
+        window.open(pdfUrl, '_blank');
+        await fetchAllRequestsForCommand();
+
     } catch (error) {
-        showAlert('ผิดพลาด', 'ไม่สามารถสร้างหนังสือส่งได้: ' + error.message);
+        showAlert('ผิดพลาด', error.message);
     } finally {
         toggleLoader('dispatch-submit-button', false);
     }
@@ -233,7 +268,11 @@ async function handleDispatchFormSubmit(e) {
 // ==========================================
 // ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
 // ==========================================
-async function generateOfficialPDF(requestData, returnBlob = false) {
+// ==========================================
+// ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
+// ==========================================
+async function generateOfficialPDF(requestData) {
+    // กำหนดปุ่ม Loader
     let btnId = 'generate-document-button'; 
     if (requestData.doctype === 'dispatch') btnId = 'dispatch-submit-button';
     if (requestData.doctype === 'command') btnId = 'admin-generate-command-button';
@@ -241,12 +280,14 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
     toggleLoader(btnId, true); 
 
     try {
+        // --- 1. เตรียมข้อมูลสำหรับ Template (เหมือนเดิม) ---
         const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
         const docDateObj = requestData.docDate ? new Date(requestData.docDate) : new Date();
         const docMMMM = thaiMonths[docDateObj.getMonth()];
         const docYYYY = (docDateObj.getFullYear() + 543).toString();
         const docDay = docDateObj.getDate().toString();
 
+        // (คำนวณวันเหมือนเดิม...)
         let dateRangeStr = "";
         let startDay = "", startMonth = "", startYear = "";
         if (requestData.startDate) {
@@ -254,13 +295,11 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
             startDay = start.getDate();
             startMonth = thaiMonths[start.getMonth()];
             startYear = start.getFullYear() + 543;
-            
             if (requestData.endDate) {
                 const end = new Date(requestData.endDate);
                 const endDay = end.getDate();
                 const endMonth = thaiMonths[end.getMonth()];
                 const year = start.getFullYear() + 543;
-
                 if (requestData.startDate === requestData.endDate) {
                     dateRangeStr = `ในวันที่ ${startDay} เดือน ${startMonth} พ.ศ. ${year}`;
                 } else if (start.getMonth() === end.getMonth()) {
@@ -280,6 +319,7 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
         const vehicleText = requestData.vehicleOption === 'gov' ? 'รถราชการ' : 
                             requestData.vehicleOption === 'private' ? ('รถส่วนตัว ' + (requestData.licensePlate||'')) : 'อื่นๆ';
 
+        // --- 2. โหลดไฟล์ Template ---
         let templateFilename = '';
         if (requestData.doctype === 'command') {
             switch (requestData.templateType) {
@@ -289,14 +329,13 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
             }
         } else if (requestData.doctype === 'dispatch') {
             templateFilename = 'template_dispatch.docx';
-        } else if (requestData.doctype === 'memo') {
-            templateFilename = 'template_memo.docx'; 
         }
 
         const response = await fetch(`./${templateFilename}`);
         if (!response.ok) throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}"`);
         const content = await response.arrayBuffer();
 
+        // --- 3. Render ข้อมูลลง Word (Client-side) ---
         const zip = new PizZip(content);
         const doc = new window.docxtemplater(zip, {
             paragraphLoop: true,
@@ -331,45 +370,31 @@ async function generateOfficialPDF(requestData, returnBlob = false) {
 
         doc.render(dataToRender);
 
-        const docxBlob = doc.getZip().generate({
-            type: "blob",
-            mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        });
-
+        // --- 4. ส่งไปแปลงเป็น PDF ที่ Cloud Run ---
+        const docxBlob = doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
         const formData = new FormData();
-        formData.append("files", docxBlob, "temp_doc.docx");
+        formData.append("files", docxBlob, "document.docx");
 
+        // ใช้ URL จาก Config หรือ Default
         const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') ? PDF_ENGINE_CONFIG.BASE_URL : "https://pdf-engine-660310608742.asia-southeast1.run.app";
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 90000);
-
+        
+        console.log("🚀 ส่งไป Cloud Run...");
         const cloudRunResponse = await fetch(`${cloudRunBaseUrl}/forms/libreoffice/convert`, {
             method: "POST",
-            body: formData,
-            signal: controller.signal
+            body: formData
         });
 
-        clearTimeout(timeoutId);
-
-        if (!cloudRunResponse.ok) throw new Error(`Server Error (${cloudRunResponse.status})`);
-
+        if (!cloudRunResponse.ok) throw new Error(`Cloud Run Error: ${cloudRunResponse.status}`);
+        
+        // ได้ไฟล์ PDF กลับมา
         const pdfBlob = await cloudRunResponse.blob();
-
-        if (returnBlob) {
-            return pdfBlob;
-        }
-
-        const pdfUrl = window.URL.createObjectURL(pdfBlob);
-        window.open(pdfUrl, '_blank');
+        
+        // คืนค่าทั้ง PDF Blob และ Word Blob (เผื่อเอาไปอัปโหลด)
+        return { pdfBlob, docxBlob };
 
     } catch (error) {
         console.error("PDF Generation Error:", error);
-        if (error.properties && error.properties.errors) {
-             const msgs = error.properties.errors.map(e => `- ${e.message}`).join('\n');
-             alert(`❌ Template Error:\n${msgs}`);
-        } else {
-             alert(`❌ เกิดข้อผิดพลาด: ${error.message}`);
-        }
+        alert(`❌ สร้างเอกสารไม่สำเร็จ: ${error.message}`);
         throw error;
     } finally {
         toggleLoader(btnId, false);
@@ -922,4 +947,15 @@ async function deleteMemoByAdmin(memoId) {
         showAlert('ผิดพลาด', 'ไม่สามารถลบได้: ' + error.message);
         await fetchAllMemos();
     }
+}
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+        const base64String = reader.result.split(',')[1]; // ตัด header ออก
+        resolve(base64String);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
