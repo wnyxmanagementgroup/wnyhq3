@@ -105,12 +105,16 @@ function getThaiYear(dateStr) {
 // --- GENERATE COMMAND FUNCTIONS ---
 
 // 1. ฟังก์ชันสร้างคำสั่ง (Command)
+// แก้ไขใน js/admin.js
+
+// 1. ฟังก์ชันสร้างคำสั่ง (Command) - แบบใช้ Google Drive (แก้ปัญหา Firebase Storage)
 async function handleAdminGenerateCommand() {
     const requestId = document.getElementById('admin-command-request-id').value;
     const commandType = document.querySelector('input[name="admin-command-type"]:checked')?.value;
     
     if (!commandType) { showAlert('ผิดพลาด', 'กรุณาเลือกรูปแบบคำสั่ง'); return; }
     
+    // เตรียมข้อมูล
     const attendees = [];
     document.querySelectorAll('#admin-command-attendees-list > div').forEach(div => {
         const name = div.querySelector('.admin-att-name').value.trim();
@@ -119,9 +123,10 @@ async function handleAdminGenerateCommand() {
     });
     
     const requestData = {
-        doctype: 'command',
+        doctype: 'command', // ใช้เงื่อนไขนี้เพื่อบอกว่าเป็นคำสั่ง
         templateType: commandType,
-        id: requestId, 
+        requestId: requestId, // ใช้ requestId ให้ตรงกับหลังบ้าน
+        id: requestId,
         docDate: document.getElementById('admin-command-doc-date').value,
         requesterName: document.getElementById('admin-command-requester-name').value.trim(), 
         requesterPosition: document.getElementById('admin-command-requester-position').value.trim(),
@@ -129,40 +134,65 @@ async function handleAdminGenerateCommand() {
         purpose: document.getElementById('admin-command-purpose').value.trim(),
         startDate: document.getElementById('admin-command-start-date').value, 
         endDate: document.getElementById('admin-command-end-date').value,
-        attendees: attendees,
+        attendees: attendees, // ส่ง Array ไปเลย หลังบ้านจะจัดการเอง
+        // ข้อมูลเพิ่มเติม
         expenseOption: document.getElementById('admin-expense-option').value,
         expenseItems: document.getElementById('admin-expense-items').value, 
         totalExpense: document.getElementById('admin-total-expense').value,
         vehicleOption: document.getElementById('admin-vehicle-option').value, 
-        licensePlate: document.getElementById('admin-license-plate').value
+        licensePlate: document.getElementById('admin-license-plate').value,
+        // ข้อมูลสำหรับอ้างอิง
+        createdby: getCurrentUser() ? getCurrentUser().username : 'admin'
     };
     
     toggleLoader('admin-generate-command-button', true);
     
     try {
-        const pdfBlob = await generateOfficialPDF(requestData, true);
-        const safeId = requestId.replace(/[\/\\:\.]/g, '-');
-        const fileName = `คำสั่ง_${safeId}.pdf`;
-        
-        console.log("⬆️ กำลังอัปโหลดไฟล์ลง Storage...");
-        const storagePath = `commands/${safeId}/${fileName}`;
-        const downloadUrl = await uploadBlobToStorage(pdfBlob, storagePath);
-        
-        console.log("✅ อัปโหลดเสร็จสิ้น: ", downloadUrl);
+        console.log("🔄 กำลังสั่งงาน Google Apps Script (Google Drive Mode)...");
 
-        if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(safeId).set({
-                commandStatus: 'เสร็จสิ้น',
-                commandPdfUrl: downloadUrl,
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+        // ★ เรียกใช้ฟังก์ชัน 'approveCommand' ของ GAS 
+        // (ฟังก์ชันนี้ทำครบ: สร้าง PDF ลง Drive + อัปเดต Sheet + คืนค่า URL)
+        const result = await apiCall('POST', 'approveCommand', requestData);
+        
+        if (result.status === 'success') {
+            const { pdfUrl, docUrl } = result.data;
+            const safeId = requestId.replace(/[\/\\:\.]/g, '-');
+
+            console.log("✅ สร้างไฟล์สำเร็จ: ", pdfUrl);
+
+            // อัปเดตสถานะบนหน้าเว็บให้เป็น "เสร็จสิ้น" ทันที (เพราะไฟล์อยู่บน Drive แล้ว)
+            if (typeof db !== 'undefined') {
+                try {
+                    await db.collection('requests').doc(safeId).set({
+                        commandStatus: 'เสร็จสิ้น',
+                        commandPdfUrl: pdfUrl, // ใช้ลิงก์จาก Google Drive
+                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                } catch (e) {
+                    console.warn("Firestore update skipped:", e);
+                }
+            }
+
+            // แสดงผลลัพธ์
+            showAlert('สำเร็จ', 'ออกคำสั่งและบันทึกลง Google Drive เรียบร้อยแล้ว');
+            
+            // เปิดไฟล์ทันที
+            window.open(pdfUrl, '_blank');
+            
+            // อัปเดตหน้าจอ Result
+            showDualLinkResult(
+                'admin-command-result', 
+                'บันทึกคำสั่งเรียบร้อยแล้ว', 
+                docUrl, 
+                pdfUrl 
+            );
+            
+            // รีโหลดรายการ
+            await fetchAllRequestsForCommand();
+
+        } else {
+            throw new Error(result.message);
         }
-
-        showAlert('สำเร็จ', 'สร้างและบันทึกคำสั่งเรียบร้อยแล้ว');
-        window.open(downloadUrl, '_blank');
-        
-        showDualLinkResult('admin-command-result', 'บันทึกคำสั่งเรียบร้อยแล้ว', null, downloadUrl);
-        await fetchAllRequestsForCommand();
 
     } catch (error) {
         console.error(error);
