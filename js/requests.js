@@ -742,12 +742,13 @@ function toggleVehicleDetails() {
     if (publicDetails) publicDetails.classList.toggle('hidden', !publicCheckbox?.checked);
 }
 
-// ✅ [HYBRID] จัดการการ Submit ฟอร์มขอไปราชการ (Hybrid Write)
+// ✅ [HYBRID V2] สร้างบันทึกข้อความ + PDF Cloud Run + Storage
 async function handleRequestFormSubmit(e) {
     e.preventDefault();
     const user = getCurrentUser();
     if (!user) { showAlert('ผิดพลาด', 'กรุณาเข้าสู่ระบบก่อน'); return; }
 
+    // 1. เตรียมข้อมูลจากฟอร์ม
     const formData = {
         username: user.username,
         docDate: document.getElementById('form-doc-date').value,
@@ -785,42 +786,77 @@ async function handleRequestFormSubmit(e) {
     toggleLoader('submit-request-button', true);
     
     try {
+        // 2. สร้างข้อมูลในระบบ (เพื่อเอาเลขที่เอกสาร/ID)
         let result;
-        
-        // 1. ถ้าเปิดใช้ Hybrid และมีฟังก์ชัน createRequestHybrid
         if (typeof createRequestHybrid === 'function' && typeof USE_FIREBASE !== 'undefined' && USE_FIREBASE) {
-            console.log("🚀 Submitting via Hybrid (Firebase -> GAS)");
+            console.log("🚀 Submitting Data to Firebase...");
             result = await createRequestHybrid(formData);
         } else {
-            console.log("🐌 Submitting via Standard GAS");
             result = await apiCall('POST', 'createRequest', formData);
         }
 
         if (result.status === 'success') {
-            document.getElementById('form-result-title').textContent = 'สร้างเอกสารสำเร็จ!';
-            document.getElementById('form-result-message').textContent = `บันทึกข้อความ ที่ ${result.data.id || 'รอออกเลข'} ถูกสร้างแล้ว`;
+            const newRequestId = result.data.id || 'Draft';
+            console.log("✅ Data saved. ID:", newRequestId);
+
+            // 3. เตรียมข้อมูลสำหรับสร้าง PDF (ระบุ doctype: 'memo')
+            const pdfData = {
+                ...formData,
+                doctype: 'memo', // ★ สำคัญ: ต้องระบุว่าเป็น Memo
+                id: newRequestId,
+                btnId: 'submit-request-button',
+                // ส่งข้อมูลเพิ่มเติมสำหรับ Template บันทึกข้อความ
+                department: formData.department,
+                headName: formData.headName,
+                totalExpense: formData.totalExpense
+            };
+
+            // 4. สร้าง PDF ผ่าน Cloud Run (ขอไฟล์ Blob กลับมา)
+            console.log("⚙️ Generating PDF via Cloud Run...");
+            // หมายเหตุ: ต้องมีฟังก์ชัน generateOfficialPDF ใน utils.js หรือ admin.js
+            const pdfBlob = await generateOfficialPDF(pdfData, true);
+
+            // 5. อัปโหลดลง Firebase Storage
+            const safeId = newRequestId.replace(/[\/\\:\.]/g, '-');
+            const fileName = `บันทึกข้อความ_${safeId}.pdf`;
+            const storagePath = `memos/${safeId}/${fileName}`;
             
-            if (result.data.pdfUrl) {
-                document.getElementById('form-result-link').href = result.data.pdfUrl;
-                document.getElementById('form-result-link').classList.remove('hidden');
-            } else {
-                // กรณี Firebase รับงานไปแล้ว แต่ GAS ยังทำ PDF ไม่เสร็จ
-                document.getElementById('form-result-link').classList.add('hidden');
-                document.getElementById('form-result-message').textContent += ' (กำลังสร้างไฟล์ PDF กรุณารอสักครู่ และตรวจสอบในหน้าแดชบอร์ด)';
+            console.log("⬆️ Uploading PDF...");
+            // หมายเหตุ: ต้องมีฟังก์ชัน uploadBlobToStorage ใน utils.js หรือ admin.js
+            const downloadUrl = await uploadBlobToStorage(pdfBlob, storagePath);
+
+            // 6. อัปเดตลิงก์กลับไปที่ Database
+            if (typeof db !== 'undefined') {
+                await db.collection('requests').doc(safeId).set({
+                    pdfUrl: downloadUrl, // อัปเดตลิงก์หลัก
+                    completedMemoUrl: downloadUrl,
+                    status: 'รอการตรวจสอบ'
+                }, { merge: true });
             }
+
+            // 7. แสดงผลสำเร็จ
+            document.getElementById('form-result-title').textContent = 'บันทึกและสร้างเอกสารสำเร็จ!';
+            document.getElementById('form-result-message').textContent = `บันทึกข้อความเลขที่ ${newRequestId} เรียบร้อยแล้ว`;
+            
+            document.getElementById('form-result-link').href = downloadUrl;
+            document.getElementById('form-result-link').classList.remove('hidden');
             
             document.getElementById('form-result').classList.remove('hidden');
             document.getElementById('request-form').reset();
             document.getElementById('form-attendees-list').innerHTML = '';
             
+            // เปิดไฟล์ทันที
+            window.open(downloadUrl, '_blank');
+            
             clearRequestsCache();
-            await fetchUserRequests(); // รีโหลดหน้าจอ
+            await fetchUserRequests(); 
+
         } else { 
             showAlert('ผิดพลาด', result.message); 
         }
     } catch (error) { 
         console.error(error);
-        showAlert('เกิดข้อผิดพลาด', 'ไม่สามารถสร้างเอกสารได้: ' + error.message); 
+        showAlert('เกิดข้อผิดพลาด', 'บันทึกข้อมูลสำเร็จ แต่สร้าง PDF ไม่ได้: ' + error.message); 
     } finally { 
         toggleLoader('submit-request-button', false); 
     }
