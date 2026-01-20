@@ -727,7 +727,13 @@ async function openAdminGenerateCommand(requestId) {
                 return !isNaN(d) ? d.toISOString().split('T')[0] : ''; 
             };
             
-            document.getElementById('admin-command-doc-date').value = toInputDate(data.docDate);
+            // --- ★★★ ส่วนที่แก้ไข: ล็อกวันที่เอกสาร (Read Only) ★★★ ---
+            const docDateInput = document.getElementById('admin-command-doc-date');
+            docDateInput.value = toInputDate(data.docDate);
+            docDateInput.readOnly = true; // ห้ามแก้ไข
+            docDateInput.classList.add('bg-gray-100', 'cursor-not-allowed', 'text-gray-500'); // ปรับสีให้ดูจางลง
+            // --------------------------------------------------------
+
             document.getElementById('admin-command-requester-name').value = data.requesterName || '';
             document.getElementById('admin-command-requester-position').value = data.requesterPosition || '';
             document.getElementById('admin-command-location').value = data.location || '';
