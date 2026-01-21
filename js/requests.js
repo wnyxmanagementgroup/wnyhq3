@@ -1158,3 +1158,20 @@ function openSendMemoFromNotif(requestId) {
     document.getElementById('memo-modal-request-id').value = requestId;
     document.getElementById('send-memo-modal').style.display = 'flex';
 }
+async function openEditPage(requestId) {
+    const docId = requestId.replace(/\//g, '-');
+    const doc = await db.collection('requests').doc(docId).get();
+    if (doc.exists) {
+        const data = doc.data();
+        // นำ data ไปใส่ใน input fields ของหน้า edit-page
+        document.getElementById('edit-request-id').value = requestId;
+        // ... ใส่ค่าอื่นๆ ...
+        switchPage('edit-page');
+    }
+}
+
+async function saveEditRequest() {
+    // 1. เก็บค่าจากฟอร์ม
+    // 2. อัปเดต Firebase (db.collection('requests').doc(...).update(...))
+    // 3. เรียก apiCall('POST', 'generateCommand', data) เพื่อออกเอกสารใหม่
+}
