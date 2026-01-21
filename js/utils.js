@@ -153,5 +153,3 @@ function getStatusColor(status) {
     return statusColors[status] || 'text-gray-600';
 }
 
-// --- REMOVED: uploadBlobToStorage (เพราะใช้ไม่ได้แล้ว) ---
-// --- REMOVED: generateOfficialPDF (ย้ายไปไว้ที่ admin.js หรือถ้าจะใช้ที่นี่ ต้องเอาโค้ดใหม่มาวาง) ---
