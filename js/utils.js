@@ -64,7 +64,7 @@ function showConfirm(title, message) {
 function toggleLoader(buttonId, show) {
     const button = document.getElementById(buttonId);
     if (!button) {
-        console.error(`Button with id '${buttonId}' not found`);
+        // console.warn(`Button with id '${buttonId}' not found`);
         return;
     }
     
@@ -99,6 +99,18 @@ function fileToObject(file) {
     });
 }
 
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+        const base64String = reader.result.split(',')[1]; 
+        resolve(base64String);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 function formatDisplayDate(dateString) {
     if (!dateString) return 'ไม่ระบุ';
     try {
@@ -128,185 +140,18 @@ async function loadSpecialPositions() {
     });
 }
 
-// ฟังก์ชันช่วยเหลือสำหรับสีสถานะ
 function getStatusColor(status) {
     const statusColors = {
-        'เสร็จสิ้นรับไฟลืไปใช้งาน(กรณีไม่เบิก)/ ติดต่อรับเอกสารที่ห้องบุคคล(กรณีเบิกค่าใช้จ่าย)': 'text-green-600 font-semibold',
         'เสร็จสิ้น': 'text-green-600 font-semibold',
         'Approved': 'text-green-600 font-semibold',
-        'เสร็จสิ้นรอตรวจสอบเอกสารดำเนินการออกคำสั่งไปราชการ': 'text-blue-600',
         'กำลังดำเนินการ': 'text-yellow-600',
         'Pending': 'text-yellow-600',
         'Submitted': 'text-blue-600',
         'รอเอกสาร (เบิก)': 'text-orange-600',
         'นำกลับไปแก้ไข': 'text-red-600',
-        'รอตรวจสอบเอกสารและออกคำสั่งไปราชการ': 'text-purple-600'
     };
     return statusColors[status] || 'text-gray-600';
 }
-// --- SHARED PDF FUNCTIONS (ย้ายมาจาก admin.js) ---
 
-// ฟังก์ชันช่วยอัปโหลดไฟล์ Blob ลง Firebase Storage
-async function uploadBlobToStorage(blob, path) {
-    return new Promise((resolve, reject) => {
-        const storageRef = firebase.storage().ref();
-        const fileRef = storageRef.child(path);
-        const uploadTask = fileRef.put(blob);
-
-        uploadTask.on('state_changed', 
-            (snapshot) => { /* Progress */ }, 
-            (error) => { reject(error); }, 
-            () => {
-                uploadTask.snapshot.ref.getDownloadURL().then((downloadURL) => {
-                    resolve(downloadURL);
-                });
-            }
-        );
-    });
-}
-
-// ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (ฉบับกลาง ใช้ได้ทั้ง Command, Dispatch, Memo)
-async function generateOfficialPDF(requestData, returnBlob = false) {
-    let btnId = 'generate-document-button';
-    if (requestData.btnId) btnId = requestData.btnId;
-    
-    toggleLoader(btnId, true); 
-
-    try {
-        const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
-        const docDateObj = requestData.docDate ? new Date(requestData.docDate) : new Date();
-        const docMMMM = thaiMonths[docDateObj.getMonth()];
-        const docYYYY = (docDateObj.getFullYear() + 543).toString();
-        const docDay = docDateObj.getDate().toString();
-
-        let dateRangeStr = "";
-        let startDay = "", startMonth = "", startYear = "";
-        if (requestData.startDate) {
-            const start = new Date(requestData.startDate);
-            startDay = start.getDate();
-            startMonth = thaiMonths[start.getMonth()];
-            startYear = start.getFullYear() + 543;
-            
-            if (requestData.endDate) {
-                const end = new Date(requestData.endDate);
-                const endDay = end.getDate();
-                const endMonth = thaiMonths[end.getMonth()];
-                const year = start.getFullYear() + 543;
-
-                if (requestData.startDate === requestData.endDate) {
-                    dateRangeStr = `ในวันที่ ${startDay} เดือน ${startMonth} พ.ศ. ${year}`;
-                } else if (start.getMonth() === end.getMonth()) {
-                    dateRangeStr = `ระหว่างวันที่ ${startDay} - ${endDay} เดือน ${startMonth} พ.ศ. ${year}`;
-                } else {
-                    dateRangeStr = `ระหว่างวันที่ ${startDay} เดือน ${startMonth} ถึงวันที่ ${endDay} เดือน ${endMonth} พ.ศ. ${year}`;
-                }
-            }
-        }
-
-        const attendeesWithIndex = (requestData.attendees || []).map((att, index) => ({
-            i: index + 1,
-            name: att.name || "",
-            position: att.position || ""
-        }));
-
-        // เลือก Template
-        let templateFilename = '';
-        if (requestData.doctype === 'command') {
-            switch (requestData.templateType) {
-                case 'groupSmall': templateFilename = 'template_command_small.docx'; break;
-                case 'groupLarge': templateFilename = 'template_command_large.docx'; break;
-                default: templateFilename = 'template_command_solo.docx'; break;
-            }
-        } else if (requestData.doctype === 'dispatch') {
-            templateFilename = 'template_dispatch.docx';
-        } else if (requestData.doctype === 'memo') {
-            // ★ เพิ่มรองรับบันทึกข้อความ (ต้องมีไฟล์นี้ใน Server)
-            templateFilename = 'template_memo.docx'; 
-        }
-
-        const response = await fetch(`./${templateFilename}`);
-        if (!response.ok) throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}"`);
-        const content = await response.arrayBuffer();
-
-        const zip = new PizZip(content);
-        const doc = new window.docxtemplater(zip, {
-            paragraphLoop: true,
-            linebreaks: true,
-            parser: function(tag) {
-                const cleanTag = tag.trim().replace(/^\s+|\s+$/g, '');
-                return {
-                    get: function(scope, context) {
-                        if (cleanTag === '.') return scope;
-                        return scope[cleanTag];
-                    }
-                };
-            }
-        });
-
-        const dataToRender = {
-            dd: docDay, MMMM: docMMMM, YYYY: docYYYY,
-            id: requestData.id || ".......",
-            purpose: requestData.purpose || "",
-            location: requestData.location || "",
-            date_range: dateRangeStr,
-            start_day: startDay, start_month: startMonth, start_year: startYear,
-            requesterName: requestData.requesterName || "",
-            requesterPosition: requestData.requesterPosition || "",
-            attendees: attendeesWithIndex,
-            vehicle_txt: requestData.vehicleOption === 'private' ? `รถส่วนตัว ทะเบียน ${requestData.licensePlate||'-'}` : (requestData.vehicleOption === 'public' ? 'รถโดยสารสาธารณะ' : 'รถราชการ'),
-            
-            // ข้อมูลสำหรับบันทึกข้อความ (Memo)
-            department: requestData.department || "",
-            headName: requestData.headName || "",
-            totalExpense: requestData.totalExpense || "",
-            
-            dispatch_month: requestData.dispatchMonth || "",
-            dispatch_year: requestData.dispatchYear || "",
-            command_count: requestData.commandCount || "",
-            memo_count: requestData.memoCount || ""
-        };
-
-        doc.render(dataToRender);
-
-        const docxBlob = doc.getZip().generate({
-            type: "blob",
-            mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        });
-
-        const formData = new FormData();
-        formData.append("files", docxBlob, "document.docx");
-
-        const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') ? PDF_ENGINE_CONFIG.BASE_URL : "https://pdf-engine-660310608742.asia-southeast1.run.app";
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000); 
-
-        const cloudRunResponse = await fetch(`${cloudRunBaseUrl}/forms/libreoffice/convert`, {
-            method: "POST",
-            body: formData,
-            signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!cloudRunResponse.ok) throw new Error(`Server Error (${cloudRunResponse.status})`);
-
-        const pdfBlob = await cloudRunResponse.blob();
-
-        if (returnBlob) return pdfBlob;
-
-        const pdfUrl = window.URL.createObjectURL(pdfBlob);
-        window.open(pdfUrl, '_blank');
-
-    } catch (error) {
-        console.error("PDF Generation Error:", error);
-        if (error.properties && error.properties.errors) {
-             const msgs = error.properties.errors.map(e => `- ${e.message}`).join('\n');
-             alert(`❌ Template Error:\n${msgs}`);
-        } else {
-             alert(`❌ เกิดข้อผิดพลาด: ${error.message}`);
-        }
-        throw error;
-    } finally {
-        toggleLoader(btnId, false);
-    }
-}
+// --- REMOVED: uploadBlobToStorage (เพราะใช้ไม่ได้แล้ว) ---
+// --- REMOVED: generateOfficialPDF (ย้ายไปไว้ที่ admin.js หรือถ้าจะใช้ที่นี่ ต้องเอาโค้ดใหม่มาวาง) ---
