@@ -1,7 +1,7 @@
 // --- CONFIGURATION & UTILITIES ---
 
 // 1. Debug Mode
-const IS_DEBUG = true; 
+const IS_DEBUG = false; 
 
 if (!IS_DEBUG) {
     console.log = function() {};
