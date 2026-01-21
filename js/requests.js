@@ -841,7 +841,7 @@ async function handleRequestFormSubmit(e) {
 
             console.log("⚙️ Generating PDF via Cloud Run...");
             // ขอไฟล์แบบ Blob กลับมา (param ตัวที่ 2 = true)
-            const pdfBlob = await generateOfficialPDF(pdfData, true);
+            const { pdfBlob } = await generateOfficialPDF(pdfData);
 
             // --- 4. อัปโหลด PDF ลง Google Drive (แทน Firebase) ---
             console.log("⬆️ Uploading PDF to Drive...");
