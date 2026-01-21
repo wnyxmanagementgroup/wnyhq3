@@ -1194,24 +1194,7 @@ function showDualLinkResult(containerId, title, docUrl, pdfUrl) {
     container.classList.remove('hidden');
 }
 
-// ฟังก์ชันช่วยอัปโหลดไฟล์ Blob ลง Firebase Storage
-async function uploadBlobToStorage(blob, path) {
-    return new Promise((resolve, reject) => {
-        const storageRef = firebase.storage().ref();
-        const fileRef = storageRef.child(path);
-        const uploadTask = fileRef.put(blob);
 
-        uploadTask.on('state_changed', 
-            (snapshot) => { /* ดู Progress ได้ถ้าต้องการ */ }, 
-            (error) => { reject(error); }, 
-            () => {
-                uploadTask.snapshot.ref.getDownloadURL().then((downloadURL) => {
-                    resolve(downloadURL);
-                });
-            }
-        );
-    });
-}
 
 // --- DELETE FUNCTIONS (สำหรับ Admin) ---
 
