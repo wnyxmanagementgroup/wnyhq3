@@ -301,7 +301,127 @@ async function handleDispatchFormSubmit(e) {
         toggleLoader('dispatch-submit-button', false);
     }
 }
+// ==========================================
+// ★★★ ฟังก์ชันสร้างบันทึกข้อความ (Memo) - แบบแก้ CORS + Background Upload ★★★
+// ==========================================
+async function handleAdminGenerateMemo() {
+    // 1. ดึง ID (เช็คให้แน่ใจว่าใน HTML ของคุณใช้ ID นี้จริง หรือเปลี่ยนให้ตรง)
+    const requestId = document.getElementById('admin-memo-request-id')?.value || document.getElementById('admin-command-request-id')?.value;
+    
+    if (!requestId) { showAlert('ผิดพลาด', 'ไม่พบรหัสคำขอ'); return; }
 
+    // 2. เตรียมข้อมูล (Data Mapping)
+    const requestData = {
+        doctype: 'memo', // ★ สำคัญ: บอกระบบว่าเป็น Memo
+        id: requestId,
+        
+        // ข้อมูลวันที่
+        docDate: document.getElementById('admin-memo-doc-date')?.value || new Date().toISOString().split('T')[0],
+        
+        // ข้อมูลบุคคล
+        requesterName: document.getElementById('admin-memo-requester-name')?.value.trim(),
+        requesterPosition: document.getElementById('admin-memo-requester-position')?.value.trim(),
+        department: document.getElementById('admin-memo-department')?.value.trim(), 
+        headName: document.getElementById('admin-memo-head-name')?.value.trim(),   
+        
+        // รายละเอียดงาน
+        location: document.getElementById('admin-memo-location')?.value.trim(),
+        purpose: document.getElementById('admin-memo-purpose')?.value.trim(),
+        startDate: document.getElementById('admin-memo-start-date')?.value,
+        endDate: document.getElementById('admin-memo-end-date')?.value,
+        
+        // ตัวเลือกต่างๆ (ถ้าหน้า Memo ไม่มี ให้ดึงค่า Default หรือจากตัวแปร global ถ้ามี)
+        vehicleOption: document.getElementById('admin-memo-vehicle-option')?.value || 'gov', 
+        licensePlate: document.getElementById('admin-memo-license-plate')?.value || '',
+        expenseOption: document.getElementById('admin-memo-expense-option')?.value || 'no',
+        expenseItems: document.getElementById('admin-memo-expense-items')?.value || [], 
+        totalExpense: document.getElementById('admin-memo-total-expense')?.value || '0',
+
+        // ผู้สร้าง
+        createdby: getCurrentUser() ? getCurrentUser().username : 'admin'
+    };
+    
+    // ดึงรายชื่อผู้ร่วมเดินทาง (จากหน้า Memo)
+    const attendees = [];
+    const attendeeList = document.querySelectorAll('#admin-memo-attendees-list > div');
+    if (attendeeList.length > 0) {
+        attendeeList.forEach(div => {
+            const name = div.querySelector('.admin-att-name').value.trim();
+            const pos = div.querySelector('.admin-att-pos').value.trim();
+            if (name) attendees.push({ name, position: pos });
+        });
+    } else {
+        // ถ้าไม่มีในหน้านี้ อาจจะดึงจากตัวแปร global หรือไม่ใส่
+    }
+    requestData.attendees = attendees;
+
+    // เริ่มทำงาน
+    const btnId = 'admin-generate-memo-button'; // ★ เช็ค ID ปุ่มใน HTML ให้ตรง
+    toggleLoader(btnId, true);
+
+    try {
+        // --- 1. สร้างไฟล์ PDF (Cloud Run) ---
+        console.log("🚀 Generating Memo via Cloud Run...");
+        const { pdfBlob, docxBlob } = await generateOfficialPDF(requestData);
+
+        // --- 2. เปิดไฟล์ทันที (UX Improvement) ---
+        const tempPdfUrl = URL.createObjectURL(pdfBlob);
+        window.open(tempPdfUrl, '_blank');
+
+        // แจ้งเตือนสถานะ
+        const statusDiv = document.getElementById('admin-memo-result'); // ★ เช็ค ID div แสดงผล
+        if(statusDiv) {
+            statusDiv.innerHTML = `<div class="text-blue-600 font-bold animate-pulse">📄 เปิดเอกสารแล้ว... กำลังบันทึกลงระบบ...</div>`;
+            statusDiv.classList.remove('hidden');
+        }
+
+        // --- 3. อัปโหลดลง Drive (Background) ---
+        console.log("⏳ Background: Uploading to Drive...");
+        const pdfBase64 = await blobToBase64(pdfBlob);
+        
+        const uploadResult = await apiCall('POST', 'uploadGeneratedFile', {
+            data: pdfBase64,
+            filename: `บันทึกข้อความ_${requestId.replace(/\//g,'-')}.pdf`,
+            mimeType: 'application/pdf',
+            username: requestData.createdby
+        });
+
+        if (uploadResult.status !== 'success') throw new Error("Upload failed");
+        const permanentPdfUrl = uploadResult.url;
+
+        // --- 4. บันทึกลิงก์ลง Firestore ---
+        const safeId = requestId.replace(/[\/\\:\.]/g, '-');
+        if (typeof db !== 'undefined') {
+            try {
+                await db.collection('requests').doc(safeId).set({
+                    memoPdfUrl: permanentPdfUrl, // เก็บ URL
+                    memoStatus: 'สร้างแล้ว',
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            } catch (e) { console.warn("Firestore update error:", e); }
+        }
+
+        console.log("✅ Memo Saved:", permanentPdfUrl);
+        
+        // อัปเดต UI
+        showAlert('สำเร็จ', 'บันทึกข้อความถูกสร้างเรียบร้อยแล้ว');
+        if(statusDiv) {
+            statusDiv.innerHTML = `
+                <div class="text-green-600 font-bold mb-2">✅ บันทึกเรียบร้อย</div>
+                <a href="${permanentPdfUrl}" target="_blank" class="text-blue-500 underline">เปิดไฟล์จาก Google Drive</a>
+            `;
+        }
+        
+        // รีโหลดตาราง
+        if (typeof fetchAllRequestsForCommand === 'function') await fetchAllRequestsForCommand();
+
+    } catch (error) {
+        console.error(error);
+        showAlert('แจ้งเตือน', 'เปิดไฟล์ได้ แต่การบันทึกขัดข้อง: ' + error.message);
+    } finally {
+        toggleLoader(btnId, false);
+    }
+}
 
 // ==========================================
 // ★★★ ฟังก์ชันสร้าง PDF ผ่าน Cloud Run (Core Engine) ★★★
