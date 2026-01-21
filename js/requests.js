@@ -772,7 +772,7 @@ async function handleRequestFormSubmit(e) {
     const user = getCurrentUser();
     if (!user) { showAlert('ผิดพลาด', 'กรุณาเข้าสู่ระบบก่อน'); return; }
 
-    // 1. เตรียมข้อมูลจากฟอร์ม
+    // --- 1. เตรียมข้อมูลจากฟอร์ม ---
     const formData = {
         username: user.username,
         docDate: document.getElementById('form-doc-date').value,
@@ -782,27 +782,33 @@ async function handleRequestFormSubmit(e) {
         purpose: document.getElementById('form-purpose').value,
         startDate: document.getElementById('form-start-date').value,
         endDate: document.getElementById('form-end-date').value,
+        
+        // ดึงรายชื่อผู้ร่วมเดินทาง
         attendees: Array.from(document.querySelectorAll('#form-attendees-list > div')).map(div => {
             const select = div.querySelector('.attendee-position-select');
             let position = select.value;
             if (position === 'other') { position = div.querySelector('.attendee-position-other').value; }
             return { name: div.querySelector('.attendee-name').value, position: position };
         }).filter(att => att.name && att.position),
+        
         expenseOption: document.querySelector('input[name="expense_option"]:checked').value,
         expenseItems: [],
         totalExpense: document.getElementById('form-total-expense').value || 0,
         vehicleOption: document.querySelector('input[name="vehicle_option"]:checked').value,
         licensePlate: document.getElementById('form-license-plate').value,
-        publicVehicleDetails: document.getElementById('form-public-vehicle-details').value,
+        // publicVehicleDetails: document.getElementById('form-public-vehicle-details')?.value || '', // ถ้ามี
         department: document.getElementById('form-department').value,
         headName: document.getElementById('form-head-name').value,
         isEdit: false 
     };
 
+    // จัดการรายการค่าใช้จ่าย
     if (formData.expenseOption === 'partial') {
         document.querySelectorAll('input[name="expense_item"]:checked').forEach(chk => {
             const item = { name: chk.dataset.itemName };
-            if (item.name === 'ค่าใช้จ่ายอื่นๆ') { item.detail = document.getElementById('expense_other_text').value; }
+            if (item.name === 'ค่าใช้จ่ายอื่นๆ') { 
+                item.detail = document.getElementById('expense_other_text')?.value || ''; 
+            }
             formData.expenseItems.push(item);
         });
     }
@@ -810,8 +816,9 @@ async function handleRequestFormSubmit(e) {
     toggleLoader('submit-request-button', true);
     
     try {
-        // 2. สร้างข้อมูลในระบบ (เพื่อเอาเลขที่เอกสาร/ID)
+        // --- 2. สร้างข้อมูลในระบบ (เพื่อเอาเลขที่เอกสาร/ID) ---
         let result;
+        // เช็คว่าใช้ Hybrid Mode หรือ Direct API
         if (typeof createRequestHybrid === 'function' && typeof USE_FIREBASE !== 'undefined' && USE_FIREBASE) {
             console.log("🚀 Submitting Data to Firebase...");
             result = await createRequestHybrid(formData);
@@ -821,66 +828,102 @@ async function handleRequestFormSubmit(e) {
 
         if (result.status === 'success') {
             const newRequestId = result.data.id || 'Draft';
+            const safeId = newRequestId.replace(/[\/\\:\.]/g, '-');
             console.log("✅ Data saved. ID:", newRequestId);
 
-            // 3. เตรียมข้อมูลสำหรับสร้าง PDF (ระบุ doctype: 'memo')
+            // --- 3. สร้าง PDF ผ่าน Cloud Run ---
             const pdfData = {
                 ...formData,
                 doctype: 'memo', // ★ สำคัญ: ต้องระบุว่าเป็น Memo
                 id: newRequestId,
-                btnId: 'submit-request-button',
-                // ส่งข้อมูลเพิ่มเติมสำหรับ Template บันทึกข้อความ
-                department: formData.department,
-                headName: formData.headName,
-                totalExpense: formData.totalExpense
+                btnId: 'submit-request-button'
             };
 
-            // 4. สร้าง PDF ผ่าน Cloud Run (ขอไฟล์ Blob กลับมา)
             console.log("⚙️ Generating PDF via Cloud Run...");
-            // หมายเหตุ: ต้องมีฟังก์ชัน generateOfficialPDF ใน utils.js หรือ admin.js
+            // ขอไฟล์แบบ Blob กลับมา (param ตัวที่ 2 = true)
             const pdfBlob = await generateOfficialPDF(pdfData, true);
 
-            // 5. อัปโหลดลง Firebase Storage
-            const safeId = newRequestId.replace(/[\/\\:\.]/g, '-');
-            const fileName = `บันทึกข้อความ_${safeId}.pdf`;
-            const storagePath = `memos/${safeId}/${fileName}`;
+            // --- 4. อัปโหลด PDF ลง Google Drive (แทน Firebase) ---
+            console.log("⬆️ Uploading PDF to Drive...");
+            const pdfBase64 = await blobToBase64(pdfBlob); // ต้องมีฟังก์ชันนี้ใน utils.js
             
-            console.log("⬆️ Uploading PDF...");
-            // หมายเหตุ: ต้องมีฟังก์ชัน uploadBlobToStorage ใน utils.js หรือ admin.js
-            const downloadUrl = await uploadBlobToStorage(pdfBlob, storagePath);
+            const uploadPdfResult = await apiCall('POST', 'uploadGeneratedFile', {
+                data: pdfBase64,
+                filename: `บันทึกข้อความ_${safeId}.pdf`,
+                mimeType: 'application/pdf',
+                username: user.username
+            });
 
-            // 6. อัปเดตลิงก์กลับไปที่ Database
-            if (typeof db !== 'undefined') {
-                await db.collection('requests').doc(safeId).set({
-                    pdfUrl: downloadUrl, // อัปเดตลิงก์หลัก
-                    completedMemoUrl: downloadUrl,
-                    status: 'รอการตรวจสอบ'
-                }, { merge: true });
+            if (uploadPdfResult.status !== 'success') throw new Error("PDF Upload failed: " + uploadPdfResult.message);
+            const downloadUrl = uploadPdfResult.url;
+
+            // --- 5. อัปโหลดไฟล์แนบ (ถ้ามี) ลง Google Drive ---
+            const fileInput = document.getElementById('form-file-attachment'); // เช็ค ID ของ input file ให้ตรง
+            let attachmentUrl = null;
+
+            if (fileInput && fileInput.files.length > 0) {
+                console.log("⬆️ Uploading Attachment to Drive...");
+                const file = fileInput.files[0];
+                const fileObj = await fileToObject(file); // ต้องมีฟังก์ชันนี้ใน utils.js
+                
+                const uploadFileResult = await apiCall('POST', 'uploadGeneratedFile', {
+                    data: fileObj.data, // fileToObject คืนค่ามาเป็น base64 ใน property .data แล้ว
+                    filename: file.name,
+                    mimeType: file.type,
+                    username: user.username
+                });
+
+                if (uploadFileResult.status === 'success') {
+                    attachmentUrl = uploadFileResult.url;
+                } else {
+                    console.warn("Attachment upload failed:", uploadFileResult.message);
+                }
             }
 
-            // 7. แสดงผลสำเร็จ
+            // --- 6. อัปเดตลิงก์กลับไปที่ Database (Firestore) ---
+            if (typeof db !== 'undefined') {
+                const updateData = {
+                    pdfUrl: downloadUrl,           // ลิงก์ PDF หลัก
+                    completedMemoUrl: downloadUrl, // ลิงก์บันทึกข้อความ
+                    status: 'รอการตรวจสอบ'
+                };
+                
+                // ถ้ามีไฟล์แนบ ก็บันทึกไปด้วย
+                if (attachmentUrl) {
+                    updateData.fileUrl = attachmentUrl; // หรือชื่อ field ที่คุณใช้เก็บไฟล์แนบ
+                }
+
+                try {
+                    await db.collection('requests').doc(safeId).set(updateData, { merge: true });
+                } catch (e) { console.warn("Firestore update error:", e); }
+            }
+
+            // --- 7. แสดงผลสำเร็จ ---
             document.getElementById('form-result-title').textContent = 'บันทึกและสร้างเอกสารสำเร็จ!';
             document.getElementById('form-result-message').textContent = `บันทึกข้อความเลขที่ ${newRequestId} เรียบร้อยแล้ว`;
             
-            document.getElementById('form-result-link').href = downloadUrl;
-            document.getElementById('form-result-link').classList.remove('hidden');
+            const linkBtn = document.getElementById('form-result-link');
+            if (linkBtn) {
+                linkBtn.href = downloadUrl;
+                linkBtn.classList.remove('hidden');
+            }
             
             document.getElementById('form-result').classList.remove('hidden');
             document.getElementById('request-form').reset();
             document.getElementById('form-attendees-list').innerHTML = '';
             
-            // เปิดไฟล์ทันที
+            // เปิดไฟล์ PDF ทันทีเพื่อให้ User ดู
             window.open(downloadUrl, '_blank');
             
             clearRequestsCache();
-            await fetchUserRequests(); 
+            if (typeof fetchUserRequests === 'function') await fetchUserRequests(); 
 
         } else { 
             showAlert('ผิดพลาด', result.message); 
         }
     } catch (error) { 
         console.error(error);
-        showAlert('เกิดข้อผิดพลาด', 'บันทึกข้อมูลสำเร็จ แต่สร้าง PDF ไม่ได้: ' + error.message); 
+        showAlert('เกิดข้อผิดพลาด', 'บันทึกข้อมูลสำเร็จ แต่การสร้างไฟล์ล้มเหลว: ' + error.message); 
     } finally { 
         toggleLoader('submit-request-button', false); 
     }
