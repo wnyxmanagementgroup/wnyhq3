@@ -637,53 +637,103 @@ async function generateDocumentFromDraft() {
     }
 }
 
+// --- แก้ไขในไฟล์ requests.js ---
+
 function getEditFormData() {
     try {
-        let requestId = document.getElementById('edit-request-id').value;
-        const draftId = document.getElementById('edit-draft-id').value;
-        if (!requestId) requestId = sessionStorage.getItem('currentEditRequestId');
-        if (!requestId) { const urlParams = new URLSearchParams(window.location.search); requestId = urlParams.get('requestId'); }
+        console.log("📝 กำลังดึงข้อมูลจากฟอร์มแก้ไข...");
 
+        // 1. ตรวจสอบข้อมูลผู้ใช้งานก่อน (จุดที่มักจะ Error บ่อยที่สุด)
+        const user = getCurrentUser();
+        if (!user || !user.username) {
+            throw new Error("ไม่พบข้อมูลผู้ใช้งาน (Session หลุด) กรุณาล็อกอินใหม่");
+        }
+
+        // ตัวช่วยดึงค่า (ถ้าหา ID ไม่เจอจะแจ้งทันที)
+        const getValue = (id) => {
+            const el = document.getElementById(id);
+            if (!el) throw new Error(`ไม่พบช่องกรอกข้อมูล ID: ${id}`);
+            return el.value;
+        };
+
+        // เริ่มดึงข้อมูล
+        let requestId = document.getElementById('edit-request-id')?.value;
+        const draftId = document.getElementById('edit-draft-id')?.value;
+        
+        // Fallback หา requestId
+        if (!requestId) requestId = sessionStorage.getItem('currentEditRequestId');
+        if (!requestId) { 
+            const urlParams = new URLSearchParams(window.location.search); 
+            requestId = urlParams.get('requestId'); 
+        }
+
+        // ดึงรายการค่าใช้จ่าย
         const expenseItems = [];
         const expenseOption = document.querySelector('input[name="edit-expense_option"]:checked');
+        
         if (expenseOption && expenseOption.value === 'partial') {
             document.querySelectorAll('input[name="edit-expense_item"]:checked').forEach(chk => {
                 const item = { name: chk.dataset.itemName };
-                if (item.name === 'ค่าใช้จ่ายอื่นๆ') { item.detail = document.getElementById('edit-expense_other_text').value.trim(); }
+                if (item.name === 'ค่าใช้จ่ายอื่นๆ') { 
+                    const otherTextEl = document.getElementById('edit-expense_other_text');
+                    item.detail = otherTextEl ? otherTextEl.value.trim() : ''; 
+                }
                 expenseItems.push(item);
             });
         }
+
+        // ดึงผู้ร่วมเดินทาง
         const attendees = Array.from(document.querySelectorAll('#edit-attendees-list > div')).map(div => {
             const nameInput = div.querySelector('.attendee-name');
             const select = div.querySelector('.attendee-position-select');
             let position = select ? select.value : '';
-            if (position === 'other') { const otherInput = div.querySelector('.attendee-position-other'); position = otherInput ? otherInput.value.trim() : ''; }
+            
+            if (position === 'other') { 
+                const otherInput = div.querySelector('.attendee-position-other'); 
+                position = otherInput ? otherInput.value.trim() : ''; 
+            }
             return { name: nameInput ? nameInput.value.trim() : '', position: position };
         }).filter(att => att.name && att.position);
 
-        const user = getCurrentUser();
+        // สร้าง Object ข้อมูล (ใช้ getValue เพื่อเช็คว่ามี Element จริงไหม)
         const formData = {
-            draftId: draftId || '', requestId: requestId || '', username: user.username,
-            docDate: document.getElementById('edit-doc-date').value,
-            requesterName: document.getElementById('edit-requester-name').value.trim(),
-            requesterPosition: document.getElementById('edit-requester-position').value.trim(),
-            location: document.getElementById('edit-location').value.trim(),
-            purpose: document.getElementById('edit-purpose').value.trim(),
-            startDate: document.getElementById('edit-start-date').value,
-            endDate: document.getElementById('edit-end-date').value,
+            draftId: draftId || '', 
+            requestId: requestId || '', 
+            username: user.username, // จุดที่มัก Error
+            
+            docDate: getValue('edit-doc-date'),
+            requesterName: getValue('edit-requester-name').trim(),
+            requesterPosition: getValue('edit-requester-position').trim(),
+            location: getValue('edit-location').trim(),
+            purpose: getValue('edit-purpose').trim(),
+            startDate: getValue('edit-start-date'),
+            endDate: getValue('edit-end-date'),
+            
             attendees: attendees,
+            
             expenseOption: expenseOption ? expenseOption.value : 'no',
             expenseItems: expenseItems,
-            totalExpense: document.getElementById('edit-total-expense').value || 0,
+            totalExpense: document.getElementById('edit-total-expense')?.value || 0,
+            
             vehicleOption: document.querySelector('input[name="edit-vehicle_option"]:checked')?.value || 'gov',
-            licensePlate: document.getElementById('edit-license-plate').value.trim(),
-            publicVehicleDetails: document.getElementById('edit-public-vehicle-details').value.trim(),
-            department: document.getElementById('edit-department').value,
-            headName: document.getElementById('edit-head-name').value,
+            licensePlate: document.getElementById('edit-license-plate')?.value.trim() || '',
+            publicVehicleDetails: document.getElementById('edit-public-vehicle-details')?.value.trim() || '',
+            
+            department: getValue('edit-department'),
+            headName: getValue('edit-head-name'),
+            
             isEdit: true
         };
+
+        console.log("✅ ดึงข้อมูลสำเร็จ:", formData);
         return formData;
-    } catch (error) { showAlert("ระบบผิดพลาด", "ไม่สามารถอ่านข้อมูลจากฟอร์มได้"); return null; }
+
+    } catch (error) {
+        console.error('Error in getEditFormData:', error);
+        // แจ้งเตือนข้อความ Error ที่แท้จริงให้ผู้ใช้เห็น
+        showAlert("พบข้อผิดพลาด", "ไม่สามารถอ่านข้อมูล: " + error.message); 
+        return null;
+    }
 }
 
 function validateEditForm(formData) {
