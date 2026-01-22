@@ -487,7 +487,7 @@ async function openEditPage(requestId) {
                 showAlert("ผิดพลาด", data.message || "เกิดข้อผิดพลาดในการดึงข้อมูล");
                 return;
             }
-            data.attendees = Array.isArray(data.attendees) ? data.attendees : [];
+            if (typeof data.attendees === 'string') {     try {         data.attendees = JSON.parse(data.attendees);     } catch (e) {         data.attendees = [];     } } data.attendees = Array.isArray(data.attendees) ? data.attendees : [];
 
             if ((!data.requesterName || data.requesterName.trim() === '') && user?.fullName) {
                 data.requesterName = user.fullName;
