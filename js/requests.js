@@ -576,16 +576,20 @@ function toggleEditVehicleOptions() {
      toggleEditVehicleDetails();
 }
 
+// --- แก้ไขในไฟล์ requests.js ---
+
 function toggleEditVehicleDetails() {
     const privateDetails = document.getElementById('edit-private-vehicle-details'); 
-    const publicDetails = document.getElementById('edit-public-vehicle-details'); 
+    
+    // แก้ไข ID ให้ตรงกับ HTML ใหม่ (เติม -container)
+    const publicDetails = document.getElementById('edit-public-vehicle-details-container'); 
+    
     const privateCheckbox = document.querySelector('input[name="edit-vehicle_option"][value="private"]');
     const publicCheckbox = document.querySelector('input[name="edit-vehicle_option"][value="public"]');
 
     if (privateDetails) privateDetails.classList.toggle('hidden', !privateCheckbox?.checked);
     if (publicDetails) publicDetails.classList.toggle('hidden', !publicCheckbox?.checked);
 }
-
 async function generateDocumentFromDraft() {
     let requestId = document.getElementById('edit-request-id').value;
     const draftId = document.getElementById('edit-draft-id').value;
