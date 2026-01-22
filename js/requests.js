@@ -1158,20 +1158,63 @@ function openSendMemoFromNotif(requestId) {
     document.getElementById('memo-modal-request-id').value = requestId;
     document.getElementById('send-memo-modal').style.display = 'flex';
 }
+// --- แก้ไขในไฟล์ requests.js ---
+
 async function openEditPage(requestId) {
-    const docId = requestId.replace(/\//g, '-');
-    const doc = await db.collection('requests').doc(docId).get();
-    if (doc.exists) {
-        const data = doc.data();
-        // นำ data ไปใส่ใน input fields ของหน้า edit-page
-        document.getElementById('edit-request-id').value = requestId;
-        // ... ใส่ค่าอื่นๆ ...
-        switchPage('edit-page');
+    try {
+        console.log("🔓 Opening edit page for request:", requestId);
+        
+        if (!requestId || requestId === 'undefined' || requestId === 'null') {
+            showAlert("ผิดพลาด", "ไม่พบรหัสคำขอ");
+            return;
+        }
+
+        const user = getCurrentUser();
+        if (!user) {
+            showAlert("ผิดพลาด", "กรุณาเข้าสู่ระบบใหม่");
+            return;
+        }
+        
+        // 1. Reset ฟอร์มก่อนเสมอ
+        resetEditPage();
+        
+        // 2. พยายามหาข้อมูลจาก Cache (ข้อมูลที่โชว์ในตาราง Dashboard) ก่อน เพื่อความเร็ว
+        let requestData = null;
+        if (typeof allRequestsCache !== 'undefined' && allRequestsCache.length > 0) {
+            // ค้นหาตาม ID หรือ RequestID
+            requestData = allRequestsCache.find(r => r.id === requestId || r.requestId === requestId);
+        }
+
+        // 3. ถ้าไม่เจอใน Cache ให้ไปโหลดจาก Server (API/Firebase)
+        if (!requestData) {
+            document.getElementById('edit-attendees-list').innerHTML = `
+                <div class="text-center p-4"><div class="loader mx-auto"></div><p class="mt-2">กำลังโหลดข้อมูล...</p></div>`;
+            
+            // เรียก Hybrid function หรือ API
+            const result = await apiCall('GET', 'getDraftRequest', { requestId: requestId, username: user.username });
+            
+            if (result.status === 'success' && result.data) {
+                requestData = result.data.data || result.data;
+            }
+        }
+
+        if (requestData) {
+            // บันทึก ID ไว้สำหรับการบันทึก
+            sessionStorage.setItem('currentEditRequestId', requestId);
+            
+            // เรียกฟังก์ชันใส่ข้อมูลลงฟอร์ม (Populate)
+            await populateEditForm(requestData);
+            
+            // สลับไปหน้า Edit
+            switchPage('edit-page');
+        } else {
+            showAlert("ผิดพลาด", "ไม่พบข้อมูลคำขอ หรือคุณไม่มีสิทธิ์เข้าถึง");
+        }
+
+    } catch (error) {
+        console.error(error);
+        showAlert("ผิดพลาด", "ไม่สามารถโหลดข้อมูลสำหรับแก้ไขได้: " + error.message);
     }
 }
 
-async function saveEditRequest() {
-    // 1. เก็บค่าจากฟอร์ม
-    // 2. อัปเดต Firebase (db.collection('requests').doc(...).update(...))
-    // 3. เรียก apiCall('POST', 'generateCommand', data) เพื่อออกเอกสารใหม่
-}
+// *** สำคัญ: ตรวจสอบบรรทัดล่างสุดของ requests.js หากมีฟังก์ชัน openEditPage หรือ saveEditRequest ซ้ำอีก ให้ลบทิ้งให้หมด ***
