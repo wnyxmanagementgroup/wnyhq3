@@ -592,6 +592,8 @@ function toggleEditVehicleDetails() {
 }
 // --- แก้ไขในไฟล์ requests.js ---
 
+// --- แก้ไขในไฟล์ requests.js ---
+
 async function generateDocumentFromDraft() {
     let requestId = document.getElementById('edit-request-id').value;
     const draftId = document.getElementById('edit-draft-id').value;
@@ -608,18 +610,20 @@ async function generateDocumentFromDraft() {
     formData.requestId = requestId;
     formData.draftId = draftId;
     formData.isEdit = true;
-    formData.doctype = 'memo'; // ★ สำคัญ: ระบุประเภทเพื่อให้ generateOfficialPDF รู้ว่าเป็น Memo
+    formData.doctype = 'memo'; 
     
+    // ★★★ [เพิ่มบรรทัดนี้] เพื่อให้ PDF ดึงเลขที่เอกสารไปแสดงได้ถูกต้อง ★★★
+    formData.id = requestId; 
+
     toggleLoader('generate-document-button', true);
 
     try {
         console.log("🚀 Generating PDF via Cloud Run (Edit Mode)...");
 
         // 1. สร้าง PDF ฝั่ง Client (Cloud Run)
-        // เรียกใช้ฟังก์ชันเดียวกับหน้า Admin/Create เพื่อความเร็ว
         const { pdfBlob } = await generateOfficialPDF(formData);
 
-        // 2. UX: เปิดไฟล์ให้ดูทันที (ไม่ต้องรออัปโหลดเสร็จ)
+        // 2. UX: เปิดไฟล์ให้ดูทันที
         const tempPdfUrl = URL.createObjectURL(pdfBlob);
         window.open(tempPdfUrl, '_blank');
 
@@ -642,10 +646,10 @@ async function generateDocumentFromDraft() {
         
         // ได้ URL ใหม่มาแล้ว
         const newPdfUrl = uploadResult.url;
-        formData.pdfUrl = newPdfUrl; // แนบ URL ใหม่ไปด้วย
-        formData.completedMemoUrl = newPdfUrl; // เผื่อระบบใช้ชื่อนี้
+        formData.pdfUrl = newPdfUrl;
+        formData.completedMemoUrl = newPdfUrl;
 
-        // 4. อัปเดตข้อมูลลงฐานข้อมูล (GAS/Firebase)
+        // 4. อัปเดตข้อมูลลงฐานข้อมูล
         console.log("💾 Updating database...");
         const result = await apiCall('POST', 'updateRequest', formData);
         
@@ -653,14 +657,12 @@ async function generateDocumentFromDraft() {
             document.getElementById('edit-result-title').textContent = 'อัปเดตเอกสารสำเร็จ!';
             document.getElementById('edit-result-message').textContent = `บันทึกข้อความ ที่ ${result.data.id || requestId} ถูกอัปเดตเรียบร้อยแล้ว`;
             
-            // แสดงปุ่มโหลดไฟล์ใหม่
             const linkBtn = document.getElementById('edit-result-link');
             linkBtn.href = newPdfUrl;
             linkBtn.classList.remove('hidden');
             
             document.getElementById('edit-result').classList.remove('hidden');
             
-            // เคลียร์ Cache เพื่อให้หน้า Dashboard เห็นไฟล์ใหม่
             clearRequestsCache();
             await fetchUserRequests();
             
@@ -679,7 +681,6 @@ async function generateDocumentFromDraft() {
         if (btnText) btnText.innerText = 'บันทึกและสร้างเอกสาร';
     }
 }
-
 // --- แก้ไขในไฟล์ requests.js ---
 
 function getEditFormData() {
