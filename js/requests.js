@@ -461,11 +461,13 @@ async function populateEditForm(requestData) {
 
 // --- แก้ไขในไฟล์ requests.js ---
 
+// --- แก้ไขในไฟล์ requests.js ---
+
 async function openEditPage(requestId) {
     try {
         console.log("🔓 Opening edit page for request:", requestId);
         
-        if (!requestId || requestId === 'undefined' || requestId === 'null') {
+        if (!requestId) {
             showAlert("ผิดพลาด", "ไม่พบรหัสคำขอ");
             return;
         }
@@ -476,61 +478,70 @@ async function openEditPage(requestId) {
             return;
         }
         
-        // 1. Reset ฟอร์มก่อนเสมอ
+        // 1. Reset ฟอร์ม
         resetEditPage();
         
-        // 2. พยายามหาข้อมูลจาก Cache ก่อน
         let requestData = null;
-        if (typeof allRequestsCache !== 'undefined' && allRequestsCache.length > 0) {
+
+        // 2. [ส่วนสำคัญ] พยายามดึงข้อมูลสดจาก Firebase (Database) ก่อน
+        // เพราะ Firebase จะเก็บข้อมูลได้ละเอียดกว่า CSV (เช่น มีรายชื่อครบ)
+        try {
+            // แปลง ID ให้เป็น format ของ Firebase doc (เช่น บค001/2568 -> บค001-2568)
+            const docId = requestId.replace(/[\/\\\:\.]/g, '-');
+            const docRef = db.collection('requests').doc(docId);
+            const docSnap = await docRef.get();
+
+            if (docSnap.exists) {
+                console.log("✅ พบข้อมูล Backup ใน Firebase");
+                requestData = docSnap.data();
+                
+                // ตรวจสอบว่าใน Firebase มีรายชื่อไหม
+                if (requestData.attendees) {
+                     // ถ้าเก็บเป็น String ให้แปลงกลับเป็น Array
+                     if (typeof requestData.attendees === 'string') {
+                         try { requestData.attendees = JSON.parse(requestData.attendees); } 
+                         catch (e) { requestData.attendees = []; }
+                     }
+                }
+            }
+        } catch (firebaseError) {
+            console.warn("ไม่สามารถดึงข้อมูลจาก Firebase ได้:", firebaseError);
+        }
+
+        // 3. ถ้าใน Firebase ไม่มี (หรือ Error) ให้ลองดูใน Cache (CSV)
+        if (!requestData && typeof allRequestsCache !== 'undefined') {
+            console.log("⚠️ ไม่พบใน Firebase ใช้ข้อมูลจาก Cache แทน");
             requestData = allRequestsCache.find(r => r.id === requestId || r.requestId === requestId);
         }
 
-        // 3. ถ้าไม่เจอใน Cache ให้ไปโหลดจาก Server
+        // 4. ถ้ายังไม่เจออีก ให้ไปเรียก API (ทางเลือกสุดท้าย)
         if (!requestData) {
-            document.getElementById('edit-attendees-list').innerHTML = `
-                <div class="text-center p-4"><div class="loader mx-auto"></div><p class="mt-2">กำลังโหลดข้อมูล...</p></div>`;
-            
+            toggleLoader('requests-table-body', true); // โชว์ loader ชั่วคราว
             const result = await apiCall('GET', 'getDraftRequest', { requestId: requestId, username: user.username });
-            
             if (result.status === 'success' && result.data) {
                 requestData = result.data.data || result.data;
             }
+            toggleLoader('requests-table-body', false);
         }
 
         if (requestData) {
-            // ★★★ ส่วนที่แก้ไข: แปลงข้อมูลผู้ร่วมเดินทางให้ถูกต้อง ★★★
-            if (requestData.attendees) {
-                // กรณีเป็น String (ข้อความ JSON) ให้แปลงเป็น Array (ลิสต์)
-                if (typeof requestData.attendees === 'string') {
-                    try {
-                        requestData.attendees = JSON.parse(requestData.attendees);
-                    } catch (e) {
-                        console.warn("ไม่สามารถแปลงรายชื่อผู้ร่วมเดินทางได้:", e);
-                        requestData.attendees = [];
-                    }
-                }
-            } else {
+            // ตรวจสอบรายชื่อครั้งสุดท้าย
+            if (!requestData.attendees || !Array.isArray(requestData.attendees)) {
                 requestData.attendees = [];
             }
-            
-            // ป้องกัน Error กรณีข้อมูลไม่ใช่ Array
-            if (!Array.isArray(requestData.attendees)) {
-                requestData.attendees = [];
-            }
-            // ★★★ จบส่วนที่แก้ไข ★★★
 
             sessionStorage.setItem('currentEditRequestId', requestId);
             
+            // ใส่ข้อมูลลงฟอร์ม
             await populateEditForm(requestData);
-            
             switchPage('edit-page');
         } else {
-            showAlert("ผิดพลาด", "ไม่พบข้อมูลคำขอ หรือคุณไม่มีสิทธิ์เข้าถึง");
+            showAlert("ผิดพลาด", "ไม่พบข้อมูลคำขอ");
         }
 
     } catch (error) {
         console.error(error);
-        showAlert("ผิดพลาด", "ไม่สามารถโหลดข้อมูลสำหรับแก้ไขได้: " + error.message);
+        showAlert("ผิดพลาด", "การเปิดหน้าแก้ไขขัดข้อง: " + error.message);
     }
 }
 function addEditAttendeeField(name = '', position = '') {
