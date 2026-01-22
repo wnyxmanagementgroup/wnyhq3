@@ -459,54 +459,80 @@ async function populateEditForm(requestData) {
     }
 }
 
+// --- แก้ไขในไฟล์ requests.js ---
+
 async function openEditPage(requestId) {
     try {
         console.log("🔓 Opening edit page for request:", requestId);
+        
         if (!requestId || requestId === 'undefined' || requestId === 'null') {
             showAlert("ผิดพลาด", "ไม่พบรหัสคำขอ");
             return;
         }
+
         const user = getCurrentUser();
         if (!user) {
             showAlert("ผิดพลาด", "กรุณาเข้าสู่ระบบใหม่");
             return;
         }
         
-        document.getElementById('edit-result').classList.add('hidden');
-        document.getElementById('edit-attendees-list').innerHTML = `
-            <div class="text-center p-4"><div class="loader mx-auto"></div><p class="mt-2">กำลังโหลดข้อมูล...</p></div>`;
+        // 1. Reset ฟอร์มก่อนเสมอ
+        resetEditPage();
+        
+        // 2. พยายามหาข้อมูลจาก Cache ก่อน
+        let requestData = null;
+        if (typeof allRequestsCache !== 'undefined' && allRequestsCache.length > 0) {
+            requestData = allRequestsCache.find(r => r.id === requestId || r.requestId === requestId);
+        }
 
-        const result = await apiCall('GET', 'getDraftRequest', { requestId: requestId, username: user.username });
+        // 3. ถ้าไม่เจอใน Cache ให้ไปโหลดจาก Server
+        if (!requestData) {
+            document.getElementById('edit-attendees-list').innerHTML = `
+                <div class="text-center p-4"><div class="loader mx-auto"></div><p class="mt-2">กำลังโหลดข้อมูล...</p></div>`;
+            
+            const result = await apiCall('GET', 'getDraftRequest', { requestId: requestId, username: user.username });
+            
+            if (result.status === 'success' && result.data) {
+                requestData = result.data.data || result.data;
+            }
+        }
 
-        if (result.status === 'success' && result.data) {
-            let data = result.data;
-            if (result.data && result.data.data) {
-                data = result.data.data;
+        if (requestData) {
+            // ★★★ ส่วนที่แก้ไข: แปลงข้อมูลผู้ร่วมเดินทางให้ถูกต้อง ★★★
+            if (requestData.attendees) {
+                // กรณีเป็น String (ข้อความ JSON) ให้แปลงเป็น Array (ลิสต์)
+                if (typeof requestData.attendees === 'string') {
+                    try {
+                        requestData.attendees = JSON.parse(requestData.attendees);
+                    } catch (e) {
+                        console.warn("ไม่สามารถแปลงรายชื่อผู้ร่วมเดินทางได้:", e);
+                        requestData.attendees = [];
+                    }
+                }
+            } else {
+                requestData.attendees = [];
             }
-            if (data.status === 'error') {
-                showAlert("ผิดพลาด", data.message || "เกิดข้อผิดพลาดในการดึงข้อมูล");
-                return;
+            
+            // ป้องกัน Error กรณีข้อมูลไม่ใช่ Array
+            if (!Array.isArray(requestData.attendees)) {
+                requestData.attendees = [];
             }
-            if (typeof data.attendees === 'string') {     try {         data.attendees = JSON.parse(data.attendees);     } catch (e) {         data.attendees = [];     } } data.attendees = Array.isArray(data.attendees) ? data.attendees : [];
-
-            if ((!data.requesterName || data.requesterName.trim() === '') && user?.fullName) {
-                data.requesterName = user.fullName;
-            }
-            if ((!data.requesterPosition || data.requesterPosition.trim() === '') && user?.position) {
-                data.requesterPosition = user.position;
-            }
+            // ★★★ จบส่วนที่แก้ไข ★★★
 
             sessionStorage.setItem('currentEditRequestId', requestId);
-            await populateEditForm(data);
+            
+            await populateEditForm(requestData);
+            
             switchPage('edit-page');
         } else {
-            showAlert("ผิดพลาด", result.message || "ไม่พบข้อมูลคำขอ");
+            showAlert("ผิดพลาด", "ไม่พบข้อมูลคำขอ หรือคุณไม่มีสิทธิ์เข้าถึง");
         }
+
     } catch (error) {
+        console.error(error);
         showAlert("ผิดพลาด", "ไม่สามารถโหลดข้อมูลสำหรับแก้ไขได้: " + error.message);
     }
 }
-
 function addEditAttendeeField(name = '', position = '') {
     const list = document.getElementById('edit-attendees-list');
     const attendeeDiv = document.createElement('div');
