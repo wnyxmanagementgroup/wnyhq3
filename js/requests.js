@@ -709,55 +709,52 @@ async function generateDocumentFromDraft() {
 }
 // --- แก้ไขในไฟล์ requests.js ---
 
+// --- แก้ไขในไฟล์ requests.js ---
+
 function getEditFormData() {
     try {
-        console.log("📝 กำลังดึงข้อมูลจากฟอร์มแก้ไข...");
+        console.log("📝 เริ่มดึงข้อมูลจากฟอร์มแก้ไข (แบบผสานข้อมูลเดิม)...");
 
-        // 1. ตรวจสอบข้อมูลผู้ใช้งานก่อน (จุดที่มักจะ Error บ่อยที่สุด)
         const user = getCurrentUser();
-        if (!user || !user.username) {
-            throw new Error("ไม่พบข้อมูลผู้ใช้งาน (Session หลุด) กรุณาล็อกอินใหม่");
-        }
+        if (!user) throw new Error("ไม่พบข้อมูลผู้ใช้งาน (Session หลุด)");
 
-        // ตัวช่วยดึงค่า (ถ้าหา ID ไม่เจอจะแจ้งทันที)
+        // ตัวช่วยดึงค่า
         const getValue = (id) => {
             const el = document.getElementById(id);
-            if (!el) throw new Error(`ไม่พบช่องกรอกข้อมูล ID: ${id}`);
-            return el.value;
+            return el ? el.value : '';
         };
 
-        // เริ่มดึงข้อมูล
-        let requestId = document.getElementById('edit-request-id')?.value;
-        const draftId = document.getElementById('edit-draft-id')?.value;
-        
-        // Fallback หา requestId
+        // 1. หา ID ของเอกสาร
+        let requestId = getValue('edit-request-id');
         if (!requestId) requestId = sessionStorage.getItem('currentEditRequestId');
-        if (!requestId) { 
-            const urlParams = new URLSearchParams(window.location.search); 
-            requestId = urlParams.get('requestId'); 
+        
+        // 2. ★★★ สำคัญ: ดึงข้อมูลเดิมจาก Cache มาเป็นฐานก่อน (กันข้อมูลหาย) ★★★
+        let originalData = {};
+        if (typeof allRequestsCache !== 'undefined') {
+            const cached = allRequestsCache.find(r => r.id === requestId || r.requestId === requestId);
+            if (cached) {
+                // คัดลอกข้อมูลเดิมมาทั้งหมด (Clone)
+                originalData = JSON.parse(JSON.stringify(cached));
+            }
         }
 
-        // ดึงรายการค่าใช้จ่าย
+        // 3. ดึงข้อมูลใหม่จากหน้าจอ (เหมือนเดิม)
         const expenseItems = [];
         const expenseOption = document.querySelector('input[name="edit-expense_option"]:checked');
-        
         if (expenseOption && expenseOption.value === 'partial') {
             document.querySelectorAll('input[name="edit-expense_item"]:checked').forEach(chk => {
                 const item = { name: chk.dataset.itemName };
                 if (item.name === 'ค่าใช้จ่ายอื่นๆ') { 
-                    const otherTextEl = document.getElementById('edit-expense_other_text');
-                    item.detail = otherTextEl ? otherTextEl.value.trim() : ''; 
+                    item.detail = getValue('edit-expense_other_text').trim(); 
                 }
                 expenseItems.push(item);
             });
         }
 
-        // ดึงผู้ร่วมเดินทาง
         const attendees = Array.from(document.querySelectorAll('#edit-attendees-list > div')).map(div => {
             const nameInput = div.querySelector('.attendee-name');
             const select = div.querySelector('.attendee-position-select');
             let position = select ? select.value : '';
-            
             if (position === 'other') { 
                 const otherInput = div.querySelector('.attendee-position-other'); 
                 position = otherInput ? otherInput.value.trim() : ''; 
@@ -765,11 +762,15 @@ function getEditFormData() {
             return { name: nameInput ? nameInput.value.trim() : '', position: position };
         }).filter(att => att.name && att.position);
 
-        // สร้าง Object ข้อมูล (ใช้ getValue เพื่อเช็คว่ามี Element จริงไหม)
+        // 4. ผสานข้อมูล (เอาข้อมูลเดิมตั้ง + ทับด้วยข้อมูลใหม่)
         const formData = {
-            draftId: draftId || '', 
-            requestId: requestId || '', 
-            username: user.username, // จุดที่มัก Error
+            ...originalData, // เอาข้อมูลเก่ามาวางก่อน (เช่น timestamp, status เดิม)
+            
+            // ข้อมูลที่แก้ไขได้ (จะทับข้อมูลเก่า)
+            requestId: requestId,
+            id: requestId, // ย้ำ ID อีกครั้ง
+            draftId: getValue('edit-draft-id') || originalData.draftId,
+            username: user.username,
             
             docDate: getValue('edit-doc-date'),
             requesterName: getValue('edit-requester-name').trim(),
@@ -779,15 +780,15 @@ function getEditFormData() {
             startDate: getValue('edit-start-date'),
             endDate: getValue('edit-end-date'),
             
-            attendees: attendees,
+            attendees: attendees, // รายชื่อผู้ร่วมเดินทางชุดใหม่
             
             expenseOption: expenseOption ? expenseOption.value : 'no',
             expenseItems: expenseItems,
-            totalExpense: document.getElementById('edit-total-expense')?.value || 0,
+            totalExpense: getValue('edit-total-expense') || 0,
             
             vehicleOption: document.querySelector('input[name="edit-vehicle_option"]:checked')?.value || 'gov',
-            licensePlate: document.getElementById('edit-license-plate')?.value.trim() || '',
-            publicVehicleDetails: document.getElementById('edit-public-vehicle-details')?.value.trim() || '',
+            licensePlate: getValue('edit-license-plate').trim(),
+            publicVehicleDetails: getValue('edit-public-vehicle-details').trim(), // แก้ ID ตามที่คุยกันก่อนหน้า
             
             department: getValue('edit-department'),
             headName: getValue('edit-head-name'),
@@ -795,17 +796,15 @@ function getEditFormData() {
             isEdit: true
         };
 
-        console.log("✅ ดึงข้อมูลสำเร็จ:", formData);
+        console.log("✅ ข้อมูลสำหรับบันทึก (Merged):", formData);
         return formData;
 
     } catch (error) {
         console.error('Error in getEditFormData:', error);
-        // แจ้งเตือนข้อความ Error ที่แท้จริงให้ผู้ใช้เห็น
-        showAlert("พบข้อผิดพลาด", "ไม่สามารถอ่านข้อมูล: " + error.message); 
+        showAlert("พบข้อผิดพลาด", "อ่านข้อมูลไม่สำเร็จ: " + error.message); 
         return null;
     }
 }
-
 function validateEditForm(formData) {
     if (!formData.docDate || !formData.requesterName || !formData.location || !formData.purpose || !formData.startDate || !formData.endDate) {
         showAlert("ข้อมูลไม่ครบถ้วน", "กรุณากรอกข้อมูลที่จำเป็นให้ครบ"); return false;
