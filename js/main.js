@@ -1,5 +1,7 @@
 // --- PAGE NAVIGATION & EVENT LISTENERS ---
 
+// --- ไฟล์ main.js ---
+
 async function switchPage(targetPageId) {
     console.log("🔄 Switching to page:", targetPageId);
     
@@ -23,6 +25,9 @@ async function switchPage(targetPageId) {
     
     if (targetPageId === 'dashboard-page') {
         await fetchUserRequests(); // ดึงข้อมูล (Hybrid)
+        
+        // ★★★ เพิ่มส่วนนี้: เรียกแสดง Pop-up แจ้งเตือน ★★★
+        showReminderModal();
     }
     
     if (targetPageId === 'form-page') { 
@@ -45,6 +50,32 @@ async function switchPage(targetPageId) {
     if (targetPageId === 'command-generation-page') { 
         const tab = document.getElementById('admin-view-requests-tab');
         if(tab) tab.click(); 
+    }
+}
+
+// ★★★ เพิ่มฟังก์ชันนี้ไว้ท้ายไฟล์ main.js หรือบริเวณใกล้เคียง switchPage ★★★
+function showReminderModal() {
+    // ตรวจสอบว่าเคยแสดงไปแล้วหรือยังใน Session นี้ (ถ้าต้องการให้แสดงทุกครั้งที่ Login ใหม่)
+    const hasShown = sessionStorage.getItem('loginReminderShown');
+    
+    // ถ้ายังไม่เคยแสดง ให้แสดง (เมื่อ Login เข้ามาครั้งแรกจะแสดงแน่นอน)
+    if (!hasShown) {
+        const modal = document.getElementById('reminder-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            
+            // ตั้งค่าปุ่มปิด
+            const closeBtn = document.getElementById('close-reminder-modal');
+            
+            // ลบ Event Listener เก่าออกก่อนเพื่อป้องกันการซ้อนทับ (Safety)
+            const newBtn = closeBtn.cloneNode(true);
+            closeBtn.parentNode.replaceChild(newBtn, closeBtn);
+            
+            newBtn.addEventListener('click', function() {
+                modal.style.display = 'none';
+                sessionStorage.setItem('loginReminderShown', 'true'); // บันทึกว่าแสดงแล้ว
+            });
+        }
     }
 }
 
