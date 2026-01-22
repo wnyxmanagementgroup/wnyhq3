@@ -590,9 +590,13 @@ function toggleEditVehicleDetails() {
     if (privateDetails) privateDetails.classList.toggle('hidden', !privateCheckbox?.checked);
     if (publicDetails) publicDetails.classList.toggle('hidden', !publicCheckbox?.checked);
 }
+// --- แก้ไขในไฟล์ requests.js ---
+
 async function generateDocumentFromDraft() {
     let requestId = document.getElementById('edit-request-id').value;
     const draftId = document.getElementById('edit-draft-id').value;
+    
+    // Fallback หา ID
     if (!requestId) requestId = sessionStorage.getItem('currentEditRequestId');
     if (!requestId) { showAlert("ผิดพลาด", "ไม่พบรหัสคำขอ"); return; }
 
@@ -600,44 +604,79 @@ async function generateDocumentFromDraft() {
     if (!formData) return;
     if (!validateEditForm(formData)) return;
     
+    // เตรียมข้อมูลสำหรับสร้าง PDF
     formData.requestId = requestId;
     formData.draftId = draftId;
     formData.isEdit = true;
+    formData.doctype = 'memo'; // ★ สำคัญ: ระบุประเภทเพื่อให้ generateOfficialPDF รู้ว่าเป็น Memo
     
     toggleLoader('generate-document-button', true);
+
     try {
-        let result;
-        try {
-            // การแก้ไขเอกสาร ยังต้องพึ่ง GAS ในการจัดการไฟล์ PDF ที่มีอยู่
-            result = await apiCall('POST', 'updateRequest', formData);
-        } catch (updateError) {
-            result = await apiCall('POST', 'createRequest', formData);
-        }
+        console.log("🚀 Generating PDF via Cloud Run (Edit Mode)...");
+
+        // 1. สร้าง PDF ฝั่ง Client (Cloud Run)
+        // เรียกใช้ฟังก์ชันเดียวกับหน้า Admin/Create เพื่อความเร็ว
+        const { pdfBlob } = await generateOfficialPDF(formData);
+
+        // 2. UX: เปิดไฟล์ให้ดูทันที (ไม่ต้องรออัปโหลดเสร็จ)
+        const tempPdfUrl = URL.createObjectURL(pdfBlob);
+        window.open(tempPdfUrl, '_blank');
+
+        // แจ้งสถานะบนปุ่ม
+        const btnText = document.getElementById('generate-doc-button-text');
+        if (btnText) btnText.innerText = 'กำลังบันทึกลงระบบ...';
+
+        // 3. Background Process: อัปโหลดไฟล์ใหม่ขึ้น Drive
+        console.log("⏳ Uploading new PDF to Drive...");
+        const pdfBase64 = await blobToBase64(pdfBlob);
+        
+        const uploadResult = await apiCall('POST', 'uploadGeneratedFile', {
+            data: pdfBase64,
+            filename: `บันทึกข้อความ_${requestId.replace(/[\/\\:\.]/g, '-')}.pdf`,
+            mimeType: 'application/pdf',
+            username: formData.username
+        });
+
+        if (uploadResult.status !== 'success') throw new Error("Upload failed: " + uploadResult.message);
+        
+        // ได้ URL ใหม่มาแล้ว
+        const newPdfUrl = uploadResult.url;
+        formData.pdfUrl = newPdfUrl; // แนบ URL ใหม่ไปด้วย
+        formData.completedMemoUrl = newPdfUrl; // เผื่อระบบใช้ชื่อนี้
+
+        // 4. อัปเดตข้อมูลลงฐานข้อมูล (GAS/Firebase)
+        console.log("💾 Updating database...");
+        const result = await apiCall('POST', 'updateRequest', formData);
         
         if (result.status === 'success') {
             document.getElementById('edit-result-title').textContent = 'อัปเดตเอกสารสำเร็จ!';
-            document.getElementById('edit-result-message').textContent = `บันทึกข้อความ ที่ ${result.data.id || requestId} ถูกอัปเดตแล้ว`;
-            if (result.data.pdfUrl) {
-                document.getElementById('edit-result-link').href = result.data.pdfUrl;
-                document.getElementById('edit-result-link').classList.remove('hidden');
-            } else {
-                document.getElementById('edit-result-link').classList.add('hidden');
-                document.getElementById('edit-result-message').textContent += ' (แต่ยังไม่สามารถสร้างไฟล์ PDF ได้ในขณะนี้)';
-            }
+            document.getElementById('edit-result-message').textContent = `บันทึกข้อความ ที่ ${result.data.id || requestId} ถูกอัปเดตเรียบร้อยแล้ว`;
+            
+            // แสดงปุ่มโหลดไฟล์ใหม่
+            const linkBtn = document.getElementById('edit-result-link');
+            linkBtn.href = newPdfUrl;
+            linkBtn.classList.remove('hidden');
+            
             document.getElementById('edit-result').classList.remove('hidden');
             
+            // เคลียร์ Cache เพื่อให้หน้า Dashboard เห็นไฟล์ใหม่
             clearRequestsCache();
             await fetchUserRequests();
             
             sessionStorage.removeItem('currentEditRequestId');
             showAlert("สำเร็จ", "อัปเดตเอกสารเรียบร้อยแล้ว");
         } else {
-            showAlert("ผิดพลาด", result.message || "ไม่สามารถอัปเดตเอกสารได้");
+            showAlert("ผิดพลาด", result.message || "ไม่สามารถอัปเดตข้อมูลในฐานข้อมูลได้");
         }
+
     } catch (error) {
-        showAlert("เกิดข้อผิดพลาด", "ไม่สามารถอัปเดตเอกสารได้: " + error.message);
+        console.error("Generate Edit Error:", error);
+        showAlert("แจ้งเตือน", "เปิดไฟล์สำเร็จ แต่การบันทึกลงระบบขัดข้อง: " + error.message);
     } finally {
         toggleLoader('generate-document-button', false);
+        const btnText = document.getElementById('generate-doc-button-text');
+        if (btnText) btnText.innerText = 'บันทึกและสร้างเอกสาร';
     }
 }
 
