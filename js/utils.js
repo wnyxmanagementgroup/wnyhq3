@@ -1,12 +1,18 @@
 // --- API HELPER FUNCTIONS ---
-async function apiCall(method, action, payload = {}) {
+// --- API HELPER FUNCTIONS (Enhanced Stability) ---
+
+async function apiCall(method, action, payload = {}, retries = 2) {
     let url = SCRIPT_URL;
+    const TIMEOUT_MS = 30000; // 30 วินาที (ถ้าเกินนี้ให้ตัด)
+
+    // ตั้งค่า Headers
     const options = {
         method: method,
         redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8', },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     };
 
+    // จัดการ Parameter
     if (method === 'GET') {
         const params = new URLSearchParams({ action, ...payload, cacheBust: new Date().getTime() }); 
         url += `?${params}`;
@@ -14,21 +20,51 @@ async function apiCall(method, action, payload = {}) {
         options.body = JSON.stringify({ action, payload });
     }
 
-    try {
-        const response = await fetch(url, options);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        const result = await response.json();
-        if (result.status === 'error') throw new Error(result.message);
-        return result;
-    } catch (error) {
-        console.error('API Call Error:', error);
+    // ฟังก์ชันสำหรับรอเวลา (Backoff) ก่อนลองใหม่
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+    // ลูปการทำงานเพื่อลองใหม่ (Retry Loop)
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
         
-        if (error.message.includes('Failed to fetch')) {
-            showAlert('การเชื่อมต่อล้มเหลว', 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต');
-        } else {
-            showAlert('เกิดข้อผิดพลาด', `Server error: ${error.message}`);
+        try {
+            // เพิ่ม signal เพื่อรองรับ Timeout
+            const response = await fetch(url, { ...options, signal: controller.signal });
+            clearTimeout(timeoutId); // ยกเลิกตัวจับเวลาถ้าโหลดเสร็จทัน
+
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const result = await response.json();
+            if (result.status === 'error') throw new Error(result.message);
+            
+            return result; // ถ้าสำเร็จ ส่งค่ากลับทันที
+
+        } catch (error) {
+            clearTimeout(timeoutId); // เคลียร์เวลาเมื่อ error
+
+            const isLastAttempt = attempt === retries;
+            const isTimeout = error.name === 'AbortError';
+            
+            console.warn(`⚠️ API Call Failed (Attempt ${attempt + 1}/${retries + 1}):`, error.message);
+
+            if (isLastAttempt) {
+                // ถ้าครบโควตาลองใหม่แล้วยังไม่ได้ ให้แจ้ง Error จริงๆ
+                console.error('❌ API Call Given Up:', error);
+                
+                if (isTimeout) {
+                    showAlert('หมดเวลาการเชื่อมต่อ', 'ระบบใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง');
+                } else if (error.message.includes('Failed to fetch')) {
+                    showAlert('การเชื่อมต่อล้มเหลว', 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาเช็คอินเทอร์เน็ต');
+                } else {
+                    showAlert('เกิดข้อผิดพลาด', `Server error: ${error.message}`);
+                }
+                throw error;
+            }
+
+            // ถ้ายังไม่ครบโควตา ให้รอแป๊บหนึ่งแล้วลองใหม่ (1 วินาที)
+            await wait(1000);
         }
-        throw error;
     }
 }
 
