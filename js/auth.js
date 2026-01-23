@@ -1,12 +1,14 @@
 // --- AUTH FUNCTIONS (HYBRID SYSTEM) ---
 
+// --- แก้ไขในไฟล์ js/auth.js ---
+
 async function handleLogin(e) {
     e.preventDefault();
     
-    const username = document.getElementById('username').value.trim();
+    const usernameInput = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value;
 
-    if (!username || !password) {
+    if (!usernameInput || !password) {
         showAlert('ผิดพลาด', 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
         return;
     }
@@ -15,49 +17,121 @@ async function handleLogin(e) {
     document.getElementById('login-error').classList.add('hidden');
     
     try {
-        console.log('Attempting login for:', username);
+        console.log('Attempting login for:', usernameInput);
         
-        let result = null;
+        // แปลง Username เป็น Email (เพราะ Firebase Auth ต้องใช้อีเมล)
+        // คุณสามารถเปลี่ยน @wny.app เป็นโดเมนจริงของคุณได้
+        const email = `${usernameInput}@wny.app`; 
+        
+        let firebaseUser = null;
+        let userData = null;
 
-        // 1. FAST LOGIN: ลอง Login ผ่าน Firebase ก่อน
-        if (typeof loginWithFirebase === 'function' && typeof USE_FIREBASE !== 'undefined' && USE_FIREBASE) {
-            result = await loginWithFirebase(username, password);
-            if (result) console.log("⚡ Logged in via Firebase (Fast)");
+        // -----------------------------------------------------
+        // 1. ลอง Login ผ่าน Firebase Auth ก่อน (Fast Login)
+        // -----------------------------------------------------
+        try {
+            if (typeof firebase !== 'undefined') {
+                const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+                firebaseUser = userCredential.user;
+                console.log("⚡ Logged in via Firebase (Fast)");
+            }
+        } catch (firebaseError) {
+            // ถ้า User Not Found (ยังไม่ได้ย้าย) ให้ข้ามไปขั้นตอน Fallback
+            if (firebaseError.code !== 'auth/user-not-found') {
+                console.warn("Firebase Login Warning:", firebaseError.message);
+            }
         }
 
-        // 2. FALLBACK: ถ้าไม่เจอใน Firebase ให้ไปถาม Google Apps Script
-        if (!result) {
-            console.log("🐌 User not found in Firebase, falling back to GAS...");
-            result = await apiCall('POST', 'verifyCredentials', { 
-                username: username, 
+        // -----------------------------------------------------
+        // 2. ถ้าไม่เจอใน Firebase -> ไปเช็คกับระบบเก่า (GAS)
+        // -----------------------------------------------------
+        if (!firebaseUser) {
+            console.log("🐌 User not found in Firebase, verifying with GAS...");
+            
+            // เช็ค username/password กับ Sheet เดิม
+            const result = await apiCall('POST', 'verifyCredentials', { 
+                username: usernameInput, 
                 password: password 
             });
+
+            if (result.status === 'success') {
+                userData = result.user; // ได้ข้อมูลผู้ใช้จาก Sheet
+
+                // =================================================
+                // ★★★ จุดสำคัญ: Lazy Migration (สร้างบัญชี Firebase ทันที) ★★★
+                // =================================================
+                if (typeof firebase !== 'undefined') {
+                    try {
+                        console.log("🚀 Migrating user to Firebase Auth...");
+                        
+                        // 1. สร้าง User ใน Firebase Auth ด้วยรหัสเดิม
+                        const newUserCred = await firebase.auth().createUserWithEmailAndPassword(email, password);
+                        firebaseUser = newUserCred.user;
+
+                        // 2. อัปเดตข้อมูล Profile ลง Firestore (เพื่อให้ Security Rules ทำงานได้)
+                        const uid = firebaseUser.uid;
+                        await firebase.firestore().collection('users').doc(uid).set({
+                            username: usernameInput,
+                            fullName: userData.fullName || usernameInput,
+                            position: userData.position || 'User',
+                            role: userData.role || 'user',
+                            department: userData.department || '',
+                            email: userData.email || '',
+                            migratedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        }, { merge: true });
+
+                        console.log("✅ Migration Complete for:", usernameInput);
+
+                    } catch (migrationError) {
+                        console.error("Migration Failed:", migrationError);
+                        // ถ้าสร้างไม่สำเร็จ (เช่น Email ซ้ำ) ก็ปล่อยให้เข้าใช้งานได้ไปก่อน
+                    }
+                }
+
+            } else {
+                // รหัสผ่านผิดทั้ง Firebase และ GAS
+                throw new Error(result.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+            }
         }
-        
-        if (result.status === 'success') {
-            sessionStorage.setItem('currentUser', JSON.stringify(result.user));
-            window.currentUser = result.user;
+
+        // -----------------------------------------------------
+        // 3. Login สำเร็จ (ไม่ว่าจะทางไหน) -> เข้าสู่ระบบ
+        // -----------------------------------------------------
+        if (firebaseUser || userData) {
+            // ถ้าได้ userData จาก GAS ก็ใช้เลย แต่ถ้า Login ผ่าน Firebase ต้องไปดึง Profile มา
+            let finalUserObj = userData;
+
+            if (!finalUserObj && firebaseUser) {
+                // ดึงข้อมูลล่าสุดจาก Firestore (กรณี Login ผ่าน Firebase)
+                const doc = await firebase.firestore().collection('users').doc(firebaseUser.uid).get();
+                if (doc.exists) {
+                    finalUserObj = doc.data();
+                } else {
+                    // Fallback กรณีไม่มี Data
+                    finalUserObj = { username: usernameInput, role: 'user' }; 
+                }
+            }
+
+            sessionStorage.setItem('currentUser', JSON.stringify(finalUserObj));
+            window.currentUser = finalUserObj;
             
-            initializeUserSession(result.user);
+            initializeUserSession(finalUserObj);
             showMainApp();
             await switchPage('dashboard-page');
             
             if (typeof fetchUserRequests === 'function') fetchUserRequests();
             
             showAlert('สำเร็จ', 'เข้าสู่ระบบสำเร็จ');
-        } else {
-            document.getElementById('login-error').textContent = result.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
-            document.getElementById('login-error').classList.remove('hidden');
         }
+
     } catch (error) {
         console.error('Login error:', error);
-        document.getElementById('login-error').textContent = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
+        document.getElementById('login-error').textContent = error.message || 'เกิดข้อผิดพลาด';
         document.getElementById('login-error').classList.remove('hidden');
     } finally {
         toggleLoader('login-button', false);
     }
 }
-
 function handleLogout() {
     sessionStorage.removeItem('currentUser');
     window.currentUser = null;
