@@ -394,10 +394,34 @@ async function populateEditForm(requestData) {
         const attendeesList = document.getElementById('edit-attendees-list');
         attendeesList.innerHTML = '';
         
-        if (requestData.attendees && requestData.attendees.length > 0) {
-            requestData.attendees.forEach((attendee) => {
-                if (attendee.name && attendee.position) {
-                    addEditAttendeeField(attendee.name, attendee.position);
+        // [แก้ไข] แปลงข้อมูล attendees ให้เป็น Array เสมอ ไม่ว่าจะมาเป็น String หรือ Array
+        let attendeesList = [];
+        if (requestData.attendees) {
+            if (Array.isArray(requestData.attendees)) {
+                attendeesList = requestData.attendees;
+            } else if (typeof requestData.attendees === 'string') {
+                try {
+                    attendeesList = JSON.parse(requestData.attendees);
+                } catch (e) {
+                    console.warn("Parse attendees error:", e);
+                    attendeesList = [];
+                }
+            }
+        }
+
+        // เคลียร์ค่าเดิมก่อน
+        const attendeesListEl = document.getElementById('edit-attendees-list');
+        if (attendeesListEl) attendeesListEl.innerHTML = '';
+
+        // วนลูปแสดงข้อมูล
+        if (attendeesList && attendeesList.length > 0) {
+            attendeesList.forEach((attendee) => {
+                // รองรับทั้งเคสที่มี Property name/position หรือไม่มี
+                const name = attendee.name || attendee['ชื่อ-นามสกุล'] || '';
+                const position = attendee.position || attendee['ตำแหน่ง'] || '';
+                
+                if (name) {
+                    addEditAttendeeField(name, position);
                 }
             });
         }
