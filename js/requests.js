@@ -391,32 +391,29 @@ async function populateEditForm(requestData) {
         document.getElementById('edit-start-date').value = formatDateForInput(requestData.startDate);
         document.getElementById('edit-end-date').value = formatDateForInput(requestData.endDate);
         
-        const attendeesList = document.getElementById('edit-attendees-list');
-        attendeesList.innerHTML = '';
+        // --- ส่วนที่แก้ไข (แก้ชื่อตัวแปรซ้ำจาก attendeesList เป็น attendeesListEl และ attendeesData) ---
+        const attendeesListEl = document.getElementById('edit-attendees-list');
+        if (attendeesListEl) attendeesListEl.innerHTML = '';
         
-        // [แก้ไข] แปลงข้อมูล attendees ให้เป็น Array เสมอ ไม่ว่าจะมาเป็น String หรือ Array
-        let attendeesList = [];
+        // ใช้ชื่อตัวแปรใหม่ 'attendeesData' เพื่อไม่ให้ชนกับ Element ID
+        let attendeesData = [];
         if (requestData.attendees) {
             if (Array.isArray(requestData.attendees)) {
-                attendeesList = requestData.attendees;
+                attendeesData = requestData.attendees;
             } else if (typeof requestData.attendees === 'string') {
                 try {
-                    attendeesList = JSON.parse(requestData.attendees);
+                    attendeesData = JSON.parse(requestData.attendees);
                 } catch (e) {
                     console.warn("Parse attendees error:", e);
-                    attendeesList = [];
+                    attendeesData = [];
                 }
             }
         }
 
-        // เคลียร์ค่าเดิมก่อน
-        const attendeesListEl = document.getElementById('edit-attendees-list');
-        if (attendeesListEl) attendeesListEl.innerHTML = '';
-
         // วนลูปแสดงข้อมูล
-        if (attendeesList && attendeesList.length > 0) {
-            attendeesList.forEach((attendee) => {
-                // รองรับทั้งเคสที่มี Property name/position หรือไม่มี
+        if (attendeesData && attendeesData.length > 0) {
+            attendeesData.forEach((attendee) => {
+                // รองรับทั้งเคสที่มี Property name/position หรือไม่มี (เผื่อข้อมูลเก่า)
                 const name = attendee.name || attendee['ชื่อ-นามสกุล'] || '';
                 const position = attendee.position || attendee['ตำแหน่ง'] || '';
                 
@@ -425,6 +422,7 @@ async function populateEditForm(requestData) {
                 }
             });
         }
+        // ---------------------------------------------------------------------------
         
         if (requestData.expenseOption === 'partial') {
             document.getElementById('edit-expense_partial').checked = true;
@@ -464,15 +462,20 @@ async function populateEditForm(requestData) {
                     document.getElementById('edit-license-plate').value = requestData.licensePlate;
                 }
                  if (requestData.vehicleOption === 'public' && requestData.publicVehicleDetails) {
-                     document.getElementById('edit-public-vehicle-details').value = requestData.publicVehicleDetails;
+                     // ใช้ ID ที่ถูกต้องตาม HTML ที่แก้ไปก่อนหน้า
+                     const publicInput = document.getElementById('edit-public-vehicle-details');
+                     if(publicInput) publicInput.value = requestData.publicVehicleDetails;
                 }
             }
         }
         
         if (requestData.department) {
             document.getElementById('edit-department').value = requestData.department;
-            const headNameInput = document.getElementById('edit-head-name');
-            headNameInput.value = specialPositionMap[requestData.department] || '';
+            // อัปเดตชื่อหัวหน้างานอัตโนมัติ (ถ้ามี map)
+            if (typeof specialPositionMap !== 'undefined') {
+                const headNameInput = document.getElementById('edit-head-name');
+                if(headNameInput) headNameInput.value = specialPositionMap[requestData.department] || '';
+            }
         }
         if (requestData.headName) {
             document.getElementById('edit-head-name').value = requestData.headName;
@@ -1465,3 +1468,4 @@ async function saveEditRequest() {
         }
     }
 }
+
