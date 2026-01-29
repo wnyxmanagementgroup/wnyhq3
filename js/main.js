@@ -1,8 +1,5 @@
 // --- PAGE NAVIGATION & EVENT LISTENERS ---
-
-// --- ไฟล์ main.js ---
-
-// --- นำไปทับฟังก์ชัน switchPage เดิมในไฟล์ js/main.js ---
+let notificationUnsubscribe = null;
 
 async function switchPage(targetPageId) {
     console.log("🔄 Switching to page:", targetPageId);
