@@ -1,4 +1,5 @@
 // --- PAGE NAVIGATION & EVENT LISTENERS ---
+
 let notificationUnsubscribe = null;
 
 async function switchPage(targetPageId) {
@@ -546,7 +547,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // ✅ เรียกใช้ฟังก์ชันตรวจสอบสถานะ PDF Server
     checkPDFServerStatus();
-    let notificationUnsubscribe = null;
     setupEventListeners();
     enhanceEditFunctionSafety();
     
