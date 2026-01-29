@@ -19,12 +19,15 @@ async function generatePdfFromCloudRun(templateName, data) {
     const baseUrl = PDF_ENGINE_CONFIG.BASE_URL.replace(/\/$/, ""); 
     const url = `${baseUrl}/generate`; 
 
+    // ★★★ ส่ง attachments ไปให้ Cloud Run ด้วย ★★★
+    // data.attachments ควรเป็น Array ของ URL ไฟล์ PDF ที่ต้องการรวม
+    
     const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             template: templateName,
-            data: data
+            data: data 
         })
     });
 
@@ -33,39 +36,38 @@ async function generatePdfFromCloudRun(templateName, data) {
 }
 
 // ==========================================
-// 2. ปรับปรุงฟังก์ชันสร้างเอกสาร (Fast Mode + Attachments)
+// 2. ปรับปรุงฟังก์ชันสร้างเอกสาร (Cloud Run Only Mode)
 // ==========================================
 
 /**
- * สร้างคำสั่ง (Command) แบบ Fast Hybrid
+ * สร้างคำสั่ง (Command) โดยให้ Cloud Run จัดการรวมไฟล์ให้เลย
  */
 async function generateCommandHybrid(data) {
     if (typeof db === 'undefined' || !db || !USE_FIREBASE) throw new Error("Firebase not initialized");
 
-    const docId = data.id.replace(/\//g, '-');
-    console.log("🚀 Starting Command Generation (Fast Hybrid)...");
+    const docId = data.id.replace(/[\/\\\:\.]/g, '-');
+    console.log("🚀 Starting Command Generation (Cloud Run All-in-One)...");
 
     try {
         // 1. อัปเดตสถานะ
         await db.collection('requests').doc(docId).set({
-            commandStatus: 'กำลังดำเนินการสร้าง (Cloud Run)...',
+            commandStatus: 'กำลังดำเนินการสร้างและรวมไฟล์ (Cloud Run)...',
             lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
 
-        // 2. GAS Background (Backup)
+        // 2. GAS Background (Backup Doc) - สั่งทำ Doc ต้นฉบับเก็บไว้ (ไม่รอ)
         apiCall('POST', 'generateCommand', data)
             .then(async (gasResult) => {
                 if (gasResult.status === 'success') {
-                    console.log("✅ GAS Background Backup Completed");
+                    console.log("✅ GAS Doc Backup Completed");
                     await db.collection('requests').doc(docId).set({
-                        commandDocUrl: gasResult.data.docUrl || '',
-                        driveBackupPdfUrl: gasResult.data.pdfUrl || ''
+                        commandDocUrl: gasResult.data.docUrl || ''
                     }, { merge: true });
                 }
             })
-            .catch(err => console.warn("⚠️ GAS Network Error (Backup skipped):", err.message));
+            .catch(err => console.warn("⚠️ GAS Backup Error:", err.message));
 
-        // 3. เริ่ม Cloud Run (Main Task)
+        // 3. เริ่ม Cloud Run (Main Task + Merge)
         let templateName = PDF_ENGINE_CONFIG.TEMPLATES.COMMAND_SOLO;
         if (data.attendees && data.attendees.length > 0) {
             templateName = data.attendees.length <= 15 
@@ -73,51 +75,26 @@ async function generateCommandHybrid(data) {
                 : PDF_ENGINE_CONFIG.TEMPLATES.COMMAND_LARGE;
         }
 
-        // สร้าง PDF หลัก
-        const mainPdfBlob = await generatePdfFromCloudRun(templateName, data);
+        // ★★★ เรียก Cloud Run ทีเดียว ได้ไฟล์รวมเสร็จสรรพ ★★★
+        const finalPdfBlob = await generatePdfFromCloudRun(templateName, data);
         
-        // =========================================================
-        // ★★★ ส่วนที่เพิ่ม: รวมไฟล์แนบ (Merge Attachments) ★★★
-        // =========================================================
-        let finalPdfBlob = mainPdfBlob;
-        
-        // ตรวจสอบว่ามีไฟล์แนบไหม (รองรับทั้ง key 'attachments' และ 'attachmentFiles')
-        const attachments = data.attachments || data.attachmentFiles;
-        
-        if (attachments && attachments.length > 0) {
-            console.log("📎 Found attachments, merging...", attachments.length);
-            try {
-                // เรียกใช้ฟังก์ชัน mergePdfs จาก utils.js
-                if (typeof mergePdfs === 'function') {
-                    finalPdfBlob = await mergePdfs(mainPdfBlob, attachments);
-                    console.log("✅ Merge attachments success");
-                } else {
-                    console.warn("⚠️ mergePdfs function not found in utils.js");
-                }
-            } catch (mergeError) {
-                console.error("❌ Merge Failed (Using main file only):", mergeError);
-                // ถ้า Merge พัง ให้ใช้ไฟล์หลักไปก่อน ดีกว่าพังทั้งหมด
-            }
-        }
-        // =========================================================
-
         const filename = `command_${docId}_${Date.now()}.pdf`;
         const cloudRunUrl = await uploadToStorage(finalPdfBlob, `generated_docs/${docId}/${filename}`);
 
         // 4. บันทึกผลลัพธ์
         const updateData = {
             commandStatus: 'เสร็จสิ้น',
-            commandBookUrl: cloudRunUrl, 
-            pdfSource: 'cloud-run'
+            commandBookUrl: cloudRunUrl, // ลิงก์นี้คือไฟล์ที่รวมเสร็จแล้ว
+            pdfSource: 'cloud-run-integrated'
         };
 
         await db.collection('requests').doc(docId).set(updateData, { merge: true });
-        console.log("⚡ Cloud Run Finished. Returning result immediately.");
+        console.log("⚡ Cloud Run Finished (Merged).");
 
         return { status: 'success', data: updateData };
 
     } catch (cloudRunError) {
-        console.warn("🔥 Cloud Run failed:", cloudRunError);
+        console.error("🔥 Cloud Run failed:", cloudRunError);
         await db.collection('requests').doc(docId).set({
             commandStatus: 'เกิดข้อผิดพลาด',
             errorLog: cloudRunError.message
@@ -128,17 +105,17 @@ async function generateCommandHybrid(data) {
 
 
 /**
- * สร้างบันทึกข้อความ (Dispatch) แบบ Fast Hybrid
+ * สร้างบันทึกข้อความ (Dispatch) แบบ Cloud Run Only
  */
 async function generateDispatchHybrid(data) {
     if (typeof db === 'undefined' || !db || !USE_FIREBASE) throw new Error("Firebase not initialized");
 
-    const docId = data.id.replace(/\//g, '-');
-    console.log("🚀 Starting Dispatch Generation (Fast Hybrid)...");
+    const docId = data.id.replace(/[\/\\\:\.]/g, '-');
+    console.log("🚀 Starting Dispatch Generation (Cloud Run All-in-One)...");
 
     try {
         await db.collection('requests').doc(docId).set({
-            dispatchStatus: 'กำลังดำเนินการสร้าง (Cloud Run)...',
+            dispatchStatus: 'กำลังดำเนินการสร้างและรวมไฟล์ (Cloud Run)...',
             lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
 
@@ -146,50 +123,28 @@ async function generateDispatchHybrid(data) {
         apiCall('POST', 'generateDispatch', data)
             .then(async (gasResult) => {
                 if (gasResult.status === 'success') {
-                    console.log("✅ GAS Background Backup Completed");
                     await db.collection('requests').doc(docId).set({
                         dispatchDocUrl: gasResult.data.docUrl || '',
-                        dispatchBookDocUrl: gasResult.data.docUrl || '',
-                        driveBackupPdfUrl: gasResult.data.pdfUrl || ''
+                        dispatchBookDocUrl: gasResult.data.docUrl || ''
                     }, { merge: true });
                 }
             })
-            .catch(err => console.warn("⚠️ GAS Background Error (Backup skipped):", err.message));
+            .catch(err => console.warn("⚠️ GAS Backup Error:", err.message));
 
-        // Cloud Run (Main)
-        const mainPdfBlob = await generatePdfFromCloudRun(PDF_ENGINE_CONFIG.TEMPLATES.DISPATCH, data);
+        // Cloud Run (Main + Merge)
+        const finalPdfBlob = await generatePdfFromCloudRun(PDF_ENGINE_CONFIG.TEMPLATES.DISPATCH, data);
         
-        // =========================================================
-        // ★★★ ส่วนที่เพิ่ม: รวมไฟล์แนบ (Merge Attachments) ★★★
-        // =========================================================
-        let finalPdfBlob = mainPdfBlob;
-        const attachments = data.attachments || data.attachmentFiles;
-        
-        if (attachments && attachments.length > 0) {
-            console.log("📎 Found attachments, merging...", attachments.length);
-            try {
-                if (typeof mergePdfs === 'function') {
-                    finalPdfBlob = await mergePdfs(mainPdfBlob, attachments);
-                    console.log("✅ Merge attachments success");
-                }
-            } catch (mergeError) {
-                console.error("❌ Merge Failed:", mergeError);
-            }
-        }
-        // =========================================================
-
         const filename = `dispatch_${docId}_${Date.now()}.pdf`;
         const cloudRunUrl = await uploadToStorage(finalPdfBlob, `generated_docs/${docId}/${filename}`);
 
-        // Update
         const updateData = {
             dispatchStatus: 'เสร็จสิ้น',
             dispatchBookUrl: cloudRunUrl,
-            pdfSource: 'cloud-run'
+            pdfSource: 'cloud-run-integrated'
         };
 
         await db.collection('requests').doc(docId).set(updateData, { merge: true });
-        console.log("⚡ Cloud Run Finished. Returning result immediately.");
+        console.log("⚡ Cloud Run Finished (Merged).");
 
         return { status: 'success', data: updateData };
 
