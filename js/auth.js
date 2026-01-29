@@ -8,7 +8,7 @@ async function handleLogin(e) {
     e.preventDefault();
     
     const usernameInput = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value;
+    const password = document.getElementById('password').value; // รหัสผ่านจริงที่ user พิมพ์
 
     if (!usernameInput || !password) {
         showAlert('ผิดพลาด', 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
@@ -24,20 +24,25 @@ async function handleLogin(e) {
         // แปลง Username เป็น Email
         const email = `${usernameInput}@wny.app`; 
         
+        // ★★★ แปลงรหัสผ่านสำหรับ Firebase (ถ้าสั้นกว่า 6 ตัว ให้เติม 0) ★★★
+        const firebasePassword = adjustPasswordForFirebase(password);
+        
         let firebaseUser = null;
         let userData = null;
 
         // -----------------------------------------------------
-        // 1. ลอง Login ผ่าน Firebase Auth ก่อน (Fast Login)
+        // 1. ลอง Login ผ่าน Firebase Auth (ใช้รหัสที่ปรับแล้ว)
         // -----------------------------------------------------
         try {
             if (typeof firebase !== 'undefined') {
-                const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+                // ใช้ firebasePassword ในการล็อกอิน
+                const userCredential = await firebase.auth().signInWithEmailAndPassword(email, firebasePassword);
                 firebaseUser = userCredential.user;
                 console.log("⚡ Logged in via Firebase (Fast)");
             }
         } catch (firebaseError) {
-            if (firebaseError.code !== 'auth/user-not-found') {
+            // ถ้า User Not Found หรือรหัสผิด (ใน Firebase) ให้ข้ามไปเช็คกับ GAS
+            if (firebaseError.code !== 'auth/user-not-found' && firebaseError.code !== 'auth/wrong-password') {
                 console.warn("Firebase Login Warning:", firebaseError.message);
             }
         }
@@ -48,6 +53,7 @@ async function handleLogin(e) {
         if (!firebaseUser) {
             console.log("🐌 User not found in Firebase, verifying with GAS...");
             
+            // ★ ส่งรหัสผ่าน "ต้นฉบับ" (password) ไปเช็คกับ Google Sheet
             const result = await apiCall('POST', 'verifyCredentials', { 
                 username: usernameInput, 
                 password: password 
@@ -60,9 +66,12 @@ async function handleLogin(e) {
                 if (typeof firebase !== 'undefined') {
                     try {
                         console.log("🚀 Migrating user to Firebase Auth...");
-                        const newUserCred = await firebase.auth().createUserWithEmailAndPassword(email, password);
+                        
+                        // ★ สร้างบัญชีใหม่ด้วยรหัสที่ปรับแล้ว (firebasePassword)
+                        const newUserCred = await firebase.auth().createUserWithEmailAndPassword(email, firebasePassword);
                         firebaseUser = newUserCred.user;
 
+                        // บันทึกข้อมูล Profile ลง Firestore
                         await firebase.firestore().collection('users').doc(firebaseUser.uid).set({
                             username: usernameInput,
                             fullName: userData.fullName || usernameInput,
@@ -75,6 +84,7 @@ async function handleLogin(e) {
 
                     } catch (migrationError) {
                         console.error("Migration Failed:", migrationError);
+                        // ถ้าสร้างไม่สำเร็จ (เช่น Email ซ้ำในระบบแต่ Password ผิด) ก็ปล่อยผ่านให้ใช้ Session GAS ไปก่อน
                     }
                 }
             } else {
@@ -83,12 +93,13 @@ async function handleLogin(e) {
         }
 
         // -----------------------------------------------------
-        // 3. Login สำเร็จ -> เข้าสู่ระบบ
+        // 3. Login สำเร็จ (ไม่ว่าจะทางไหน) -> เข้าสู่ระบบ
         // -----------------------------------------------------
         if (firebaseUser || userData) {
             let finalUserObj = userData;
 
             if (!finalUserObj && firebaseUser) {
+                // ดึงข้อมูลล่าสุดจาก Firestore (กรณี Login ผ่าน Firebase)
                 const doc = await firebase.firestore().collection('users').doc(firebaseUser.uid).get();
                 if (doc.exists) {
                     finalUserObj = doc.data();
@@ -103,14 +114,11 @@ async function handleLogin(e) {
             initializeUserSession(finalUserObj);
             showMainApp();
 
-            // ★★★ จุดแก้ไขสำคัญ ★★★
-            // 1. เรียกประกาศให้เด้งขึ้นมาทันที (ไม่ต้องรอเปลี่ยนหน้า)
+            // เรียกประกาศให้เด้งขึ้นมาทันที
             checkAndShowAnnouncement();
 
-            // 2. เปลี่ยนหน้าไป Dashboard (ซึ่งเราจะแก้ให้มันโหลดข้อมูลแบบ Background)
+            // เปลี่ยนหน้าไป Dashboard
             await switchPage('dashboard-page');
-            
-            // (ลบบรรทัด fetchUserRequests เดิมออก เพราะใน switchPage มีเรียกแล้ว)
         }
 
     } catch (error) {
@@ -368,4 +376,15 @@ async function checkAndShowAnnouncement() {
     } catch (e) {
         console.warn("Announcement Error:", e);
     }
+}
+// ฟังก์ชันช่วยปรับรหัสผ่านให้ครบ 6 ตัว (สำหรับ Firebase เท่านั้น)
+function adjustPasswordForFirebase(password) {
+    if (!password) return "";
+    // ถ้ารหัสสั้นกว่า 6 ตัว ให้เติม "0" ต่อท้ายจนครบ 6 หรือมากกว่า
+    // เช่น "1234" -> "123400"
+    // เช่น "1" -> "100000"
+    if (password.length < 6) {
+        return password + "000000".slice(0, 6 - password.length);
+    }
+    return password;
 }
