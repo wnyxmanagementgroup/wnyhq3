@@ -15,7 +15,9 @@ async function generatePdfFromCloudRun(templateName, data) {
         throw new Error("Cloud Run PDF Engine configuration missing");
     }
 
-    const url = `${PDF_ENGINE_CONFIG.BASE_URL}generate`; 
+    // [แก้ไข 1] ลบเครื่องหมาย / ท้าย URL (ถ้ามี) เพื่อป้องกัน //generate
+    const baseUrl = PDF_ENGINE_CONFIG.BASE_URL.replace(/\/$/, ""); 
+    const url = `${baseUrl}/generate`; 
 
     const response = await fetch(url, {
         method: 'POST',
@@ -53,7 +55,8 @@ async function generateCommandHybrid(data) {
         }, { merge: true });
 
         // 2. สั่ง GAS ทำงานเบื้องหลัง (Background Task) - ไม่ต้อง await
-        const gasBackgroundTask = apiCall('POST', 'generateCommand', data)
+        // [แก้ไข 2] ลบ throw err ออก เพื่อไม่ให้เกิด Unhandled Promise Rejection
+        apiCall('POST', 'generateCommand', data)
             .then(async (gasResult) => {
                 if (gasResult.status === 'success') {
                     console.log("✅ GAS Background Backup Completed");
@@ -65,11 +68,10 @@ async function generateCommandHybrid(data) {
                 } else {
                     console.warn("⚠️ GAS Background Task Failed:", gasResult.message);
                 }
-                return gasResult;
             })
             .catch(err => {
-                console.error("⚠️ GAS Network Error:", err);
-                throw err;
+                // แค่ log เตือน แต่ไม่ต้อง throw ให้ระบบพัง
+                console.warn("⚠️ GAS Network Error (Backup skipped):", err.message);
             });
 
         // 3. เริ่ม Cloud Run (Main Task) - รออันนี้อันเดียว
@@ -90,7 +92,6 @@ async function generateCommandHybrid(data) {
             commandStatus: 'เสร็จสิ้น',
             commandBookUrl: cloudRunUrl, // ลิงก์หลักสำหรับแสดงผล
             pdfSource: 'cloud-run'
-            // หมายเหตุ: commandDocUrl จะยังไม่มีในตอนนี้ จะมาเมื่อ GAS ทำงานเสร็จ
         };
 
         await db.collection('requests').doc(docId).set(updateData, { merge: true });
@@ -99,33 +100,15 @@ async function generateCommandHybrid(data) {
         return { status: 'success', data: updateData };
 
     } catch (cloudRunError) {
-        console.warn("🔥 Cloud Run failed, waiting for GAS fallback...", cloudRunError);
+        console.warn("🔥 Cloud Run failed:", cloudRunError);
         
-        // กรณีฉุกเฉิน: ถ้า Cloud Run พัง เราถึงจะยอมรอ GAS (Fallback)
-        try {
-            // เรียก GAS Task เดิมที่รันค้างไว้มาใช้ต่อ
-            // (ตรงนี้เราต้องเรียก apiCall ใหม่อีกรอบ หรือใช้ Promise เดิมก็ได้ แต่เพื่อความชัวร์ใน scope ผมจะเรียกผ่าน Promise เดิมถ้าทำได้ แต่ในที่นี้ขอรอกระบวนการ Background ที่รันไปแล้ว)
-            
-            // เพื่อความง่ายในโค้ดและการจัดการ Scope: ถ้า Cloud Run พัง ให้เราแจ้ง User ว่ารอสักครู่
-            // หรือถ้าเราอยากใช้ Promise เดิมที่รันไปแล้ว เราต้องประกาศตัวแปรไว้นอก try แต่เพื่อป้องกันความซับซ้อน ผมแนะนำให้แจ้ง Error หรือรอ GAS ให้จบ
-            
-            // ปรับแก้: บันทึก Error ไว้ก่อน
-            await db.collection('requests').doc(docId).set({
-                commandStatus: 'ระบบ Cloud Run ขัดข้อง กำลังใช้ระบบสำรอง...',
-            }, { merge: true });
-
-            // ในกรณีนี้ GAS ทำงานอยู่แล้วใน Background เราแค่ปล่อยให้ GAS อัปเดต Status เองเมื่อเสร็จ
-            // หรือถ้าต้องการรอจริงๆ เพื่อ return ค่า
-            // (ในโค้ดนี้ผมเลือกที่จะ throw error ไปก่อนเพื่อให้ User กดลองใหม่ หรือรอ GAS อัปเดตหน้าจอเอง)
-            throw new Error("Cloud Run Error: " + cloudRunError.message + " (ระบบสำรองกำลังทำงาน กรุณารอสักครู่)");
-
-        } catch (finalError) {
-             await db.collection('requests').doc(docId).set({
-                commandStatus: 'เกิดข้อผิดพลาด',
-                errorLog: finalError.message
-            }, { merge: true });
-            throw finalError;
-        }
+        // บันทึก Error ลงฐานข้อมูลเพื่อให้ Admin ตรวจสอบได้
+        await db.collection('requests').doc(docId).set({
+            commandStatus: 'เกิดข้อผิดพลาด',
+            errorLog: cloudRunError.message
+        }, { merge: true });
+        
+        throw cloudRunError;
     }
 }
 
@@ -145,7 +128,7 @@ async function generateDispatchHybrid(data) {
             lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
 
-        // GAS Background Task
+        // GAS Background Task (แก้ไขเหมือนกัน)
         apiCall('POST', 'generateDispatch', data)
             .then(async (gasResult) => {
                 if (gasResult.status === 'success') {
@@ -157,7 +140,7 @@ async function generateDispatchHybrid(data) {
                     }, { merge: true });
                 }
             })
-            .catch(err => console.error("GAS Background Error:", err));
+            .catch(err => console.warn("⚠️ GAS Background Error (Backup skipped):", err.message));
 
         // Cloud Run Task (Main)
         const pdfBlob = await generatePdfFromCloudRun(PDF_ENGINE_CONFIG.TEMPLATES.DISPATCH, data);
