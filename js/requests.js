@@ -352,7 +352,16 @@ function setupEditPageEventListeners() {
     });
     
     document.getElementById('edit-add-attendee').addEventListener('click', () => addEditAttendeeField());
-    
+    const importBtn = document.getElementById('edit-import-excel');
+    const fileInput = document.getElementById('edit-excel-file-input');
+
+    if (importBtn && fileInput) {
+        // เมื่อกดปุ่มสีฟ้า -> ให้ไปกด input file ที่ซ่อนอยู่
+        importBtn.addEventListener('click', () => fileInput.click());
+        
+        // เมื่อเลือกไฟล์เสร็จ -> เรียกฟังก์ชันประมวลผล
+        fileInput.addEventListener('change', handleEditExcelImport);
+    }
     document.querySelectorAll('input[name="edit-expense_option"]').forEach(radio => {
         radio.addEventListener('change', toggleEditExpenseOptions);
     });
@@ -407,12 +416,20 @@ async function populateEditForm(requestData) {
                 : JSON.parse(requestData.attendees || '[]');
         }
 
+        // ดึงชื่อผู้ขอออกมาเพื่อใช้เปรียบเทียบ (ตัดช่องว่างหน้าหลัง)
+        const requesterNameCheck = (requestData.requesterName || '').trim();
+
         // วนลูปสร้างฟิลด์รายชื่อพร้อมข้อมูลเดิม
         if (attendeesData.length > 0) {
             attendeesData.forEach(att => {
                 const name = att.name || att['ชื่อ-นามสกุล'] || '';
                 const position = att.position || att['ตำแหน่ง'] || '';
-                if (name) addEditAttendeeField(name, position);
+                
+                // ★★★ แก้ไขตรงนี้: เพิ่มเงื่อนไขตรวจสอบชื่อซ้ำกับผู้ขอ ★★★
+                // ถ้ามีชื่อ และ ชื่อนั้น "ไม่ตรง" กับชื่อผู้ขอ -> ให้สร้างฟิลด์
+                if (name && name.trim() !== requesterNameCheck) {
+                    addEditAttendeeField(name, position);
+                }
             });
         }
         
@@ -976,6 +993,30 @@ function addAttendeeField() {
 }
 
 function toggleExpenseOptions() {
+    // ดึง ID ของกล่องต่างๆ มาเก็บไว้ในตัวแปร
+    const partialOptions = document.getElementById('partial-expense-options');
+    const totalContainer = document.getElementById('total-expense-container');
+    const attachmentContainer = document.getElementById('non-reimburse-attachments'); // เพิ่มตัวแปรสำหรับกล่องแนบไฟล์
+
+    // ตรวจสอบว่าเลือก "ขอเบิก" อยู่หรือไม่
+    const isPartial = document.getElementById('expense_partial').checked;
+
+    if (isPartial) {
+        // กรณี: เลือกขอเบิก
+        partialOptions.classList.remove('hidden');     // แสดงรายการค่าใช้จ่าย
+        totalContainer.classList.remove('hidden');     // แสดงช่องรวมเงิน
+        if (attachmentContainer) {
+            attachmentContainer.classList.add('hidden'); // ซ่อนกล่องแนบไฟล์
+        }
+    } else {
+        // กรณี: เลือกไม่ขอเบิก
+        partialOptions.classList.add('hidden');        // ซ่อนรายการค่าใช้จ่าย
+        totalContainer.classList.add('hidden');        // ซ่อนช่องรวมเงิน
+        if (attachmentContainer) {
+            attachmentContainer.classList.remove('hidden'); // แสดงกล่องแนบไฟล์
+        }
+    }
+}
     const partialOptions = document.getElementById('partial-expense-options');
     const totalContainer = document.getElementById('total-expense-container');
     if (document.getElementById('expense_partial').checked) {
@@ -985,7 +1026,6 @@ function toggleExpenseOptions() {
         partialOptions.classList.add('hidden');
         totalContainer.classList.add('hidden');
     }
-}
 
 function toggleVehicleDetails() {
     const privateDetails = document.getElementById('private-vehicle-details');
@@ -1005,7 +1045,7 @@ async function handleRequestFormSubmit(e) {
     const user = getCurrentUser();
     if (!user) { showAlert('ผิดพลาด', 'กรุณาเข้าสู่ระบบก่อน'); return; }
 
-    // --- 1. เตรียมข้อมูลจากฟอร์ม ---
+    // --- 1. เตรียมข้อมูลพื้นฐานจากฟอร์ม ---
     const formData = {
         username: user.username,
         docDate: document.getElementById('form-doc-date').value,
@@ -1015,7 +1055,6 @@ async function handleRequestFormSubmit(e) {
         purpose: document.getElementById('form-purpose').value,
         startDate: document.getElementById('form-start-date').value,
         endDate: document.getElementById('form-end-date').value,
-        // เก็บรายชื่อเป็น Array เพื่อให้ Firebase ใช้งานได้ทันที
         attendees: Array.from(document.querySelectorAll('#form-attendees-list > div')).map(div => {
             const select = div.querySelector('.attendee-position-select');
             let position = select.value;
@@ -1027,12 +1066,13 @@ async function handleRequestFormSubmit(e) {
         totalExpense: document.getElementById('form-total-expense').value || 0,
         vehicleOption: document.querySelector('input[name="vehicle_option"]:checked').value,
         licensePlate: document.getElementById('form-license-plate').value,
-        publicVehicleDetails: document.getElementById('edit-public-vehicle-details')?.value || '', // เพิ่มการเก็บรายละเอียดรถอื่นๆ
+        publicVehicleDetails: document.getElementById('edit-public-vehicle-details')?.value || '',
         department: document.getElementById('form-department').value,
         headName: document.getElementById('form-head-name').value,
         isEdit: false 
     };
 
+    // จัดการรายการค่าใช้จ่าย (กรณีขอเบิก)
     if (formData.expenseOption === 'partial') {
         document.querySelectorAll('input[name="expense_item"]:checked').forEach(chk => {
             const item = { name: chk.dataset.itemName };
@@ -1041,10 +1081,76 @@ async function handleRequestFormSubmit(e) {
         });
     }
 
+    // ============================================================
+    // ★★★ ส่วนที่เพิ่มใหม่: ตรวจสอบและเตรียมไฟล์ (กรณีไม่เบิก) ★★★
+    // ============================================================
+    let fileExchangeObj = null;
+    let fileRefDocObj = null;
+    let fileOtherObj = null;
+
+    if (formData.expenseOption === 'no') {
+        const fileExchangeInput = document.getElementById('file-exchange');
+        const fileRefDocInput = document.getElementById('file-ref-doc');
+        const fileOtherInput = document.getElementById('file-other');
+
+        // Validation: ตรวจสอบว่าแนบไฟล์บังคับครบหรือไม่
+        if (!fileExchangeInput || !fileExchangeInput.files[0]) {
+            showAlert('ข้อมูลไม่ครบ', 'กรุณาแนบไฟล์ "1. ไฟล์แลกคาบสอน"');
+            if(fileExchangeInput) fileExchangeInput.focus();
+            return;
+        }
+        if (!fileRefDocInput || !fileRefDocInput.files[0]) {
+            showAlert('ข้อมูลไม่ครบ', 'กรุณาแนบไฟล์ "2. หนังสือราชการต้นเรื่อง"');
+            if(fileRefDocInput) fileRefDocInput.focus();
+            return;
+        }
+
+        // แปลงไฟล์เป็น Object เพื่อเตรียมอัปโหลด
+        try {
+            toggleLoader('submit-request-button', true); // แสดง Loader ชั่วคราวขณะอ่านไฟล์
+            fileExchangeObj = await fileToObject(fileExchangeInput.files[0]);
+            fileRefDocObj = await fileToObject(fileRefDocInput.files[0]);
+            if (fileOtherInput && fileOtherInput.files[0]) {
+                fileOtherObj = await fileToObject(fileOtherInput.files[0]);
+            }
+        } catch (err) {
+            toggleLoader('submit-request-button', false);
+            showAlert('ไฟล์ผิดพลาด', 'ไม่สามารถอ่านไฟล์ได้: ' + err.message);
+            return;
+        }
+    }
+    // ============================================================
+
     toggleLoader('submit-request-button', true);
     
     try {
-        // --- 2. สร้างข้อมูลในระบบ GAS (Google Sheets) เพื่อจองเลขที่เอกสาร ---
+        // ============================================================
+        // ★★★ ส่วนที่เพิ่มใหม่: อัปโหลดไฟล์แนบขึ้น Server ก่อน ★★★
+        // ============================================================
+        if (formData.expenseOption === 'no') {
+            console.log("📤 Uploading required attachments...");
+            
+            const uploadUserFile = async (fileObj, prefix) => {
+                if (!fileObj) return '';
+                const res = await apiCall('POST', 'uploadGeneratedFile', {
+                    data: fileObj.data,
+                    filename: `${prefix}_${user.username}_${Date.now()}.${fileObj.mimeType.split('/')[1] || 'pdf'}`,
+                    mimeType: fileObj.mimeType,
+                    username: user.username
+                });
+                if (res.status === 'success') return res.url;
+                throw new Error('Upload failed for ' + prefix);
+            };
+
+            // อัปโหลดและเก็บ URL ลง formData ทันที
+            if (fileExchangeObj) formData.fileExchangeUrl = await uploadUserFile(fileExchangeObj, 'Exchange');
+            if (fileRefDocObj) formData.fileRefDocUrl = await uploadUserFile(fileRefDocObj, 'RefDoc');
+            if (fileOtherObj) formData.fileOtherUrl = await uploadUserFile(fileOtherObj, 'Other');
+        }
+        // ============================================================
+
+
+        // --- 2. สร้างข้อมูลในระบบ GAS (Google Sheets) ---
         let result;
         if (typeof createRequestHybrid === 'function' && typeof USE_FIREBASE !== 'undefined' && USE_FIREBASE) {
             result = await createRequestHybrid(formData);
@@ -1057,7 +1163,7 @@ async function handleRequestFormSubmit(e) {
             const safeId = newRequestId.replace(/[\/\\:\.]/g, '-');
             console.log("✅ ID Created:", newRequestId);
 
-            // --- 3. สร้าง PDF ---
+            // --- 3. สร้าง PDF ใบขอบันทึกข้อความ ---
             const pdfData = { ...formData, doctype: 'memo', id: newRequestId, btnId: 'submit-request-button' };
             const { pdfBlob } = await generateOfficialPDF(pdfData);
 
@@ -1076,22 +1182,23 @@ async function handleRequestFormSubmit(e) {
 
             const downloadUrl = uploadPdfResult.status === 'success' ? uploadPdfResult.url : '';
 
-            // --- 5. อัปโหลดไฟล์แนบ (ถ้ามี) ---
-            const fileInput = document.getElementById('form-file-attachment');
-            let attachmentUrl = null;
+            // --- 5. อัปโหลดไฟล์แนบแบบทั่วไป (Legacy Support - ถ้ามี) ---
+            // ส่วนนี้เก็บไว้เผื่อกรณีแนบไฟล์แบบเก่าที่ไม่ใช่เงื่อนไข "ไม่เบิก"
+            const fileInput = document.getElementById('form-file-attachment'); 
+            let legacyAttachmentUrl = null;
             if (fileInput && fileInput.files.length > 0) {
                 const file = fileInput.files[0];
                 const fileObj = await fileToObject(file);
                 const uploadFileResult = await apiCall('POST', 'uploadGeneratedFile', {
                     data: fileObj.data, filename: file.name, mimeType: file.type, username: user.username
                 });
-                if (uploadFileResult.status === 'success') attachmentUrl = uploadFileResult.url;
+                if (uploadFileResult.status === 'success') legacyAttachmentUrl = uploadFileResult.url;
             }
 
             // --- 6. [สำคัญ] บันทึกข้อมูลทั้งหมดลง Firestore (Full Backup) ---
             if (typeof db !== 'undefined') {
                 const fullDataToSave = {
-                    ...formData, // บันทึกข้อมูลฟอร์มทั้งหมด (รวม attendees)
+                    ...formData, // ข้อมูลนี้จะมี URL ไฟล์แนบใหม่ (fileExchangeUrl ฯลฯ) ติดไปด้วยแล้ว
                     id: newRequestId,
                     requestId: newRequestId,
                     pdfUrl: downloadUrl,
@@ -1100,10 +1207,9 @@ async function handleRequestFormSubmit(e) {
                     timestamp: firebase.firestore.FieldValue.serverTimestamp()
                 };
                 
-                if (attachmentUrl) fullDataToSave.fileUrl = attachmentUrl;
+                if (legacyAttachmentUrl) fullDataToSave.fileUrl = legacyAttachmentUrl;
 
                 try {
-                    // ใช้ set with merge เพื่อบันทึกข้อมูลให้ครบ
                     await db.collection('requests').doc(safeId).set(fullDataToSave, { merge: true });
                     console.log("✅ Full data saved to Firebase");
                 } catch (e) { console.warn("Firestore update error:", e); }
@@ -1123,6 +1229,11 @@ async function handleRequestFormSubmit(e) {
             document.getElementById('form-result').classList.remove('hidden');
             document.getElementById('request-form').reset();
             document.getElementById('form-attendees-list').innerHTML = '';
+            
+            // ซ่อนกล่องแนบไฟล์หลังรีเซ็ต
+            if(document.getElementById('non-reimburse-attachments')) {
+                document.getElementById('non-reimburse-attachments').classList.add('hidden');
+            }
             
             clearRequestsCache();
             if (typeof fetchUserRequests === 'function') await fetchUserRequests(); 

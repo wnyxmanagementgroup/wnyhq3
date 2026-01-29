@@ -2,6 +2,8 @@
 
 // --- แก้ไขในไฟล์ js/auth.js ---
 
+// --- นำไปแทนที่ฟังก์ชัน handleLogin เดิมในไฟล์ js/auth.js ---
+
 async function handleLogin(e) {
     e.preventDefault();
     
@@ -19,8 +21,7 @@ async function handleLogin(e) {
     try {
         console.log('Attempting login for:', usernameInput);
         
-        // แปลง Username เป็น Email (เพราะ Firebase Auth ต้องใช้อีเมล)
-        // คุณสามารถเปลี่ยน @wny.app เป็นโดเมนจริงของคุณได้
+        // แปลง Username เป็น Email
         const email = `${usernameInput}@wny.app`; 
         
         let firebaseUser = null;
@@ -36,7 +37,6 @@ async function handleLogin(e) {
                 console.log("⚡ Logged in via Firebase (Fast)");
             }
         } catch (firebaseError) {
-            // ถ้า User Not Found (ยังไม่ได้ย้าย) ให้ข้ามไปขั้นตอน Fallback
             if (firebaseError.code !== 'auth/user-not-found') {
                 console.warn("Firebase Login Warning:", firebaseError.message);
             }
@@ -48,29 +48,22 @@ async function handleLogin(e) {
         if (!firebaseUser) {
             console.log("🐌 User not found in Firebase, verifying with GAS...");
             
-            // เช็ค username/password กับ Sheet เดิม
             const result = await apiCall('POST', 'verifyCredentials', { 
                 username: usernameInput, 
                 password: password 
             });
 
             if (result.status === 'success') {
-                userData = result.user; // ได้ข้อมูลผู้ใช้จาก Sheet
+                userData = result.user;
 
-                // =================================================
-                // ★★★ จุดสำคัญ: Lazy Migration (สร้างบัญชี Firebase ทันที) ★★★
-                // =================================================
+                // Lazy Migration: สร้างบัญชี Firebase ทันที
                 if (typeof firebase !== 'undefined') {
                     try {
                         console.log("🚀 Migrating user to Firebase Auth...");
-                        
-                        // 1. สร้าง User ใน Firebase Auth ด้วยรหัสเดิม
                         const newUserCred = await firebase.auth().createUserWithEmailAndPassword(email, password);
                         firebaseUser = newUserCred.user;
 
-                        // 2. อัปเดตข้อมูล Profile ลง Firestore (เพื่อให้ Security Rules ทำงานได้)
-                        const uid = firebaseUser.uid;
-                        await firebase.firestore().collection('users').doc(uid).set({
+                        await firebase.firestore().collection('users').doc(firebaseUser.uid).set({
                             username: usernameInput,
                             fullName: userData.fullName || usernameInput,
                             position: userData.position || 'User',
@@ -80,34 +73,26 @@ async function handleLogin(e) {
                             migratedAt: firebase.firestore.FieldValue.serverTimestamp()
                         }, { merge: true });
 
-                        console.log("✅ Migration Complete for:", usernameInput);
-
                     } catch (migrationError) {
                         console.error("Migration Failed:", migrationError);
-                        // ถ้าสร้างไม่สำเร็จ (เช่น Email ซ้ำ) ก็ปล่อยให้เข้าใช้งานได้ไปก่อน
                     }
                 }
-
             } else {
-                // รหัสผ่านผิดทั้ง Firebase และ GAS
                 throw new Error(result.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
             }
         }
 
         // -----------------------------------------------------
-        // 3. Login สำเร็จ (ไม่ว่าจะทางไหน) -> เข้าสู่ระบบ
+        // 3. Login สำเร็จ -> เข้าสู่ระบบ
         // -----------------------------------------------------
         if (firebaseUser || userData) {
-            // ถ้าได้ userData จาก GAS ก็ใช้เลย แต่ถ้า Login ผ่าน Firebase ต้องไปดึง Profile มา
             let finalUserObj = userData;
 
             if (!finalUserObj && firebaseUser) {
-                // ดึงข้อมูลล่าสุดจาก Firestore (กรณี Login ผ่าน Firebase)
                 const doc = await firebase.firestore().collection('users').doc(firebaseUser.uid).get();
                 if (doc.exists) {
                     finalUserObj = doc.data();
                 } else {
-                    // Fallback กรณีไม่มี Data
                     finalUserObj = { username: usernameInput, role: 'user' }; 
                 }
             }
@@ -117,11 +102,15 @@ async function handleLogin(e) {
             
             initializeUserSession(finalUserObj);
             showMainApp();
+
+            // ★★★ จุดแก้ไขสำคัญ ★★★
+            // 1. เรียกประกาศให้เด้งขึ้นมาทันที (ไม่ต้องรอเปลี่ยนหน้า)
+            checkAndShowAnnouncement();
+
+            // 2. เปลี่ยนหน้าไป Dashboard (ซึ่งเราจะแก้ให้มันโหลดข้อมูลแบบ Background)
             await switchPage('dashboard-page');
             
-            if (typeof fetchUserRequests === 'function') fetchUserRequests();
-            
-            showAlert('สำเร็จ', 'เข้าสู่ระบบสำเร็จ');
+            // (ลบบรรทัด fetchUserRequests เดิมออก เพราะใน switchPage มีเรียกแล้ว)
         }
 
     } catch (error) {
@@ -337,4 +326,46 @@ function togglePasswordVisibility() {
     
     if (currentPassword) currentPassword.type = showPassword ? 'text' : 'password';
     if (newPassword) newPassword.type = showPassword ? 'text' : 'password';
+}
+// [เพิ่มท้ายไฟล์ หรือในส่วน Utility]
+function closeAnnouncement() {
+    const modal = document.getElementById('announcement-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+// --- ในไฟล์ js/auth.js ---
+
+async function checkAndShowAnnouncement() {
+    if (typeof db === 'undefined') return;
+
+    try {
+        const doc = await db.collection('settings').doc('announcement').get();
+        if (doc.exists) {
+            const data = doc.data();
+            
+            if (data.isActive) {
+                document.getElementById('announcement-title').textContent = data.title || 'ประกาศ';
+                document.getElementById('announcement-message').textContent = data.message || '';
+                
+                const img = document.getElementById('announcement-image');
+                if (data.imageUrl) {
+                    // ★★★ แก้ไขตรงนี้: แปลงลิงก์ก่อนแสดงผล ★★★
+                    let displayUrl = data.imageUrl;
+                    if (displayUrl.includes('drive.google.com') && displayUrl.includes('/d/')) {
+                        const fileId = displayUrl.split('/d/')[1].split('/')[0];
+                        displayUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
+                    }
+                    
+                    img.src = displayUrl;
+                    img.classList.remove('hidden');
+                } else {
+                    img.classList.add('hidden');
+                }
+                
+                document.getElementById('announcement-modal').style.display = 'flex';
+            }
+        }
+    } catch (e) {
+        console.warn("Announcement Error:", e);
+    }
 }

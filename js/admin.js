@@ -158,6 +158,8 @@ async function handleAdminGenerateCommand() {
 
 // --- RENDER FUNCTIONS ---
 
+// --- แก้ไขในไฟล์ js/admin.js ---
+
 function renderAdminRequestsList(requests) {
     const container = document.getElementById('admin-requests-list');
     
@@ -177,11 +179,8 @@ function renderAdminRequestsList(requests) {
             attendeesList = typeof request.attendees === 'string' ? JSON.parse(request.attendees) : (request.attendees || []);
         } catch(e) { attendeesList = []; }
 
-        // คำนวณจำนวนคนรวม: ตรวจสอบว่าในรายชื่อมีชื่อผู้ขอหรือยังเพื่อไม่ให้นับซ้ำ
         const reqName = (request.requesterName || "").trim();
         const hasRequesterInList = attendeesList.some(att => (att.name || "").trim() === reqName);
-        
-        // ถ้ามีชื่อผู้ขอในลิสต์แล้ว ใช้ความยาวลิสต์ได้เลย ถ้าไม่มีให้ +1
         const totalPeople = (attendeesList.length > 0) ? (hasRequesterInList ? attendeesList.length : attendeesList.length + 1) : (request.attendeeCount ? parseInt(request.attendeeCount) + 1 : 1);
         
         let peopleCategory = totalPeople === 1 ? "คำสั่งเดี่ยว" : (totalPeople <= 5 ? "คำสั่งกลุ่มเล็ก" : "คำสั่งกลุ่มใหญ่");
@@ -192,19 +191,37 @@ function renderAdminRequestsList(requests) {
         const safeLocation = escapeHtml(request.location);
         const safeDate = `${formatDisplayDate(request.startDate)} - ${formatDisplayDate(request.endDate)}`;
 
+        // 2. ตรรกะปุ่ม Action (เพิ่มปุ่มหนังสือส่ง)
         let commandActionButtons = '';
+        
+        // ตรวจสอบว่ามีหนังสือส่งหรือยัง (รองรับทั้งชื่อตัวแปรเก่าและใหม่)
+        const dispatchUrl = request.dispatchBookUrl || request.dispatchBookPdfUrl;
+        
         if (request.commandPdfUrl) {
+            // กรณีออกคำสั่งแล้ว -> แสดงปุ่ม [ดูคำสั่ง] [หนังสือส่ง] [แก้ไข]
             commandActionButtons = `
-                <div class="flex flex-wrap gap-2 justify-end">
+                <div class="flex flex-wrap gap-2 justify-end mt-2 md:mt-0">
                     <a href="${request.commandPdfUrl}" target="_blank" class="btn bg-blue-600 hover:bg-blue-700 text-white btn-sm flex items-center gap-1 shadow-sm px-3">
                         📄 ดูคำสั่ง
                     </a>
+                    
+                    ${dispatchUrl ? `
+                        <a href="${dispatchUrl}" target="_blank" class="btn bg-purple-600 hover:bg-purple-700 text-white btn-sm flex items-center gap-1 shadow-sm px-3">
+                            📦 ดูหนังสือส่ง
+                        </a>
+                    ` : `
+                        <button onclick="openDispatchModal('${safeId}')" class="btn bg-purple-500 hover:bg-purple-600 text-white btn-sm flex items-center gap-1 shadow-sm px-3">
+                            📦 ออกหนังสือส่ง
+                        </button>
+                    `}
+
                     <button onclick="openAdminGenerateCommand('${safeId}')" class="btn bg-yellow-500 hover:bg-yellow-600 text-white btn-sm flex items-center gap-1 shadow-sm px-3">
                         ✏️ แก้ไข/ออกใหม่
                     </button>
                 </div>
             `;
         } else {
+            // กรณีรอยังไม่ได้ออกคำสั่ง -> แสดงปุ่ม [ออกคำสั่ง]
             commandActionButtons = `
                 <button onclick="openAdminGenerateCommand('${safeId}')" class="btn bg-green-500 hover:bg-green-600 text-white btn-sm shadow-sm w-full md:w-auto">
                     ✅ ออกคำสั่ง (${peopleCategory})
@@ -214,27 +231,31 @@ function renderAdminRequestsList(requests) {
 
         return `
         <div class="border rounded-xl p-5 bg-white shadow-sm hover:shadow-md transition duration-200 mb-4 border-l-4 ${request.commandPdfUrl ? 'border-l-green-500' : 'border-l-yellow-400'}">
-            <div class="flex justify-between items-start flex-wrap gap-4">
+            <div class="flex flex-col md:flex-row justify-between items-start gap-4">
                 <div class="flex-1 min-w-[250px]">
                     <div class="flex items-center gap-2 mb-1">
                         <h4 class="font-bold text-indigo-700 text-lg">${safeId}</h4>
                         <span class="text-xs px-2 py-0.5 rounded-full ${request.commandPdfUrl ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">
                             ${request.commandPdfUrl ? 'ออกคำสั่งแล้ว' : 'รอออกคำสั่ง'}
                         </span>
+                        ${dispatchUrl ? `<span class="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">มีหนังสือส่ง</span>` : ''}
                     </div>
                     <p class="text-gray-800 font-bold text-md mb-1">${safeName}</p>
-                    <p class="text-gray-600 text-sm mb-2">${safePurpose}</p>
-                    <div class="flex items-center gap-4 text-sm text-gray-500 bg-gray-50 p-2 rounded-lg inline-block">
-                        <div class="flex items-center gap-1"><span>📍</span> ${safeLocation}</div>
-                        <div class="border-l pl-4 flex items-center gap-1"><span>📅</span> ${safeDate}</div>
+                    <p class="text-gray-600 text-sm mb-2 line-clamp-2">${safePurpose}</p>
+                    <div class="flex flex-wrap items-center gap-2 text-sm text-gray-500 bg-gray-50 p-2 rounded-lg">
+                        <div class="flex items-center gap-1">📍 ${safeLocation}</div>
+                        <div class="border-l border-gray-300 pl-2 ml-1 flex items-center gap-1">📅 ${safeDate}</div>
                     </div>
                     <p class="text-xs text-gray-400 mt-2">
                         จำนวนผู้ไปราชการรวมทั้งหมด: ${totalPeople} คน
                     </p>
                 </div>
-                <div class="flex flex-col gap-2 items-end w-full md:w-auto">
-                    <button onclick="deleteRequestByAdmin('${safeId}')" class="btn bg-red-100 text-red-600 hover:bg-red-200 btn-xs mb-2 flex items-center gap-1 self-end">🗑️ ลบ</button>
-                    ${request.pdfUrl ? `<a href="${request.pdfUrl}" target="_blank" class="text-xs text-indigo-500 hover:text-indigo-700 underline mb-2">📎 ดูบันทึกข้อความต้นเรื่อง</a>` : ''}
+                
+                <div class="flex flex-col gap-2 w-full md:w-auto items-end">
+                    <div class="flex gap-2">
+                         ${request.pdfUrl ? `<a href="${request.pdfUrl}" target="_blank" class="text-xs text-indigo-500 hover:text-indigo-700 underline flex items-center gap-1">📎 ดูบันทึกข้อความต้นเรื่อง</a>` : ''}
+                         <button onclick="deleteRequestByAdmin('${safeId}')" class="text-xs text-red-500 hover:text-red-700 underline flex items-center gap-1">🗑️ ลบรายการ</button>
+                    </div>
                     ${commandActionButtons}
                 </div>
             </div>
@@ -242,24 +263,44 @@ function renderAdminRequestsList(requests) {
     }).join('');
 }
 
+// --- แก้ไขในไฟล์ js/admin.js ---
+
 async function handleDispatchFormSubmit(e) {
     e.preventDefault();
     const requestId = document.getElementById('dispatch-request-id').value;
     
-    const requestData = {
-        doctype: 'dispatch',
-        id: requestId, 
-        dispatchMonth: document.getElementById('dispatch-month').value, 
-        dispatchYear: document.getElementById('dispatch-year').value, 
-        commandCount: document.getElementById('command-count').value, 
-        memoCount: document.getElementById('memo-count').value,
-        createdby: getCurrentUser() ? getCurrentUser().username : 'admin'
-    };
-    
+    // เริ่มแสดง Loader ทันที
     toggleLoader('dispatch-submit-button', true);
-    
+
     try {
-        console.log("🚀 Generating Dispatch via Cloud Run...");
+        // 1. [เพิ่มใหม่] ดึงข้อมูลรายละเอียดคำขอเดิม (เรื่อง, สถานที่, วันที่) มาก่อน
+        console.log("🔄 Fetching original request data for dispatch...");
+        let originalData = {};
+        
+        // ลองดึงข้อมูลจาก API
+        const fetchResult = await apiCall('GET', 'getDraftRequest', { requestId: requestId });
+        if (fetchResult.status === 'success') {
+            originalData = fetchResult.data.data || fetchResult.data;
+        } else {
+            throw new Error("ไม่สามารถดึงข้อมูลรายละเอียดคำขอได้");
+        }
+
+        // 2. รวมข้อมูลเดิม + ข้อมูลจากฟอร์มหนังสือส่ง
+        const requestData = {
+            ...originalData, // กระจายข้อมูลเดิม (purpose, location, dates จะมาตรงนี้)
+            
+            doctype: 'dispatch',
+            id: requestId, // ย้ำ ID อีกครั้ง
+            dispatchMonth: document.getElementById('dispatch-month').value, 
+            dispatchYear: document.getElementById('dispatch-year').value, 
+            commandCount: document.getElementById('command-count').value, 
+            memoCount: document.getElementById('memo-count').value,
+            createdby: getCurrentUser() ? getCurrentUser().username : 'admin'
+        };
+        
+        console.log("🚀 Generating Dispatch via Cloud Run...", requestData);
+        
+        // 3. ส่งข้อมูลที่ครบถ้วนไปสร้าง PDF
         const { pdfBlob } = await generateOfficialPDF(requestData);
         
         const tempPdfUrl = URL.createObjectURL(pdfBlob);
@@ -281,24 +322,27 @@ async function handleDispatchFormSubmit(e) {
         
         const uploadResult = await apiCall('POST', 'uploadGeneratedFile', {
             data: pdfBase64,
-            filename: `หนังสือส่ง_${requestId.replace(/\//g,'-')}.pdf`,
+            filename: `หนังสือส่ง_${requestId.replace(/[\/\\:\.]/g, '-')}.pdf`,
             mimeType: 'application/pdf',
             username: requestData.createdby
         });
         
-        if (uploadResult.status !== 'success') throw new Error("Upload failed");
+        if (uploadResult.status !== 'success') throw new Error("Upload failed: " + uploadResult.message);
         const permanentPdfUrl = uploadResult.url;
 
+        // อัปเดตข้อมูลกลับไปยัง GAS
         requestData.preGeneratedPdfUrl = permanentPdfUrl;
-        await apiCall('POST', 'generateDispatchBook', requestData);
+        await apiCall('POST', 'generateDispatchBook', requestData); // ฟังก์ชันนี้ใน GAS อาจจะแค่บันทึก URL
 
+        // อัปเดตข้อมูลกลับไปยัง Firebase
         const safeId = requestId.replace(/[\/\\:\.]/g, '-');
         if (typeof db !== 'undefined') {
              try {
                 await db.collection('requests').doc(safeId).set({
-                    dispatchBookPdfUrl: permanentPdfUrl
+                    dispatchBookPdfUrl: permanentPdfUrl,
+                    dispatchBookUrl: permanentPdfUrl // เผื่อไว้สำหรับการเข้าถึง key เก่า
                 }, { merge: true });
-             } catch (e) {}
+             } catch (e) { console.warn("Firebase update error", e); }
         }
 
         const msg = document.getElementById('dispatch-saving-msg');
@@ -311,7 +355,8 @@ async function handleDispatchFormSubmit(e) {
         await fetchAllRequestsForCommand();
 
     } catch (error) {
-        showAlert('แจ้งเตือน', 'เปิดไฟล์สำเร็จ แต่บันทึกไม่ผ่าน: ' + error.message);
+        console.error(error);
+        showAlert('แจ้งเตือน', 'เกิดข้อผิดพลาด: ' + error.message);
     } finally {
         toggleLoader('dispatch-submit-button', false);
     }
@@ -1104,5 +1149,108 @@ async function syncAllDataFromSheetToFirebase() {
         showAlert('ผิดพลาด', 'เกิดข้อผิดพลาดในการซิงค์: ' + error.message);
     } finally {
         if(btn) toggleLoader('admin-sync-btn', false);
+    }
+}
+// [เพิ่มท้ายไฟล์]
+
+// --- ANNOUNCEMENT MANAGEMENT ---
+
+async function loadAdminAnnouncementSettings() {
+    if (!checkAdminAccess()) return;
+    
+    // Reset Form
+    document.getElementById('announcement-active').checked = false;
+    document.getElementById('announcement-title-input').value = '';
+    document.getElementById('announcement-message-input').value = '';
+    document.getElementById('current-announcement-img-preview').classList.add('hidden');
+
+    try {
+        const doc = await db.collection('settings').doc('announcement').get();
+        if (doc.exists) {
+            const data = doc.data();
+            document.getElementById('announcement-active').checked = data.isActive || false;
+            document.getElementById('announcement-title-input').value = data.title || '';
+            document.getElementById('announcement-message-input').value = data.message || '';
+            
+            if (data.imageUrl) {
+                const preview = document.getElementById('current-announcement-img-preview');
+                preview.classList.remove('hidden');
+                
+                // ★★★ แก้ไขตรงนี้: แปลงลิงก์ก่อนแสดงผล ★★★
+                let displayUrl = data.imageUrl;
+                if (displayUrl.includes('drive.google.com') && displayUrl.includes('/d/')) {
+                    // ดึง File ID ออกมาแล้วสร้างลิงก์แบบ Direct
+                    const fileId = displayUrl.split('/d/')[1].split('/')[0];
+                    displayUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
+                }
+                
+                preview.querySelector('img').src = displayUrl;
+            }
+        }
+    } catch (e) { 
+        console.error("Load Announcement Error:", e);
+        showAlert('แจ้งเตือน', 'ไม่สามารถโหลดข้อมูลประกาศล่าสุดได้');
+    }
+}
+
+async function handleSaveAnnouncement(e) {
+    e.preventDefault();
+    if (!checkAdminAccess()) return;
+
+    toggleLoader('save-announcement-btn', true);
+
+    try {
+        const isActive = document.getElementById('announcement-active').checked;
+        const title = document.getElementById('announcement-title-input').value;
+        const message = document.getElementById('announcement-message-input').value;
+        const fileInput = document.getElementById('announcement-image-input');
+        
+        let imageUrl = null;
+
+        // ถ้ามีการอัปโหลดรูปใหม่
+        if (fileInput.files.length > 0) {
+            const file = fileInput.files[0];
+            const fileObj = await fileToObject(file);
+            
+            // อัปโหลดไปเก็บที่ Drive (ใช้ API เดิม)
+            const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
+                data: fileObj.data,
+                filename: `announcement_${Date.now()}.jpg`,
+                mimeType: file.type,
+                username: getCurrentUser().username
+            });
+            
+            if (uploadRes.status === 'success') {
+                imageUrl = uploadRes.url;
+            }
+        } else {
+            // ถ้าไม่ได้อัปใหม่ ให้ใช้รูปเดิม (ดึงจาก src ของ preview)
+            const previewImg = document.querySelector('#current-announcement-img-preview img');
+            if (previewImg && !document.getElementById('current-announcement-img-preview').classList.contains('hidden')) {
+                imageUrl = previewImg.src;
+            }
+        }
+
+        // บันทึกลง Firestore Collection 'settings' Document 'announcement'
+        await db.collection('settings').doc('announcement').set({
+            isActive,
+            title,
+            message,
+            imageUrl,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedBy: getCurrentUser().username
+        }, { merge: true });
+
+        showAlert('สำเร็จ', 'บันทึกประกาศเรียบร้อยแล้ว');
+        
+        // ล้างค่า input file
+        fileInput.value = '';
+        loadAdminAnnouncementSettings(); 
+
+    } catch (error) {
+        console.error(error);
+        showAlert('ผิดพลาด', 'บันทึกไม่สำเร็จ: ' + error.message);
+    } finally {
+        toggleLoader('save-announcement-btn', false);
     }
 }

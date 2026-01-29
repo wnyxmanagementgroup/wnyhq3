@@ -188,4 +188,58 @@ function getStatusColor(status) {
     };
     return statusColors[status] || 'text-gray-600';
 }
+// --- PDF MERGE UTILITIES ---
 
+/**
+ * ฟังก์ชันรวมไฟล์ PDF (Main PDF + Attachments)
+ * @param {Blob} mainPdfBlob - ไฟล์ PDF หลักที่ระบบสร้างขึ้น
+ * @param {Array} attachmentFiles - รายการไฟล์แนบ (URL string หรือ File object)
+ * @returns {Promise<Blob>} - ไฟล์ PDF ที่รวมเสร็จแล้ว
+ */
+async function mergePDFs(mainPdfBlob, attachmentFiles = []) {
+    try {
+        const { PDFDocument } = PDFLib;
+        const mergedPdf = await PDFDocument.create();
+        
+        // Helper: โหลดไฟล์ PDF เป็น ArrayBuffer
+        const loadPdfBytes = async (source) => {
+            if (source instanceof Blob || source instanceof File) {
+                return await source.arrayBuffer();
+            } else if (typeof source === 'string' && source.startsWith('http')) {
+                const res = await fetch(source);
+                if (!res.ok) throw new Error(`Cannot fetch PDF: ${source}`);
+                return await res.arrayBuffer();
+            }
+            return null;
+        };
+
+        // 1. ใส่ไฟล์หลักก่อน
+        const mainBytes = await loadPdfBytes(mainPdfBlob);
+        const mainDoc = await PDFDocument.load(mainBytes);
+        const copiedPagesMain = await mergedPdf.copyPages(mainDoc, mainDoc.getPageIndices());
+        copiedPagesMain.forEach((page) => mergedPdf.addPage(page));
+
+        // 2. วนลูปใส่ไฟล์แนบ
+        for (const file of attachmentFiles) {
+            try {
+                const bytes = await loadPdfBytes(file);
+                if (bytes) {
+                    const doc = await PDFDocument.load(bytes);
+                    const copiedPages = await mergedPdf.copyPages(doc, doc.getPageIndices());
+                    copiedPages.forEach((page) => mergedPdf.addPage(page));
+                }
+            } catch (err) {
+                console.warn("Skipping invalid attachment:", err);
+            }
+        }
+
+        // 3. บันทึกและคืนค่าเป็น Blob
+        const mergedBytes = await mergedPdf.save();
+        return new Blob([mergedBytes], { type: 'application/pdf' });
+
+    } catch (error) {
+        console.error("Merge PDF Error:", error);
+        // ถ้า error ให้คืนค่าไฟล์หลักเดิมไปแทน (กันระบบพัง)
+        return mainPdfBlob;
+    }
+}

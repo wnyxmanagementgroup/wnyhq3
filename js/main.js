@@ -2,35 +2,41 @@
 
 // --- ไฟล์ main.js ---
 
+// --- นำไปทับฟังก์ชัน switchPage เดิมในไฟล์ js/main.js ---
+
 async function switchPage(targetPageId) {
     console.log("🔄 Switching to page:", targetPageId);
     
-    // ซ่อนทุกหน้า
+    // 1. ซ่อนทุกหน้าก่อน
     document.querySelectorAll('.page-view').forEach(page => { page.classList.add('hidden'); });
     
-    // แสดงหน้าเป้าหมาย
+    // 2. แสดงหน้าเป้าหมายทันที (เพื่อให้ UI ตอบสนองไว)
     const targetPage = document.getElementById(targetPageId);
     if (targetPage) { targetPage.classList.remove('hidden'); }
 
-    // จัดการปุ่มเมนู (Active State)
+    // 3. ปรับสถานะปุ่มเมนู (Active State)
     document.querySelectorAll('.nav-button').forEach(btn => {
         btn.classList.remove('active');
         if(btn.dataset.target === targetPageId) { btn.classList.add('active'); }
     });
 
-    // Logic เฉพาะของแต่ละหน้า
+    // --- Logic เฉพาะของแต่ละหน้า (Parallel Processing) ---
+
     if (targetPageId === 'edit-page') { 
         setTimeout(() => { setupEditPageEventListeners(); }, 100); 
     }
     
     if (targetPageId === 'dashboard-page') {
-        await fetchUserRequests(); // ดึงข้อมูล (Hybrid)
+        // [แก้ไข] ลบ await ออก เพื่อให้โหลดข้อมูลแบบ Background Process
+        // ผู้ใช้จะเห็น Loader หมุนๆ บนหน้าจอ แต่ Popup จะเด้งได้เลย
+        fetchUserRequests(); 
         
-        // ★★★ เพิ่มส่วนนี้: เรียกแสดง Pop-up แจ้งเตือน ★★★
+        // เรียก Popup แจ้งเตือนทันที
         showReminderModal();
     }
     
     if (targetPageId === 'form-page') { 
+        // ฟอร์มควรรอให้รีเซ็ตเสร็จก่อน เพื่อป้องกันข้อมูลค้าง
         await resetRequestForm(); 
         setTimeout(() => { tryAutoFillRequester(); }, 100); 
     }
@@ -40,11 +46,13 @@ async function switchPage(targetPageId) {
     }
     
     if (targetPageId === 'stats-page') {
-        if (typeof loadStatsData === 'function') await loadStatsData(); 
+        // [แก้ไข] ลบ await ออก ให้โหลดกราฟเบื้องหลัง
+        if (typeof loadStatsData === 'function') loadStatsData(); 
     }
     
     if (targetPageId === 'admin-users-page') {
-        if (typeof fetchAllUsers === 'function') await fetchAllUsers();
+        // [แก้ไข] ลบ await ออก
+        if (typeof fetchAllUsers === 'function') fetchAllUsers();
     }
     
     if (targetPageId === 'command-generation-page') { 
@@ -89,7 +97,98 @@ function setupVehicleOptions() {
         checkbox.addEventListener('change', toggleEditVehicleDetails); 
     });
 }
+// [เพิ่มฟังก์ชัน Real-time Notification]
+function startRealtimeNotifications() {
+    const user = getCurrentUser();
+    if (!user || typeof db === 'undefined') return;
 
+    // ถ้าเคยฟังอยู่แล้ว ให้ยกเลิกก่อนกันซ้ำ
+    if (notificationUnsubscribe) {
+        notificationUnsubscribe();
+    }
+
+    console.log("🔔 Starting Real-time Notification Listener...");
+
+    // ใช้ onSnapshot เพื่อฟังการเปลี่ยนแปลงข้อมูลแบบทันที
+    notificationUnsubscribe = db.collection('requests')
+        .where('username', '==', user.username)
+        .onSnapshot((snapshot) => {
+            let pendingCount = 0;
+            let pendingItems = [];
+
+            // วนลูปเช็คเอกสารทุกตัวที่มีการเปลี่ยนแปลง
+            snapshot.forEach((doc) => {
+                const req = doc.data();
+                const reqId = req.requestId || req.id;
+                
+                // Logic เดียวกับ updateNotifications เดิม
+                const hasCreated = (req.pdfUrl && req.pdfUrl !== '') || req.completedMemoUrl;
+                
+                // ตรวจสอบสถานะว่าเสร็จสิ้นหรือยัง
+                const isCompleted = (req.status === 'เสร็จสิ้น' || req.status === 'เสร็จสิ้น/รับไฟล์ไปใช้งาน' || req.memoStatus === 'เสร็จสิ้น/รับไฟล์ไปใช้งาน');
+                const isFixing = (req.status === 'นำกลับไปแก้ไข' || req.memoStatus === 'นำกลับไปแก้ไข');
+                
+                // ถ้าสร้างไฟล์แล้ว แต่ยังไม่เสร็จ หรือต้องแก้ไข -> นับเป็น pending
+                if (hasCreated && (!isCompleted || isFixing)) {
+                    pendingCount++;
+                    pendingItems.push({
+                        id: reqId,
+                        purpose: req.purpose,
+                        startDate: req.startDate,
+                        isFix: isFixing
+                    });
+                }
+            });
+
+            // อัปเดต UI ทันที
+            renderNotificationUI(pendingCount, pendingItems);
+        }, (error) => {
+            console.warn("Real-time Notification Error:", error);
+        });
+}
+
+function renderNotificationUI(count, items) {
+    const badge = document.getElementById('notification-badge');
+    const countText = document.getElementById('notification-count-text');
+    const listContainer = document.getElementById('notification-list');
+
+    if (!badge) return;
+
+    // Badge จุดแดง
+    if (count > 0) {
+        badge.textContent = count;
+        badge.classList.remove('hidden');
+        badge.classList.add('animate-bounce');
+        setTimeout(() => badge.classList.remove('animate-bounce'), 1000);
+    } else {
+        badge.classList.add('hidden');
+    }
+
+    if (countText) countText.textContent = `${count} รายการ`;
+
+    // Dropdown List
+    if (count === 0) {
+        listContainer.innerHTML = `<div class="p-8 text-center text-gray-400 flex flex-col items-center"><svg class="w-8 h-8 mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>ส่งครบทุกรายการแล้ว</div>`;
+    } else {
+        listContainer.innerHTML = items.map(item => {
+            const statusBadge = item.isFix 
+                ? `<span class="text-xs bg-red-100 text-red-600 px-1.5 rounded border border-red-200">แก้ไข</span>` 
+                : `<span class="text-xs bg-yellow-100 text-yellow-600 px-1.5 rounded border border-yellow-200">รอส่ง</span>`;
+            
+            return `
+            <div onclick="openSendMemoFromNotif('${item.id}')" class="p-3 hover:bg-indigo-50 cursor-pointer transition flex justify-between items-start group border-b border-gray-50 last:border-0">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="font-bold text-sm text-indigo-700">${escapeHtml(item.id || 'รอเลข')}</span>
+                        ${statusBadge}
+                    </div>
+                    <p class="text-xs text-gray-500 line-clamp-1">${escapeHtml(item.purpose)}</p>
+                </div>
+                <div class="text-indigo-400 opacity-0 group-hover:opacity-100 transition transform translate-x-[-5px] group-hover:translate-x-0">➤</div>
+            </div>`;
+        }).join('');
+    }
+}
 function setupEventListeners() {
     // --- Auth & User Management ---
     const loginForm = document.getElementById('login-form');
@@ -321,6 +420,28 @@ function setupEventListeners() {
     window.addEventListener('unhandledrejection', (event) => {
         console.error('Unhandled promise rejection:', event.reason);
     });
+    document.getElementById('admin-view-announcement-tab')?.addEventListener('click', (e) => {
+        // สลับ Active Tab
+        document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        
+        // สลับหน้าจอ Admin
+        document.getElementById('admin-requests-view').classList.add('hidden');
+        document.getElementById('admin-memos-view').classList.add('hidden');
+        document.getElementById('admin-announcement-view').classList.remove('hidden');
+        
+        // โหลดข้อมูลประกาศ
+        if(typeof loadAdminAnnouncementSettings === 'function') loadAdminAnnouncementSettings();
+    });
+
+    // Submit ฟอร์มประกาศ
+    document.getElementById('admin-announcement-form')?.addEventListener('submit', handleSaveAnnouncement);
+
+    // เริ่มต้นระบบแจ้งเตือน (ถ้า User Login อยู่แล้ว)
+    const currentUser = getCurrentUser();
+    if (currentUser) {
+        startRealtimeNotifications();
+    }
 }
 
 function handleExcelImport(e) {
@@ -428,7 +549,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // ✅ เรียกใช้ฟังก์ชันตรวจสอบสถานะ PDF Server
     checkPDFServerStatus();
-
+    let notificationUnsubscribe = null;
     setupEventListeners();
     enhanceEditFunctionSafety();
     
@@ -471,4 +592,127 @@ function setupYearSelectors() {
 
     createOptions('user-year-select');
     createOptions('admin-year-select');
+}
+// --- เพิ่ม Helper Function ไว้บนสุดหรือท้ายไฟล์ admin.js ---
+function convertToDirectLink(url) {
+    if (!url) return null;
+    try {
+        // ถ้าเป็นลิงก์ Google Drive แบบ View ให้แปลงเป็น Direct Link
+        if (url.includes('drive.google.com') && url.includes('/d/')) {
+            const fileId = url.split('/d/')[1].split('/')[0];
+            return `https://drive.google.com/uc?export=view&id=${fileId}`;
+        }
+    } catch (e) { console.error("Link conversion error", e); }
+    return url;
+}
+
+// ฟังก์ชันสำหรับดูตัวอย่างรูปทันทีที่วางลิงก์
+function updateAnnouncementPreview(url) {
+    const preview = document.getElementById('current-announcement-img-preview');
+    const img = preview.querySelector('img');
+    const directUrl = convertToDirectLink(url);
+    
+    if (directUrl) {
+        preview.classList.remove('hidden');
+        img.src = directUrl;
+    }
+}
+
+// --- แก้ไขฟังก์ชัน loadAdminAnnouncementSettings ---
+async function loadAdminAnnouncementSettings() {
+    if (!checkAdminAccess()) return;
+    
+    // Reset Form
+    document.getElementById('announcement-active').checked = false;
+    document.getElementById('announcement-title-input').value = '';
+    document.getElementById('announcement-message-input').value = '';
+    document.getElementById('announcement-image-input').value = ''; // Reset file input
+    document.getElementById('announcement-image-url-input').value = ''; // Reset url input
+    document.getElementById('current-announcement-img-preview').classList.add('hidden');
+
+    try {
+        const doc = await db.collection('settings').doc('announcement').get();
+        if (doc.exists) {
+            const data = doc.data();
+            document.getElementById('announcement-active').checked = data.isActive || false;
+            document.getElementById('announcement-title-input').value = data.title || '';
+            document.getElementById('announcement-message-input').value = data.message || '';
+            
+            if (data.imageUrl) {
+                const preview = document.getElementById('current-announcement-img-preview');
+                preview.classList.remove('hidden');
+                
+                // แปลงลิงก์ให้แสดงผลได้
+                const displayUrl = convertToDirectLink(data.imageUrl);
+                preview.querySelector('img').src = displayUrl;
+                
+                // ใส่ค่าลงในช่อง URL ด้วย เพื่อให้แอดมินเห็นว่าลิงก์เดิมคืออะไร
+                document.getElementById('announcement-image-url-input').value = displayUrl;
+            }
+        }
+    } catch (e) { 
+        console.error("Load Announcement Error:", e); 
+    }
+}
+
+// --- แก้ไขฟังก์ชัน handleSaveAnnouncement ---
+async function handleSaveAnnouncement(e) {
+    e.preventDefault();
+    if (!checkAdminAccess()) return;
+
+    toggleLoader('save-announcement-btn', true);
+
+    try {
+        const isActive = document.getElementById('announcement-active').checked;
+        const title = document.getElementById('announcement-title-input').value;
+        const message = document.getElementById('announcement-message-input').value;
+        
+        const fileInput = document.getElementById('announcement-image-input');
+        const urlInput = document.getElementById('announcement-image-url-input');
+        
+        let imageUrl = null;
+
+        // กรณีที่ 1: มีการอัปโหลดไฟล์ใหม่ (ให้ความสำคัญสูงสุด)
+        if (fileInput.files.length > 0) {
+            const file = fileInput.files[0];
+            const fileObj = await fileToObject(file);
+            
+            const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
+                data: fileObj.data,
+                filename: `announcement_${Date.now()}.jpg`,
+                mimeType: file.type,
+                username: getCurrentUser().username
+            });
+            
+            if (uploadRes.status === 'success') {
+                // ได้ลิงก์มาแล้ว แปลงเป็น Direct Link ทันที
+                imageUrl = convertToDirectLink(uploadRes.url);
+            }
+        } 
+        // กรณีที่ 2: ไม่ได้อัปไฟล์ใหม่ แต่มีลิงก์ในช่อง URL (ใช้ลิงก์นั้นเลย)
+        else if (urlInput.value.trim() !== '') {
+            imageUrl = convertToDirectLink(urlInput.value.trim());
+        }
+        // กรณีที่ 3: ถ้าไม่มีทั้งคู่ ให้เป็น null (ลบรูปออก)
+
+        await db.collection('settings').doc('announcement').set({
+            isActive,
+            title,
+            message,
+            imageUrl, // บันทึกลิงก์ที่แปลงแล้วลงฐานข้อมูล
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedBy: getCurrentUser().username
+        }, { merge: true });
+
+        showAlert('สำเร็จ', 'บันทึกประกาศเรียบร้อยแล้ว');
+        
+        // รีโหลดฟอร์ม
+        loadAdminAnnouncementSettings(); 
+
+    } catch (error) {
+        console.error(error);
+        showAlert('ผิดพลาด', 'บันทึกไม่สำเร็จ: ' + error.message);
+    } finally {
+        toggleLoader('save-announcement-btn', false);
+    }
 }
