@@ -368,171 +368,155 @@ function setupEditPageEventListeners() {
     });
 }
 
+// 1. ฟังก์ชันนำข้อมูลเข้าฟอร์ม (แก้ไขให้ดึงรายชื่อมาสร้างฟิลด์อัตโนมัติ)
+/**
+ * ฟังก์ชันเติมข้อมูลลงในแบบฟอร์มแก้ไข (Edit Form)
+ * แก้ไขปัญหา: รายชื่อหาย, ค่าใช้จ่ายไม่จำค่าเดิม, และรายละเอียด "อื่นๆ" ไม่ขึ้น
+ */
 async function populateEditForm(requestData) {
     try {
-        console.log("📝 Populating edit form with data:", requestData);
+        console.log("📝 กำลังเติมข้อมูลลงฟอร์มแก้ไข:", requestData);
         
         // --- 1. ข้อมูลพื้นฐานและ ID ---
-        // ป้องกันค่า null/undefined ด้วยการใส่ || ''
         document.getElementById('edit-draft-id').value = requestData.draftId || '';
         document.getElementById('edit-request-id').value = requestData.requestId || requestData.id || '';
         
-        // Helper Function สำหรับแปลงวันที่ให้เข้ากับ <input type="date">
-        const formatDateForInput = (dateValue) => {
+        const formatDate = (dateValue) => {
             if (!dateValue) return '';
-            try {
-                // รองรับทั้ง Date Object และ String
-                const date = new Date(dateValue);
-                if (isNaN(date.getTime())) return '';
-                return date.toISOString().split('T')[0]; // คืนค่า YYYY-MM-DD
-            } catch (e) { return ''; }
+            const d = new Date(dateValue);
+            return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
         };
         
-        document.getElementById('edit-doc-date').value = formatDateForInput(requestData.docDate);
+        document.getElementById('edit-doc-date').value = formatDate(requestData.docDate);
         document.getElementById('edit-requester-name').value = requestData.requesterName || '';
         document.getElementById('edit-requester-position').value = requestData.requesterPosition || '';
         document.getElementById('edit-location').value = requestData.location || '';
         document.getElementById('edit-purpose').value = requestData.purpose || '';
-        document.getElementById('edit-start-date').value = formatDateForInput(requestData.startDate);
-        document.getElementById('edit-end-date').value = formatDateForInput(requestData.endDate);
+        document.getElementById('edit-start-date').value = formatDate(requestData.startDate);
+        document.getElementById('edit-end-date').value = formatDate(requestData.endDate);
         
-        // --- 2. จัดการรายชื่อผู้ร่วมเดินทาง (ส่วนที่แก้ไขปัญหา "รายชื่อหาย") ---
+        // --- 2. จัดการรายชื่อผู้ร่วมเดินทาง (แก้ปัญหารายชื่อหาย) ---
         const attendeesListEl = document.getElementById('edit-attendees-list');
-        if (attendeesListEl) attendeesListEl.innerHTML = ''; // เคลียร์รายชื่อเก่าในหน้าจอก่อน
-        
+        if (attendeesListEl) attendeesListEl.innerHTML = ''; // ล้างข้อมูลเก่าก่อน
+
         let attendeesData = [];
-        
-        // ตรวจสอบและแปลงข้อมูลรายชื่อให้เป็น Array เสมอ
         if (requestData.attendees) {
-            if (Array.isArray(requestData.attendees)) {
-                // กรณีเป็น Array อยู่แล้ว (มาจาก Firebase)
-                attendeesData = requestData.attendees;
-            } else if (typeof requestData.attendees === 'string') {
-                // กรณีเป็น String (มาจาก Google Sheets) ให้แปลงกลับเป็น JSON
-                try {
-                    attendeesData = JSON.parse(requestData.attendees);
-                } catch (e) {
-                    console.warn("⚠️ Parse attendees error:", e);
-                    attendeesData = [];
-                }
-            }
+            // รองรับทั้ง Array และ JSON String
+            attendeesData = Array.isArray(requestData.attendees) 
+                ? requestData.attendees 
+                : JSON.parse(requestData.attendees || '[]');
         }
 
-        // วนลูปสร้าง Field สำหรับแต่ละรายชื่อ
-        if (attendeesData && attendeesData.length > 0) {
-            attendeesData.forEach((attendee) => {
-                // รองรับ Key ทั้งภาษาอังกฤษและภาษาไทย (เผื่อข้อมูลเก่า/ใหม่)
-                const name = attendee.name || attendee['ชื่อ-นามสกุล'] || '';
-                const position = attendee.position || attendee['ตำแหน่ง'] || '';
-                
-                if (name) {
-                    // เรียกฟังก์ชันสร้าง HTML (addEditAttendeeField ต้องมีอยู่ใน requests.js)
-                    addEditAttendeeField(name, position);
-                }
+        // วนลูปสร้างฟิลด์รายชื่อพร้อมข้อมูลเดิม
+        if (attendeesData.length > 0) {
+            attendeesData.forEach(att => {
+                const name = att.name || att['ชื่อ-นามสกุล'] || '';
+                const position = att.position || att['ตำแหน่ง'] || '';
+                if (name) addEditAttendeeField(name, position);
             });
         }
         
-        // --- 3. จัดการข้อมูลค่าใช้จ่าย ---
-        // รีเซ็ตค่าใช้จ่ายก่อน
-        document.querySelectorAll('input[name="edit-expense_option"]').forEach(r => r.checked = false);
-        document.querySelectorAll('input[name="edit-expense_item"]').forEach(c => c.checked = false);
-        document.getElementById('edit-expense_other_text').value = '';
-        document.getElementById('edit-total-expense').value = '';
+        // --- 3. จัดการข้อมูลค่าใช้จ่าย (แก้ปัญหาไม่จำค่าติ๊ก) ---
+        // รีเซ็ตค่าเริ่มต้น
+        const radioNo = document.getElementById('edit-expense_no');
+        const radioPartial = document.getElementById('edit-expense_partial');
+        if (radioNo) radioNo.checked = true; // Default เป็นไม่เบิกไว้ก่อน
 
-        if (requestData.expenseOption === 'partial') {
-            document.getElementById('edit-expense_partial').checked = true;
-            
-            // แปลงรายการค่าใช้จ่าย
-            let expenseItems = [];
-            if (requestData.expenseItems) {
-                if (Array.isArray(requestData.expenseItems)) {
-                    expenseItems = requestData.expenseItems;
-                } else if (typeof requestData.expenseItems === 'string') {
-                    try { expenseItems = JSON.parse(requestData.expenseItems); } catch(e) {}
-                }
-            }
-            
-            // ติ๊กเลือก Checkbox ตามข้อมูล
-            expenseItems.forEach(item => {
-                // หา Checkbox ที่มี data-item-name ตรงกับข้อมูล
-                const checkbox = document.querySelector(`input[name="edit-expense_item"][data-item-name="${item.name}"]`);
-                if (checkbox) {
-                    checkbox.checked = true;
-                    // กรณี "ค่าใช้จ่ายอื่นๆ" ให้ใส่รายละเอียดด้วย
-                    if (item.name === 'ค่าใช้จ่ายอื่นๆ' && item.detail) {
-                        document.getElementById('edit-expense_other_text').value = item.detail;
-                    }
-                }
-            });
-            
-            // ใส่ยอดเงินรวม
-            if (requestData.totalExpense) {
-                document.getElementById('edit-total-expense').value = requestData.totalExpense;
-            }
-        } else {
-            // กรณีไม่เบิก
-            const noExpenseRadio = document.getElementById('edit-expense_no');
-            if(noExpenseRadio) noExpenseRadio.checked = true;
+        // ตรวจสอบ Option การเบิก
+        const option = requestData.expenseOption;
+        if (option === 'partial' || option === 'ขอเบิกเฉพาะค่าใช้จ่าย') {
+            if (radioPartial) radioPartial.checked = true;
         }
-        // เรียกฟังก์ชันเพื่อแสดง/ซ่อน ส่วนค่าใช้จ่ายตาม Radio ที่เลือก
-        toggleEditExpenseOptions();
+
+        // จัดการรายการค่าใช้จ่าย (Checkboxes)
+        let expenseItems = [];
+        if (requestData.expenseItems) {
+            expenseItems = Array.isArray(requestData.expenseItems) 
+                ? requestData.expenseItems 
+                : JSON.parse(requestData.expenseItems || '[]');
+        }
+
+        // ล้างการติ๊ก Checkbox เดิมทั้งหมดก่อน
+        document.querySelectorAll('input[name="edit-expense_item"]').forEach(chk => chk.checked = false);
+        const otherTextInput = document.getElementById('edit-expense_other_text');
+        if (otherTextInput) otherTextInput.value = '';
+
+        // ติ๊กรายการตามข้อมูลในฐานข้อมูล
+        expenseItems.forEach(item => {
+            const itemName = item.name || item; // รองรับทั้ง Object และ String
+            const checkbox = document.querySelector(`input[name="edit-expense_item"][data-item-name="${itemName}"]`);
+            if (checkbox) {
+                checkbox.checked = true;
+                // ถ้าเป็นรายการ "อื่นๆ" ให้ใส่รายละเอียดด้วย
+                if (itemName === 'ค่าใช้จ่ายอื่นๆ' && otherTextInput) {
+                    otherTextInput.value = item.detail || '';
+                }
+            }
+        });
+
+        document.getElementById('edit-total-expense').value = requestData.totalExpense || '';
+        
+        // เรียกใช้ฟังก์ชันเพื่อซ่อน/แสดงส่วนค่าใช้จ่ายตามสถานะ Radio
+        toggleEditExpenseOptions(); 
         
         // --- 4. จัดการข้อมูลพาหนะ ---
-        // รีเซ็ตค่าพาหนะ
-        document.querySelectorAll('input[name="edit-vehicle_option"]').forEach(r => r.checked = false);
-        document.getElementById('edit-license-plate').value = '';
+        const vehicleOption = requestData.vehicleOption || 'gov';
+        const vehicleRadio = document.querySelector(`input[name="edit-vehicle_option"][value="${vehicleOption}"]`);
+        if (vehicleRadio) vehicleRadio.checked = true;
+
+        document.getElementById('edit-license-plate').value = requestData.licensePlate || '';
         const publicVehicleInput = document.getElementById('edit-public-vehicle-details');
-        if(publicVehicleInput) publicVehicleInput.value = '';
-
-        if (requestData.vehicleOption) {
-            // เลือก Radio พาหนะ
-            // เช่น edit-vehicle_gov, edit-vehicle_private
-            // หมายเหตุ: ต้องมั่นใจว่าใน HTML มี id="edit-vehicle_gov" ฯลฯ
-            // หรือใช้ querySelector เลือกตาม value ก็ได้เพื่อความชัวร์กว่า
-            const vehicleRadio = document.querySelector(`input[name="edit-vehicle_option"][value="${requestData.vehicleOption}"]`);
-            if (vehicleRadio) {
-                vehicleRadio.checked = true;
-                
-                if (requestData.vehicleOption === 'private') {
-                    document.getElementById('edit-license-plate').value = requestData.licensePlate || '';
-                } else if (requestData.vehicleOption === 'public') {
-                    if (publicVehicleInput) {
-                        // รองรับทั้ง publicVehicleDetails และ licensePlate (เผื่อข้อมูลเก่าเก็บผิดช่อง)
-                        publicVehicleInput.value = requestData.publicVehicleDetails || requestData.licensePlate || '';
-                    }
-                }
-            }
+        if (publicVehicleInput) {
+            publicVehicleInput.value = requestData.publicVehicleDetails || '';
         }
-        // เรียกฟังก์ชันเพื่อแสดง/ซ่อน รายละเอียดพาหนะ
+        
+        // เรียกใช้ฟังก์ชันเพื่อซ่อน/แสดงส่วนรายละเอียดรถ
         toggleEditVehicleDetails();
-        
-        // --- 5. ข้อมูลผู้ลงนาม (กลุ่มสาระ/งาน) ---
-        if (requestData.department) {
-            document.getElementById('edit-department').value = requestData.department;
-            
-            // อัปเดตชื่อหัวหน้างานอัตโนมัติ (ถ้ามี map และยังไม่มีชื่อหัวหน้ามา)
-            if (typeof specialPositionMap !== 'undefined' && !requestData.headName) {
-                const headNameInput = document.getElementById('edit-head-name');
-                if(headNameInput) headNameInput.value = specialPositionMap[requestData.department] || '';
-            }
-        }
-        
-        if (requestData.headName) {
-            document.getElementById('edit-head-name').value = requestData.headName;
-        }
 
-        console.log("✅ Populate form completed.");
+        // --- 5. ข้อมูลผู้ลงนาม ---
+        const deptSelect = document.getElementById('edit-department');
+        if (deptSelect) {
+            deptSelect.value = requestData.department || '';
+        }
+        document.getElementById('edit-head-name').value = requestData.headName || '';
+
+        console.log("✅ เติมข้อมูลลงฟอร์มสำเร็จ");
 
     } catch (error) {
-        console.error("❌ Error populating edit form:", error);
-        // ไม่ throw error เพื่อให้ระบบทำงานต่อได้ หรือจะ alert ก็ได้ตามต้องการ
-        showAlert("ข้อผิดพลาด", "ไม่สามารถดึงข้อมูลลงแบบฟอร์มได้ครบถ้วน: " + error.message);
+        console.error("❌ เกิดข้อผิดพลาดใน populateEditForm:", error);
+        showAlert("ข้อผิดพลาด", "ไม่สามารถดึงข้อมูลลงแบบฟอร์มได้ครบถ้วน");
     }
 }
 
-// --- แก้ไขในไฟล์ requests.js ---
+// 2. ฟังก์ชันจัดการการนำเข้าไฟล์ Excel/CSV ในหน้าแก้ไข (เพิ่มใหม่)
+async function handleEditExcelImport(e) {
+    const file = e.target.files[0];
+    if (!file) return;
 
-// --- แก้ไขใน js/requests.js ---
+    toggleLoader('edit-import-excel', true);
+    try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+        jsonData.forEach(row => {
+            const name = row['ชื่อ-นามสกุล'] || row['Name'];
+            const pos = row['ตำแหน่ง'] || row['Position'];
+            if (name) {
+                addEditAttendeeField(name, pos); // เพิ่มฟิลด์รายชื่อลงหน้าแก้ไข
+            }
+        });
+        showAlert('สำเร็จ', 'นำเข้าข้อมูลผู้ร่วมเดินทางเรียบร้อยแล้ว');
+    } catch (error) {
+        showAlert('ผิดพลาด', 'ไม่สามารถอ่านไฟล์ได้: ' + error.message);
+    } finally {
+        toggleLoader('edit-import-excel', false);
+        e.target.value = ''; // ล้างค่าเพื่อให้เลือกไฟล์เดิมซ้ำได้
+    }
+}
+
+
 
 async function openEditPage(requestId) {
     try {
@@ -1452,65 +1436,7 @@ function openSendMemoFromNotif(requestId) {
     document.getElementById('memo-modal-request-id').value = requestId;
     document.getElementById('send-memo-modal').style.display = 'flex';
 }
-// --- แก้ไขในไฟล์ requests.js ---
 
-async function openEditPage(requestId) {
-    try {
-        console.log("🔓 Opening edit page for request:", requestId);
-        
-        if (!requestId || requestId === 'undefined' || requestId === 'null') {
-            showAlert("ผิดพลาด", "ไม่พบรหัสคำขอ");
-            return;
-        }
-
-        const user = getCurrentUser();
-        if (!user) {
-            showAlert("ผิดพลาด", "กรุณาเข้าสู่ระบบใหม่");
-            return;
-        }
-        
-        // 1. Reset ฟอร์มก่อนเสมอ
-        resetEditPage();
-        
-        // 2. พยายามหาข้อมูลจาก Cache (ข้อมูลที่โชว์ในตาราง Dashboard) ก่อน เพื่อความเร็ว
-        let requestData = null;
-        if (typeof allRequestsCache !== 'undefined' && allRequestsCache.length > 0) {
-            // ค้นหาตาม ID หรือ RequestID
-            requestData = allRequestsCache.find(r => r.id === requestId || r.requestId === requestId);
-        }
-
-        // 3. ถ้าไม่เจอใน Cache ให้ไปโหลดจาก Server (API/Firebase)
-        if (!requestData) {
-            document.getElementById('edit-attendees-list').innerHTML = `
-                <div class="text-center p-4"><div class="loader mx-auto"></div><p class="mt-2">กำลังโหลดข้อมูล...</p></div>`;
-            
-            // เรียก Hybrid function หรือ API
-            const result = await apiCall('GET', 'getDraftRequest', { requestId: requestId, username: user.username });
-            
-            if (result.status === 'success' && result.data) {
-                requestData = result.data.data || result.data;
-            }
-        }
-
-        if (requestData) {
-            // บันทึก ID ไว้สำหรับการบันทึก
-            sessionStorage.setItem('currentEditRequestId', requestId);
-            
-            // เรียกฟังก์ชันใส่ข้อมูลลงฟอร์ม (Populate)
-            await populateEditForm(requestData);
-            
-            // สลับไปหน้า Edit
-            switchPage('edit-page');
-        } else {
-            showAlert("ผิดพลาด", "ไม่พบข้อมูลคำขอ หรือคุณไม่มีสิทธิ์เข้าถึง");
-        }
-
-    } catch (error) {
-        console.error(error);
-        showAlert("ผิดพลาด", "ไม่สามารถโหลดข้อมูลสำหรับแก้ไขได้: " + error.message);
-    }
-}
-// --- วางต่อท้ายไฟล์ requests.js ---
 
 // ฟังก์ชันบันทึกการแก้ไข (พร้อม Backup ลง Firebase เพื่อกันข้อมูลรายชื่อหาย)
 async function saveEditRequest() {

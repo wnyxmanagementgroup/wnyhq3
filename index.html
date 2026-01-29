@@ -413,14 +413,20 @@
                         </fieldset>
                         
                         <fieldset class="border p-4 rounded-lg mb-6">
-                            <legend>ผู้ร่วมเดินทาง (ถ้ามี)</legend>
-                            <div id="edit-attendees-list"></div>
-                            <div class="flex flex-wrap gap-2 mt-4">
-                                <button type="button" id="edit-add-attendee" class="btn btn-success w-full sm:w-auto">
-                                    <span>+ เพิ่มผู้ร่วมเดินทาง</span>
-                                </button>
-                            </div>
-                        </fieldset>
+    <legend>ผู้ร่วมเดินทาง (ถ้ามี)</legend>
+    <div id="edit-attendees-list"></div>
+    <div class="flex flex-wrap gap-2 mt-4">
+        <button type="button" id="edit-add-attendee" class="btn btn-success w-full sm:w-auto">
+            <span>+ เพิ่มรายชื่อ</span>
+        </button>
+        
+        <button type="button" id="edit-import-excel" class="btn btn-primary w-full sm:w-auto">
+            <div class="loader hidden"></div>
+            <span>📂 นำเข้าจาก Excel/CSV</span>
+        </button>
+        <input type="file" id="edit-excel-file-input" class="hidden" accept=".xlsx, .xls, .csv">
+    </div>
+</fieldset>
                         
                         <fieldset class="border p-4 rounded-lg mb-6">
                             <legend>2. การเบิกค่าใช้จ่าย</legend>
