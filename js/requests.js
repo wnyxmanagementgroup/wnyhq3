@@ -1147,19 +1147,27 @@ async function handleRequestFormSubmit(e) {
        // -----------------------------------------------------------------------
         // 🔹 ขั้นตอนที่ 3: อัปโหลดไฟล์ PDF (Upload)
         // -----------------------------------------------------------------------
-        
+        if (submitBtn) submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังอัปโหลดไฟล์...';
         console.log("☁️ Uploading Final PDF...");
         
-        const finalPdfBase64 = await blobToBase64(pdfBlob);
+        let finalPdfBase64 = await blobToBase64(pdfBlob);
         
-        // ✅✅✅ [เพิ่มบรรทัดนี้เข้าไป] เพื่อสร้างตัวแปร finalDataUrl ✅✅✅
-        const finalDataUrl = `data:application/pdf;base64,${finalPdfBase64}`; 
+        // ★★★ แก้ไข: ตรวจสอบและตัด Header ออกให้เหลือแต่เนื้อ Base64 ล้วนๆ ★★★
+        // (วิธีนี้ปลอดภัยที่สุด รองรับทั้งกรณีที่ blobToBase64 ส่งมาแบบมีหัวหรือไม่มีหัว)
+        if (finalPdfBase64.includes('base64,')) {
+            finalPdfBase64 = finalPdfBase64.split('base64,')[1];
+        } else if (finalPdfBase64.includes(',')) {
+            finalPdfBase64 = finalPdfBase64.split(',')[1];
+        }
 
-        // ตั้งชื่อไฟล์ให้สวยงามด้วยเลขที่เอกสาร
+        // ใช้ตัวแปรชื่อ finalDataUrl ตามที่เรียกใช้ใน apiCall ด้านล่าง
+        const finalDataUrl = finalPdfBase64; 
+
+        // ตั้งชื่อไฟล์ให้สวยงาม
         const safeFilename = `memo_${realId.replace(/[\/\\\:\.]/g, '-')}.pdf`;
         
         const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: finalDataUrl, // <--- ตอนนี้ตัวแปรนี้จะรู้จักแล้ว ไม่ Error แล้วครับ
+            data: finalDataUrl, // ส่งเนื้อ Base64 ล้วนๆ ไปให้ Server
             filename: safeFilename,
             mimeType: 'application/pdf',
             username: user.username
@@ -1827,4 +1835,3 @@ function validateRequestForm(data) {
 
     return true;
 }
-
