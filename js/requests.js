@@ -1150,24 +1150,27 @@ async function handleRequestFormSubmit(e) {
         if (submitBtn) submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังอัปโหลดไฟล์...';
         console.log("☁️ Uploading Final PDF...");
         
-        let finalPdfBase64 = await blobToBase64(pdfBlob);
-        
-        // ★★★ แก้ไข: ตรวจสอบและตัด Header ออกให้เหลือแต่เนื้อ Base64 ล้วนๆ ★★★
-        // (วิธีนี้ปลอดภัยที่สุด รองรับทั้งกรณีที่ blobToBase64 ส่งมาแบบมีหัวหรือไม่มีหัว)
-        if (finalPdfBase64.includes('base64,')) {
-            finalPdfBase64 = finalPdfBase64.split('base64,')[1];
-        } else if (finalPdfBase64.includes(',')) {
-            finalPdfBase64 = finalPdfBase64.split(',')[1];
+        // ★★★ แก้ไข: แปลง Blob เป็น Base64 (Data URL) แบบ Manual เพื่อความชัวร์ ★★★
+        const base64Promise = new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result); // คืนค่าเป็น Data URL ครบๆ (มี Header)
+            reader.onerror = reject;
+            reader.readAsDataURL(pdfBlob);
+        });
+
+        const finalDataUrl = await base64Promise;
+
+        // ตรวจสอบความถูกต้องก่อนส่ง (กันเหนียว)
+        if (!finalDataUrl || typeof finalDataUrl !== 'string') {
+            throw new Error("เกิดข้อผิดพลาดในการแปลงไฟล์ PDF (Base64 is empty)");
         }
+        
+        console.log("📦 PDF Prepared. Length:", finalDataUrl.length);
 
-        // ใช้ตัวแปรชื่อ finalDataUrl ตามที่เรียกใช้ใน apiCall ด้านล่าง
-        const finalDataUrl = finalPdfBase64; 
-
-        // ตั้งชื่อไฟล์ให้สวยงาม
         const safeFilename = `memo_${realId.replace(/[\/\\\:\.]/g, '-')}.pdf`;
         
         const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: finalDataUrl, // ส่งเนื้อ Base64 ล้วนๆ ไปให้ Server
+            data: finalDataUrl, // ส่ง Data URL เต็มๆ (มี Header) ตามที่ Server ต้องการ
             filename: safeFilename,
             mimeType: 'application/pdf',
             username: user.username
