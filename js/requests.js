@@ -1152,32 +1152,43 @@ async function handleRequestFormSubmit(e) {
         
         // ★★★ แก้ไข: แปลง Blob เป็น Base64 (Data URL) แบบ Manual เพื่อความชัวร์ ★★★
         const base64Promise = new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result); // คืนค่าเป็น Data URL ครบๆ (มี Header)
-            reader.onerror = reject;
-            reader.readAsDataURL(pdfBlob);
-        });
+    const reader = new FileReader();
+    reader.onloadend = () => {
+        // ตัดส่วน "data:application/pdf;base64," ออก
+        const base64String = reader.result.split(',')[1]; 
+        resolve(base64String);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(pdfBlob);
+});
 
-        const finalDataUrl = await base64Promise;
+const finalBase64 = await base64Promise;
 
-        // ตรวจสอบความถูกต้องก่อนส่ง (กันเหนียว)
-        if (!finalDataUrl || typeof finalDataUrl !== 'string') {
-            throw new Error("เกิดข้อผิดพลาดในการแปลงไฟล์ PDF (Base64 is empty)");
-        }
-        
-        console.log("📦 PDF Prepared. Length:", finalDataUrl.length);
+// 1. ตรวจสอบความถูกต้องของ Base64 (ใช้ตัวแปร finalBase64 ให้ตรงกัน)
+if (!finalBase64 || typeof finalBase64 !== 'string') {
+    throw new Error("เกิดข้อผิดพลาดในการแปลงไฟล์ PDF (Base64 is empty)");
+}
 
-        const safeFilename = `memo_${realId.replace(/[\/\\\:\.]/g, '-')}.pdf`;
-        
-        const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: finalDataUrl, // ส่ง Data URL เต็มๆ (มี Header) ตามที่ Server ต้องการ
-            filename: safeFilename,
-            mimeType: 'application/pdf',
-            username: user.username
-        });
+console.log("📦 PDF Prepared. Length:", finalBase64.length);
 
-        if (uploadRes.status !== 'success') throw new Error("อัปโหลดเอกสารไม่สำเร็จ");
-        const finalFileUrl = uploadRes.url;
+// 2. จัดการชื่อไฟล์ให้ปลอดภัย (รองรับช่องว่างและอักขระพิเศษ)
+const safeIdForFile = realId.replace(/[\/\\\:\.\s]/g, '-'); 
+const safeFilename = `memo_${safeIdForFile}.pdf`;
+
+// 3. ส่งข้อมูลไปยัง Server
+const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
+    data: finalBase64, // ส่งข้อมูลที่ตัด Header ออกแล้ว (Base64 เพียวๆ)
+    filename: safeFilename,
+    mimeType: 'application/pdf',
+    username: user.username
+});
+
+// 4. ตรวจสอบผลลัพธ์
+if (uploadRes.status !== 'success') {
+    throw new Error("อัปโหลดเอกสารไม่สำเร็จ: " + (uploadRes.message || "Unknown Error"));
+}
+
+const finalFileUrl = uploadRes.url;
 
         // -----------------------------------------------------------------------
         // 🔹 ขั้นตอนที่ 4: อัปเดตลิงก์ไฟล์กลับไปที่ฐานข้อมูล (Update Back)
@@ -1684,7 +1695,7 @@ async function saveEditRequest() {
         // 3. อัปโหลดผลลัพธ์ใหม่
         const finalPdfBase64 = await blobToBase64(pdfBlob);
         const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: finalDataUrl,
+            data: finalBase64,
             filename: `request_edit_final_${Date.now()}.pdf`,
             mimeType: 'application/pdf',
             username: user.username
