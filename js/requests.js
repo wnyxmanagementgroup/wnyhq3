@@ -1078,20 +1078,20 @@ function getRequestFormData() {
         headName: document.getElementById('form-head-name')?.value
     };
 }
-// ✅ [HYBRID V2] สร้างบันทึกข้อความ + PDF Cloud Run + Storage
+// ✅ [แก้ไขใหม่] ขอเลขที่จริงก่อน -> แล้วค่อยสร้าง PDF (เพื่อให้ได้เลขที่ บค... ทันที)
 async function handleRequestFormSubmit(e) {
     e.preventDefault();
     
     const submitBtn = document.getElementById('submit-request-button');
     if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังประมวลผล...';
+        submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังขอเลขที่เอกสาร...';
     }
 
     try {
-        console.log("🚀 Starting Form Submission...");
+        console.log("🚀 Starting Form Submission (Real ID Mode)...");
 
-        // 1. ดึงข้อมูลและตรวจสอบความถูกต้อง
+        // 1. ดึงข้อมูลและตรวจสอบ
         const formData = getRequestFormData();
         if (!validateRequestForm(formData)) {
             throw new Error("กรุณากรอกข้อมูลให้ครบถ้วน");
@@ -1100,68 +1100,101 @@ async function handleRequestFormSubmit(e) {
         const user = getCurrentUser();
         if (!user) throw new Error("ไม่พบข้อมูลผู้ใช้งาน");
 
-        // กำหนดค่าเริ่มต้นสำหรับไฟล์แนบ (Cloud Run Mode)
+        // กำหนดค่าเริ่มต้น
         formData.fileExchangeUrl = '';
         formData.fileRefDocUrl = '';
         formData.fileOtherUrl = '';
         formData.attachments = [];
         formData.attachmentUrls = []; 
+        
+        // -----------------------------------------------------------------------
+        // 🔹 ขั้นตอนที่ 1: ส่งข้อมูลไปจองเลขที่เอกสารจาก Server ก่อน (Create First)
+        // -----------------------------------------------------------------------
+        console.log("💾 Saving draft to get Real ID...");
+        const createResult = await apiCall('POST', 'createRequest', formData);
 
-        // 2. สร้าง PDF หลักผ่าน Cloud Run
-        console.log("☁️ Sending to Cloud Run (Main Doc Only)...");
-        const tempId = `REQ-${new Date().getFullYear() + 543}-${Math.floor(Math.random() * 1000)}`;
-        const pdfData = { ...formData, id: tempId, doctype: 'memo' };
+        if (createResult.status !== 'success') {
+            throw new Error(createResult.message || "ไม่สามารถขอเลขที่เอกสารได้");
+        }
+
+        // รับเลขที่จริงที่ Server ส่งกลับมา (เช่น "บค 015/2569")
+        const realId = createResult.id || createResult.data?.id;
+        if (!realId) throw new Error("Server ไม่ได้ส่งเลขที่เอกสารกลับมา");
+
+        console.log("✅ ได้รับเลขที่เอกสารจริง:", realId);
+
+        // -----------------------------------------------------------------------
+        // 🔹 ขั้นตอนที่ 2: สร้าง PDF โดยใช้เลขที่จริงที่ได้มา (Generate PDF with Real ID)
+        // -----------------------------------------------------------------------
+        if (submitBtn) submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังสร้างเอกสาร PDF...';
+        
+        const pdfData = { 
+            ...formData, 
+            id: realId,       // <--- ใส่เลขจริงตรงนี้
+            requestId: realId, // <--- ย้ำเลขจริงตรงนี้
+            doctype: 'memo' 
+        };
         
         const { pdfBlob } = await generateOfficialPDF(pdfData);
 
-        // 3. อัปโหลดไฟล์ผลลัพธ์
+        // -----------------------------------------------------------------------
+        // 🔹 ขั้นตอนที่ 3: อัปโหลดไฟล์ PDF (Upload)
+        // -----------------------------------------------------------------------
+        if (submitBtn) submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังอัปโหลดไฟล์...';
         console.log("☁️ Uploading Final PDF...");
+        
         const finalPdfBase64 = await blobToBase64(pdfBlob);
         
+        // ตั้งชื่อไฟล์ให้สวยงามด้วยเลขที่เอกสาร
+        const safeFilename = `memo_${realId.replace(/[\/\\\:\.]/g, '-')}.pdf`;
+        
         const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: finalPdfBase64, // ✅ แก้ไข: ไม่ต้อง split ซ้ำ
-            filename: `request_final_${Date.now()}.pdf`,
+            data: finalPdfBase64, // (ใช้ตามที่แก้ไปล่าสุด ไม่ต้อง split ซ้ำ)
+            filename: safeFilename,
             mimeType: 'application/pdf',
             username: user.username
         });
 
         if (uploadRes.status !== 'success') throw new Error("อัปโหลดเอกสารไม่สำเร็จ");
-        formData.fileUrl = uploadRes.url; // เก็บ URL ไว้ใช้
+        const finalFileUrl = uploadRes.url;
 
-        // 4. บันทึกลงฐานข้อมูล
-        console.log("💾 Saving to Database...");
-        const result = await apiCall('POST', 'createRequest', formData);
+        // -----------------------------------------------------------------------
+        // 🔹 ขั้นตอนที่ 4: อัปเดตลิงก์ไฟล์กลับไปที่ฐานข้อมูล (Update Back)
+        // -----------------------------------------------------------------------
+        console.log("🔗 Updating file URL to database...");
+        await apiCall('POST', 'updateRequest', {
+            requestId: realId,
+            fileUrl: finalFileUrl
+        });
 
-        if (result.status === 'success') {
-            const newId = result.id || result.data?.id || tempId;
-            
-            // Backup ลง Firebase
-            if (typeof db !== 'undefined') {
-                const docId = newId.replace(/[\/\\\:\.]/g, '-');
-                await db.collection('requests').doc(docId).set({
-                    ...formData,
-                    id: newId,
-                    status: 'Pending',
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                    isSynced: true
-                });
-            }
-
-            // ✅ เพิ่ม: เปิดไฟล์ทันทีที่เสร็จ
-            if (formData.fileUrl) {
-                window.open(formData.fileUrl, '_blank');
-            }
-
-            showAlert("สำเร็จ", "ส่งคำขอเรียบร้อยแล้ว");
-            
-            resetRequestForm();
-            if (typeof clearRequestsCache === 'function') clearRequestsCache();
-            await fetchUserRequests();
-            switchPage('dashboard-page');
-
-        } else {
-            throw new Error(result.message || "เกิดข้อผิดพลาดจาก Server");
+        // อัปเดตลง Firebase เพื่อให้แสดงผลทันที
+        if (typeof db !== 'undefined') {
+            const docId = realId.replace(/[\/\\\:\.]/g, '-');
+            await db.collection('requests').doc(docId).set({
+                ...formData,
+                id: realId,
+                fileUrl: finalFileUrl, // บันทึกลิงก์
+                pdfUrl: finalFileUrl,  // เผื่อไว้
+                status: 'Pending',
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                isSynced: true
+            }, { merge: true });
         }
+
+        // -----------------------------------------------------------------------
+        // 🔹 เสร็จสิ้น
+        // -----------------------------------------------------------------------
+        // เปิดไฟล์ทันที
+        if (finalFileUrl) {
+            window.open(finalFileUrl, '_blank');
+        }
+
+        showAlert("สำเร็จ", `สร้างเอกสารเลขที่ ${realId} เรียบร้อยแล้ว`);
+        
+        resetRequestForm();
+        if (typeof clearRequestsCache === 'function') clearRequestsCache();
+        await fetchUserRequests();
+        switchPage('dashboard-page');
 
     } catch (error) {
         console.error("Submit Error:", error);
