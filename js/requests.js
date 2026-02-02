@@ -998,15 +998,7 @@ function toggleExpenseOptions() {
         }
     }
 }
-    const partialOptions = document.getElementById('partial-expense-options');
-    const totalContainer = document.getElementById('total-expense-container');
-    if (document.getElementById('expense_partial').checked) {
-        partialOptions.classList.remove('hidden');
-        totalContainer.classList.remove('hidden');
-    } else {
-        partialOptions.classList.add('hidden');
-        totalContainer.classList.add('hidden');
-    }
+
 
 function toggleVehicleDetails() {
     const privateDetails = document.getElementById('private-vehicle-details');
@@ -1750,7 +1742,7 @@ async function mergeAndBackfillPDF(requestId, mainPdfUrl, attachments, user) {
         // 4. อัปโหลดไฟล์ที่รวมเสร็จแล้ว (Merged PDF)
         const mergedBase64 = await blobToBase64(mergedBlob);
         const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: mergedBase64.split(',')[1],
+            data: mergedBase64,
             filename: `merged_request_${requestId}_${Date.now()}.pdf`,
             mimeType: 'application/pdf',
             username: user.username
