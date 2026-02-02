@@ -1078,7 +1078,7 @@ function getRequestFormData() {
         headName: document.getElementById('form-head-name')?.value
     };
 }
-// ✅ [แก้ไขใหม่] ขอเลขที่จริงก่อน -> แล้วค่อยสร้าง PDF (เพื่อให้ได้เลขที่ บค... ทันที)
+// ✅ [ฉบับแก้ไขสมบูรณ์] ขอเลขที่จริงก่อน -> สร้าง PDF -> อัปเดตลิงก์กลับ
 async function handleRequestFormSubmit(e) {
     e.preventDefault();
     
@@ -1091,16 +1091,22 @@ async function handleRequestFormSubmit(e) {
     try {
         console.log("🚀 Starting Form Submission (Real ID Mode)...");
 
-        // 1. ดึงข้อมูลและตรวจสอบ
+        // 1. ดึงข้อมูลจากฟอร์มและตรวจสอบ
         const formData = getRequestFormData();
         if (!validateRequestForm(formData)) {
             throw new Error("กรุณากรอกข้อมูลให้ครบถ้วน");
         }
 
         const user = getCurrentUser();
-        if (!user) throw new Error("ไม่พบข้อมูลผู้ใช้งาน");
+        if (!user) throw new Error("ไม่พบข้อมูลผู้ใช้งาน (กรุณา Login ใหม่)");
 
-        // กำหนดค่าเริ่มต้น
+        // -------------------------------------------------------------
+        // ★★★ จุดแก้ไขที่ 1: ต้องระบุ Username เพื่อให้แสดงในหน้า "ของฉัน" ★★★
+        // -------------------------------------------------------------
+        formData.username = user.username; 
+        formData.status = 'Pending'; // กำหนดสถานะเริ่มต้น
+
+        // กำหนดค่าเริ่มต้นสำหรับไฟล์แนบ (Cloud Run Mode ตัดระบบแนบไฟล์ซับซ้อนออกชั่วคราว)
         formData.fileExchangeUrl = '';
         formData.fileRefDocUrl = '';
         formData.fileOtherUrl = '';
@@ -1128,10 +1134,11 @@ async function handleRequestFormSubmit(e) {
         // -----------------------------------------------------------------------
         if (submitBtn) submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังสร้างเอกสาร PDF...';
         
+        // ★★★ จุดแก้ไขที่ 2: ส่ง ID จริงเข้าไปสร้าง PDF ★★★
         const pdfData = { 
             ...formData, 
-            id: realId,       // <--- ใส่เลขจริงตรงนี้
-            requestId: realId, // <--- ย้ำเลขจริงตรงนี้
+            id: realId,        // ใส่เลขจริง
+            requestId: realId, // ใส่เลขจริง
             doctype: 'memo' 
         };
         
@@ -1149,7 +1156,7 @@ async function handleRequestFormSubmit(e) {
         const safeFilename = `memo_${realId.replace(/[\/\\\:\.]/g, '-')}.pdf`;
         
         const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: finalPdfBase64, // (ใช้ตามที่แก้ไปล่าสุด ไม่ต้อง split ซ้ำ)
+            data: finalPdfBase64, // ส่งข้อมูล Base64 (blobToBase64 จัดการตัด header ให้แล้ว)
             filename: safeFilename,
             mimeType: 'application/pdf',
             username: user.username
@@ -1167,14 +1174,14 @@ async function handleRequestFormSubmit(e) {
             fileUrl: finalFileUrl
         });
 
-        // อัปเดตลง Firebase เพื่อให้แสดงผลทันที
+        // อัปเดตลง Firebase เพื่อให้แสดงผลทันที (ไม่ต้องรอ Sync)
         if (typeof db !== 'undefined') {
             const docId = realId.replace(/[\/\\\:\.]/g, '-');
             await db.collection('requests').doc(docId).set({
                 ...formData,
                 id: realId,
                 fileUrl: finalFileUrl, // บันทึกลิงก์
-                pdfUrl: finalFileUrl,  // เผื่อไว้
+                pdfUrl: finalFileUrl,  // backup field
                 status: 'Pending',
                 timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                 isSynced: true
@@ -1184,16 +1191,18 @@ async function handleRequestFormSubmit(e) {
         // -----------------------------------------------------------------------
         // 🔹 เสร็จสิ้น
         // -----------------------------------------------------------------------
-        // เปิดไฟล์ทันที
+        
+        // ★★★ จุดแก้ไขที่ 3: สั่งเปิดไฟล์ทันที ★★★
         if (finalFileUrl) {
             window.open(finalFileUrl, '_blank');
         }
 
         showAlert("สำเร็จ", `สร้างเอกสารเลขที่ ${realId} เรียบร้อยแล้ว`);
         
+        // เคลียร์ค่าและกลับหน้าหลัก
         resetRequestForm();
         if (typeof clearRequestsCache === 'function') clearRequestsCache();
-        await fetchUserRequests();
+        await fetchUserRequests(); // ดึงข้อมูลใหม่เพื่อให้รายการล่าสุดปรากฏ
         switchPage('dashboard-page');
 
     } catch (error) {
