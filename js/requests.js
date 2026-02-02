@@ -1781,3 +1781,30 @@ async function mergeAndBackfillPDF(requestId, mainPdfUrl, attachments, user) {
         // ไม่ต้อง throw error เพื่อไม่ให้กระทบ Flow หลัก
     }
 }
+/**
+ * ฟังก์ชันตรวจสอบความถูกต้องของข้อมูล (Validation Check)
+ * @param {Object} data - ข้อมูลที่ดึงมาจากฟอร์ม
+ * @returns {Boolean} - true ถ้าข้อมูลถูกต้อง, false ถ้าข้อมูลไม่ครบ
+ */
+function validateRequestForm(data) {
+    // 1. ตรวจสอบข้อมูลบังคับ (ชื่อ, ตำแหน่ง, วัตถุประสงค์, สถานที่)
+    if (!data.requesterName || !data.requesterPosition || !data.purpose || !data.location) {
+        // แจ้งเตือนผ่าน Console หรือ UI (ใน handleRequestFormSubmit จะจับ error นี้)
+        return false;
+    }
+
+    // 2. ตรวจสอบวันที่
+    if (!data.docDate || !data.startDate || !data.endDate) {
+        return false;
+    }
+
+    // 3. ตรวจสอบตรรกะวันที่ (วันกลับต้องไม่มาก่อนวันเริ่ม)
+    const start = new Date(data.startDate);
+    const end = new Date(data.endDate);
+    if (start > end) {
+        alert('วันที่เริ่มต้นและสิ้นสุดไม่ถูกต้อง (วันกลับต้องอยู่หลังวันเริ่ม)');
+        return false;
+    }
+
+    return true;
+}
