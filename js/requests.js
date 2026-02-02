@@ -1014,7 +1014,75 @@ function toggleVehicleDetails() {
     if (privateDetails) privateDetails.classList.toggle('hidden', !privateCheckbox?.checked);
     if (publicDetails) publicDetails.classList.toggle('hidden', !publicCheckbox?.checked);
 }
+/**
+ * ฟังก์ชันดึงข้อมูลจากฟอร์มบันทึกข้อความ (Matching index.html IDs)
+ */
+function getRequestFormData() {
+    // 1. ดึงรายชื่อผู้ร่วมเดินทางจากรายการที่เพิ่ม
+    const attendees = [];
+    document.querySelectorAll('#form-attendees-list > div').forEach(div => {
+        const nameInput = div.querySelector('.attendee-name');
+        const select = div.querySelector('.attendee-position-select');
+        const otherInput = div.querySelector('.attendee-position-other');
+        
+        if (nameInput && nameInput.value.trim()) {
+            let position = select ? select.value : '';
+            if (position === 'other' && otherInput) {
+                position = otherInput.value.trim();
+            }
+            // เพิ่มเฉพาะคนที่มีทั้งชื่อและตำแหน่ง
+            if (nameInput.value.trim()) {
+                attendees.push({ name: nameInput.value.trim(), position: position });
+            }
+        }
+    });
 
+    // 2. จัดการข้อมูลค่าใช้จ่าย
+    const expenseOption = document.querySelector('input[name="expense_option"]:checked')?.value || 'no';
+    let expenseItems = [];
+    
+    if (expenseOption === 'partial') {
+        document.querySelectorAll('input[name="expense_item"]:checked').forEach(cb => {
+            let item = { name: cb.getAttribute('data-item-name') || cb.value };
+            // กรณีเลือก "ค่าใช้จ่ายอื่นๆ" ให้ดึงรายละเอียด text box มาด้วย
+            if (item.name === 'ค่าใช้จ่ายอื่นๆ') {
+                const otherText = document.getElementById('expense_other_text')?.value.trim();
+                item.detail = otherText;
+            }
+            expenseItems.push(item);
+        });
+    }
+
+    // 3. จัดการข้อมูลพาหนะ (เลือกได้หลายตัว แต่ในโค้ดเดิมรองรับตัวเดียว ให้เอาตัวแรกที่เลือก หรือ logic ตามต้องการ)
+    // หมายเหตุ: ใน HTML เป็น checkbox name="vehicle_option" อาจเลือกได้หลายตัว แต่ API มักรับค่าเดียว
+    // ปรับให้ดึงตัวล่าสุดหรือตัวที่ check
+    const vehicleChecked = document.querySelector('input[name="vehicle_option"]:checked');
+    const vehicleOption = vehicleChecked ? vehicleChecked.value : 'gov';
+
+    // 4. รวบรวมข้อมูลทั้งหมดเป็น Object
+    return {
+        docDate: document.getElementById('form-doc-date')?.value || '',
+        requesterName: document.getElementById('form-requester-name')?.value.trim(),
+        requesterPosition: document.getElementById('form-requester-position')?.value.trim(),
+        location: document.getElementById('form-location')?.value.trim(),
+        purpose: document.getElementById('form-purpose')?.value.trim(),
+        startDate: document.getElementById('form-start-date')?.value,
+        endDate: document.getElementById('form-end-date')?.value,
+        
+        attendees: attendees,
+        
+        expenseOption: expenseOption,
+        expenseItems: expenseItems,
+        totalExpense: document.getElementById('form-total-expense')?.value || 0,
+        
+        vehicleOption: vehicleOption,
+        licensePlate: document.getElementById('form-license-plate')?.value || '',
+        publicVehicleDetails: document.getElementById('public-vehicle-details-input')?.value || '', // แก้ให้ตรงกับ ID ใน HTML
+        
+        department: document.getElementById('form-department')?.value,
+        headName: document.getElementById('form-head-name')?.value
+    };
+}
 // ✅ [HYBRID V2] สร้างบันทึกข้อความ + PDF Cloud Run + Storage
 async function handleRequestFormSubmit(e) {
     e.preventDefault();
