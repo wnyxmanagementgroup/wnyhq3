@@ -1144,19 +1144,22 @@ async function handleRequestFormSubmit(e) {
         
         const { pdfBlob } = await generateOfficialPDF(pdfData);
 
-        // -----------------------------------------------------------------------
+       // -----------------------------------------------------------------------
         // 🔹 ขั้นตอนที่ 3: อัปโหลดไฟล์ PDF (Upload)
         // -----------------------------------------------------------------------
-        if (submitBtn) submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังอัปโหลดไฟล์...';
+        
         console.log("☁️ Uploading Final PDF...");
         
         const finalPdfBase64 = await blobToBase64(pdfBlob);
         
+        // ✅✅✅ [เพิ่มบรรทัดนี้เข้าไป] เพื่อสร้างตัวแปร finalDataUrl ✅✅✅
+        const finalDataUrl = `data:application/pdf;base64,${finalPdfBase64}`; 
+
         // ตั้งชื่อไฟล์ให้สวยงามด้วยเลขที่เอกสาร
         const safeFilename = `memo_${realId.replace(/[\/\\\:\.]/g, '-')}.pdf`;
         
         const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: finalDataUrl, // ส่งข้อมูล Base64 (blobToBase64 จัดการตัด header ให้แล้ว)
+            data: finalDataUrl, // <--- ตอนนี้ตัวแปรนี้จะรู้จักแล้ว ไม่ Error แล้วครับ
             filename: safeFilename,
             mimeType: 'application/pdf',
             username: user.username
@@ -1824,3 +1827,4 @@ function validateRequestForm(data) {
 
     return true;
 }
+
