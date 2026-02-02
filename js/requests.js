@@ -217,9 +217,12 @@ function renderRequestsList(requests, memos, searchTerm = '') {
         }
         
         // ตรวจสอบไฟล์ที่เสร็จสมบูรณ์ (Priority: จาก Memo -> จาก Request เอง)
-        const completedMemoUrl = relatedMemo?.completedMemoUrl || request.completedMemoUrl;
-        const completedCommandUrl = relatedMemo?.completedCommandUrl || request.completedCommandUrl;
-        const dispatchBookUrl = relatedMemo?.dispatchBookUrl || request.dispatchBookUrl;
+        //const completedMemoUrl = relatedMemo?.completedMemoUrl || request.completedMemoUrl;
+        //const completedCommandUrl = relatedMemo?.completedCommandUrl || request.completedCommandUrl;
+        //const dispatchBookUrl = relatedMemo?.dispatchBookUrl || request.dispatchBookUrl;
+        const completedMemoUrl = relatedMemo?.completedMemoUrl || request.completedMemoUrl || request.memoPdfUrl || request.fileUrl;
+const completedCommandUrl = relatedMemo?.completedCommandUrl || request.completedCommandUrl || request.commandBookUrl; // เพิ่ม commandBookUrl เผื่อไว้
+const dispatchBookUrl = relatedMemo?.dispatchBookUrl || request.dispatchBookUrl;
 
         const hasCompletedFiles = completedMemoUrl || completedCommandUrl || dispatchBookUrl;
         
