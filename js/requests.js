@@ -290,11 +290,11 @@ const dispatchBookUrl = relatedMemo?.dispatchBookUrl || request.dispatchBookUrl;
                     </div>
                     
                     <div class="flex flex-col gap-2 ml-4 min-w-[100px]">
-                        ${request.pdfUrl ? `
-                            <a href="${request.pdfUrl}" target="_blank" class="btn btn-success btn-sm w-full text-center">
-                                📄 ดูคำขอ
-                            </a>
-                        ` : ''}
+                        ${(request.pdfUrl || request.fileUrl) ? `
+    <a href="${request.pdfUrl || request.fileUrl}" target="_blank" class="btn btn-success btn-sm w-full text-center">
+        📄 ดูคำขอ
+    </a>
+` : ''}
                         
                         ${!isFullyCompleted ? `
                             <button data-action="edit" data-id="${request.id || request.requestId}" class="btn bg-blue-500 hover:bg-blue-600 text-white btn-sm w-full">
@@ -1085,11 +1085,11 @@ async function handleRequestFormSubmit(e) {
     const submitBtn = document.getElementById('submit-request-button');
     if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังประมวลผล (ปิดแนบไฟล์)...';
+        submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังประมวลผล...';
     }
 
     try {
-        console.log("🚀 Starting Form Submission (No Attachments Mode)...");
+        console.log("🚀 Starting Form Submission...");
 
         // 1. ดึงข้อมูลและตรวจสอบความถูกต้อง
         const formData = getRequestFormData();
@@ -1100,59 +1100,33 @@ async function handleRequestFormSubmit(e) {
         const user = getCurrentUser();
         if (!user) throw new Error("ไม่พบข้อมูลผู้ใช้งาน");
 
-        // =========================================================
-        // 🔒 ปิดการใช้งานส่วนแนบไฟล์ชั่วคราว
-        // =========================================================
-        console.log("ℹ️ Attachment system is temporarily disabled.");
-        
-        /* // --- โค้ดเดิมที่ปิดไว้ ---
-        const uploadFile = async (inputId, prefix) => { ... };
-        const exchangeUrl = await uploadFile('file-exchange', 'Exchange');
-        const refDocUrl = await uploadFile('file-ref-doc', 'RefDoc');
-        const otherUrl = await uploadFile('file-other', 'Other');
-        if (exchangeUrl) formData.fileExchangeUrl = exchangeUrl;
-        if (refDocUrl) formData.fileRefDocUrl = refDocUrl;
-        if (otherUrl) formData.fileOtherUrl = otherUrl;
-
-        const genericInput = document.getElementById('attachment-input');
-        const genericAttachments = [];
-        // ... (Upload Loop) ...
-        formData.attachments = genericAttachments;
-        
-        const attachmentsForCloudRun = [];
-        // ... (Push URLs) ...
-        formData.attachmentUrls = attachmentsForCloudRun;
-        */
-
-        // กำหนดค่าว่างให้แทน เพื่อไม่ให้ Cloud Run error
+        // กำหนดค่าเริ่มต้นสำหรับไฟล์แนบ (Cloud Run Mode)
         formData.fileExchangeUrl = '';
         formData.fileRefDocUrl = '';
         formData.fileOtherUrl = '';
         formData.attachments = [];
-        formData.attachmentUrls = []; // ส่ง Array ว่างไป
+        formData.attachmentUrls = []; 
 
-        // =========================================================
-
-        // 2. สร้าง PDF หลักผ่าน Cloud Run (Main Only)
+        // 2. สร้าง PDF หลักผ่าน Cloud Run
         console.log("☁️ Sending to Cloud Run (Main Doc Only)...");
         const tempId = `REQ-${new Date().getFullYear() + 543}-${Math.floor(Math.random() * 1000)}`;
         const pdfData = { ...formData, id: tempId, doctype: 'memo' };
         
-        // Cloud Run จะสร้างแค่ PDF ใบหลักใบเดียว เพราะ attachmentUrls เป็นค่าว่าง
         const { pdfBlob } = await generateOfficialPDF(pdfData);
 
         // 3. อัปโหลดไฟล์ผลลัพธ์
         console.log("☁️ Uploading Final PDF...");
         const finalPdfBase64 = await blobToBase64(pdfBlob);
+        
         const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: finalPdfBase64,
+            data: finalPdfBase64, // ✅ แก้ไข: ไม่ต้อง split ซ้ำ
             filename: `request_final_${Date.now()}.pdf`,
             mimeType: 'application/pdf',
             username: user.username
         });
 
         if (uploadRes.status !== 'success') throw new Error("อัปโหลดเอกสารไม่สำเร็จ");
-        formData.fileUrl = uploadRes.url;
+        formData.fileUrl = uploadRes.url; // เก็บ URL ไว้ใช้
 
         // 4. บันทึกลงฐานข้อมูล
         console.log("💾 Saving to Database...");
@@ -1171,6 +1145,11 @@ async function handleRequestFormSubmit(e) {
                     timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                     isSynced: true
                 });
+            }
+
+            // ✅ เพิ่ม: เปิดไฟล์ทันทีที่เสร็จ
+            if (formData.fileUrl) {
+                window.open(formData.fileUrl, '_blank');
             }
 
             showAlert("สำเร็จ", "ส่งคำขอเรียบร้อยแล้ว");
