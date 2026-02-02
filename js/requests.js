@@ -1156,7 +1156,7 @@ async function handleRequestFormSubmit(e) {
         const safeFilename = `memo_${realId.replace(/[\/\\\:\.]/g, '-')}.pdf`;
         
         const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: finalPdfBase64, // ส่งข้อมูล Base64 (blobToBase64 จัดการตัด header ให้แล้ว)
+            data: finalDataUrl, // ส่งข้อมูล Base64 (blobToBase64 จัดการตัด header ให้แล้ว)
             filename: safeFilename,
             mimeType: 'application/pdf',
             username: user.username
@@ -1670,7 +1670,7 @@ async function saveEditRequest() {
         // 3. อัปโหลดผลลัพธ์ใหม่
         const finalPdfBase64 = await blobToBase64(pdfBlob);
         const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-            data: finalPdfBase64,
+            data: finalDataUrl,
             filename: `request_edit_final_${Date.now()}.pdf`,
             mimeType: 'application/pdf',
             username: user.username
