@@ -1,5 +1,112 @@
 // --- REQUEST FUNCTIONS (HYBRID SYSTEM: Firebase + GAS) ---
+// --- ส่วนที่เพิ่มใหม่: รายชื่อจังหวัดและ Logic ตรวจสอบเงื่อนไข ---
 
+// --- ส่วนที่เพิ่มใหม่: รายชื่อจังหวัดและ Logic ตรวจสอบเงื่อนไข (ยานพาหนะ + ที่พัก) ---
+
+const THAI_PROVINCES = [
+    "กระบี่", "กรุงเทพมหานคร", "กาญจนบุรี", "กาฬสินธุ์", "กำแพงเพชร", "ขอนแก่น", 
+    "จันทบุรี", "ฉะเชิงเทรา", "ชลบุรี", "ชัยนาท", "ชัยภูมิ", "ชุมพร", "เชียงราย", 
+    "เชียงใหม่", "ตรัง", "ตราด", "ตาก", "นครนายก", "นครปฐม", "นครพนม", "นครราชสีมา", 
+    "นครศรีธรรมราช", "นครสวรรค์", "นนทบุรี", "นราธิวาส", "น่าน", "บึงกาฬ", "บุรีรัมย์", 
+    "ปทุมธานี", "ประจวบคีรีขันธ์", "ปราจีนบุรี", "ปัตตานี", "พระนครศรีอยุธยา", 
+    "พะเยา", "พังงา", "พัทลุง", "พิจิตร", "พิษณุโลก", "เพชรบุรี", "เพชรบูรณ์", "แพร่", 
+    "ภูเก็ต", "มหาสารคาม", "มุกดาหาร", "แม่ฮ่องสอน", "ยโสธร", "ยะลา", "ร้อยเอ็ด", 
+    "ระนอง", "ระยอง", "ราชบุรี", "ลพบุรี", "ลำปาง", "ลำพูน", "เลย", "ศรีสะเกษ", 
+    "สกลนคร", "สงขลา", "สตูล", "สมุทรปราการ", "สมุทรสงคราม", "สมุทรสาคร", 
+    "สระแก้ว", "สระบุรี", "สิงห์บุรี", "สุโขทัย", "สุพรรณบุรี", "สุราษฎร์ธานี", 
+    "สุรินทร์", "หนองคาย", "หนองบัวลำภู", "อ่างทอง", "อำนาจเจริญ", "อุดรธานี", 
+    "อุตรดิตถ์", "อุทัยธานี", "อุบลราชธานี"
+];
+
+function initProvinceDropdown() {
+    const select = document.getElementById('form-province');
+    if (!select) return;
+
+    select.innerHTML = ''; 
+
+    // ค่าเริ่มต้น
+    const defaultOption = document.createElement('option');
+    defaultOption.value = 'สระแก้ว';
+    defaultOption.text = 'สระแก้ว';
+    defaultOption.selected = true;
+    select.appendChild(defaultOption);
+
+    // วนลูปจังหวัดอื่นๆ
+    THAI_PROVINCES.forEach(province => {
+        if (province !== 'สระแก้ว') {
+            const option = document.createElement('option');
+            option.value = province;
+            option.text = province;
+            select.appendChild(option);
+        }
+    });
+
+    const otherOption = document.createElement('option');
+    otherOption.value = 'other';
+    otherOption.text = 'อื่นๆ (ระบุ)';
+    select.appendChild(otherOption);
+}
+
+// ในไฟล์ requests.js
+
+function setupFormConditions() {
+    initProvinceDropdown(); // เรียกฟังก์ชันสร้างจังหวัด
+
+    const province = document.getElementById('form-province');
+    const provinceOther = document.getElementById('form-province-other');
+    
+    // Elements ที่พัก
+    const stayContainer = document.getElementById('form-stay-container');
+    const stayInput = document.getElementById('form-stay-at');
+    
+    // Elements ยานพาหนะ (สำหรับหนังสือส่ง) - เพิ่มใหม่
+    const vehicleContainer = document.getElementById('form-dispatch-vehicle-container');
+    const vehicleTypeInput = document.getElementById('form-dispatch-vehicle-type');
+    const vehicleIdInput = document.getElementById('form-dispatch-vehicle-id');
+
+    function checkConditions() {
+        if (!province) return;
+        
+        const isNotSaKaeo = province.value !== 'สระแก้ว';
+
+        // 1. จัดการช่องจังหวัด "อื่นๆ"
+        if(province.value === 'other') {
+            provinceOther.classList.remove('hidden');
+            provinceOther.required = true;
+        } else {
+            provinceOther.classList.add('hidden');
+            provinceOther.required = false;
+        }
+
+        // 2. เงื่อนไข: ไม่ใช่สระแก้ว (แสดงและบังคับกรอก)
+        if (isNotSaKaeo) {
+            // -- ส่วนที่พัก --
+            stayContainer.classList.remove('hidden');
+            stayInput.required = true;
+
+            // -- ส่วนยานพาหนะหนังสือส่ง (ใหม่) --
+            vehicleContainer.classList.remove('hidden');
+            vehicleTypeInput.required = true;
+            vehicleIdInput.required = true;
+        } else {
+            // -- ซ่อนและล้างค่า --
+            stayContainer.classList.add('hidden');
+            stayInput.required = false;
+            stayInput.value = '';
+
+            vehicleContainer.classList.add('hidden');
+            vehicleTypeInput.required = false;
+            vehicleTypeInput.value = '';
+            vehicleIdInput.required = false;
+            vehicleIdInput.value = '';
+        }
+    }
+
+    if (province) {
+        province.addEventListener('change', checkConditions);
+        checkConditions(); // เรียกครั้งแรก
+    }
+}
 // จัดการปุ่ม Action ต่างๆ (แก้ไข, ลบ, ส่งบันทึก)
 async function handleRequestAction(e) {
     const button = e.target.closest('button[data-action]');
@@ -1053,6 +1160,11 @@ function getRequestFormData() {
     // ปรับให้ดึงตัวล่าสุดหรือตัวที่ check
     const vehicleChecked = document.querySelector('input[name="vehicle_option"]:checked');
     const vehicleOption = vehicleChecked ? vehicleChecked.value : 'gov';
+    // --- ส่วนที่เพิ่ม: จัดการจังหวัด ---
+    let province = document.getElementById('form-province')?.value || 'สระแก้ว';
+    if (province === 'other') {
+        province = document.getElementById('form-province-other')?.value.trim() || 'อื่นๆ';
+    }
 
     // 4. รวบรวมข้อมูลทั้งหมดเป็น Object
     return {
@@ -1060,9 +1172,20 @@ function getRequestFormData() {
         requesterName: document.getElementById('form-requester-name')?.value.trim(),
         requesterPosition: document.getElementById('form-requester-position')?.value.trim(),
         location: document.getElementById('form-location')?.value.trim(),
+       // เพิ่มฟิลด์จังหวัดและที่พัก
+        province: document.getElementById('form-province')?.value,
+        stayAt: document.getElementById('form-stay-at')?.value.trim(),
+        // ข้อมูลยานพาหนะ (สำหรับหนังสือส่ง) - เพิ่มใหม่
+        dispatchVehicleType: document.getElementById('form-dispatch-vehicle-type')?.value.trim(),
+        dispatchVehicleId: document.getElementById('form-dispatch-vehicle-id')?.value.trim(),
+
         purpose: document.getElementById('form-purpose')?.value.trim(),
         startDate: document.getElementById('form-start-date')?.value,
         endDate: document.getElementById('form-end-date')?.value,
+        
+        // เพิ่มเวลา (ถ้ามีใน HTML แล้ว)
+        startTime: document.getElementById('form-start-time')?.value || '06:00',
+        endTime: document.getElementById('form-end-time')?.value || '18:00',
         
         attendees: attendees,
         
@@ -1071,13 +1194,16 @@ function getRequestFormData() {
         totalExpense: document.getElementById('form-total-expense')?.value || 0,
         
         vehicleOption: vehicleOption,
+        vehicleOption: document.querySelector('input[name="vehicle_option"]:checked')?.value || 'gov',
         licensePlate: document.getElementById('form-license-plate')?.value || '',
-        publicVehicleDetails: document.getElementById('public-vehicle-details-input')?.value || '', // แก้ให้ตรงกับ ID ใน HTML
+        publicVehicleDetails: document.getElementById('public-vehicle-details-input')?.value || '', 
         
         department: document.getElementById('form-department')?.value,
         headName: document.getElementById('form-head-name')?.value
     };
 }
+// เพิ่มฟังก์ชัน wait ไว้ด้านบนสุดของไฟล์หรือนอก handleRequestFormSubmit
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // ✅ [ฉบับแก้ไขสมบูรณ์] ขอเลขที่จริงก่อน -> สร้าง PDF -> อัปเดตลิงก์กลับ
 async function handleRequestFormSubmit(e) {
     e.preventDefault();
@@ -1089,145 +1215,86 @@ async function handleRequestFormSubmit(e) {
     }
 
     try {
-        console.log("🚀 Starting Form Submission (Real ID Mode)...");
-
-        // 1. ดึงข้อมูลจากฟอร์มและตรวจสอบ
         const formData = getRequestFormData();
-        if (!validateRequestForm(formData)) {
-            throw new Error("กรุณากรอกข้อมูลให้ครบถ้วน");
-        }
+        if (!validateRequestForm(formData)) throw new Error("กรุณากรอกข้อมูลให้ครบถ้วน");
 
         const user = getCurrentUser();
         if (!user) throw new Error("ไม่พบข้อมูลผู้ใช้งาน (กรุณา Login ใหม่)");
 
-        // -------------------------------------------------------------
-        // ★★★ จุดแก้ไขที่ 1: ต้องระบุ Username เพื่อให้แสดงในหน้า "ของฉัน" ★★★
-        // -------------------------------------------------------------
         formData.username = user.username; 
-        formData.status = 'Pending'; // กำหนดสถานะเริ่มต้น
+        formData.status = 'Pending';
 
-        // กำหนดค่าเริ่มต้นสำหรับไฟล์แนบ (Cloud Run Mode ตัดระบบแนบไฟล์ซับซ้อนออกชั่วคราว)
-        formData.fileExchangeUrl = '';
-        formData.fileRefDocUrl = '';
-        formData.fileOtherUrl = '';
-        formData.attachments = [];
-        formData.attachmentUrls = []; 
-        
-        // -----------------------------------------------------------------------
-        // 🔹 ขั้นตอนที่ 1: ส่งข้อมูลไปจองเลขที่เอกสารจาก Server ก่อน (Create First)
-        // -----------------------------------------------------------------------
-        console.log("💾 Saving draft to get Real ID...");
+        // --- ขั้นตอนที่ 1: จองเลขที่เอกสาร ---
         const createResult = await apiCall('POST', 'createRequest', formData);
+        if (createResult.status !== 'success') throw new Error(createResult.message || "ไม่สามารถขอเลขที่เอกสารได้");
 
-        if (createResult.status !== 'success') {
-            throw new Error(createResult.message || "ไม่สามารถขอเลขที่เอกสารได้");
-        }
-
-        // รับเลขที่จริงที่ Server ส่งกลับมา (เช่น "บค 015/2569")
         const realId = createResult.id || createResult.data?.id;
         if (!realId) throw new Error("Server ไม่ได้ส่งเลขที่เอกสารกลับมา");
 
-        console.log("✅ ได้รับเลขที่เอกสารจริง:", realId);
+        // ** หน่วงเวลาเพื่อให้ Server/Database พร้อมสำหรับการ Query **
+        console.log("⏳ Waiting for Server to index Real ID...");
+        await wait(2000);
 
-        // -----------------------------------------------------------------------
-        // 🔹 ขั้นตอนที่ 2: สร้าง PDF โดยใช้เลขที่จริงที่ได้มา (Generate PDF with Real ID)
-        // -----------------------------------------------------------------------
+        // --- ขั้นตอนที่ 2: สร้าง PDF ---
         if (submitBtn) submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังสร้างเอกสาร PDF...';
         
-        // ★★★ จุดแก้ไขที่ 2: ส่ง ID จริงเข้าไปสร้าง PDF ★★★
         const pdfData = { 
             ...formData, 
-            id: realId,        // ใส่เลขจริง
-            requestId: realId, // ใส่เลขจริง
+            id: realId,
+            requestId: realId,
             doctype: 'memo' 
         };
         
         const { pdfBlob } = await generateOfficialPDF(pdfData);
 
-       // -----------------------------------------------------------------------
-        // 🔹 ขั้นตอนที่ 3: อัปโหลดไฟล์ PDF (Upload)
-        // -----------------------------------------------------------------------
+        // --- ขั้นตอนที่ 3: อัปโหลดไฟล์ ---
         if (submitBtn) submitBtn.innerHTML = '<span class="loader-sm"></span> กำลังอัปโหลดไฟล์...';
-        console.log("☁️ Uploading Final PDF...");
         
-        // ★★★ แก้ไข: แปลง Blob เป็น Base64 (Data URL) แบบ Manual เพื่อความชัวร์ ★★★
-        const base64Promise = new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-        // ตัดส่วน "data:application/pdf;base64," ออก
-        const base64String = reader.result.split(',')[1]; 
-        resolve(base64String);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(pdfBlob);
-});
+        const finalBase64 = await blobToBase64(pdfBlob);
 
-const finalBase64 = await base64Promise;
+        if (!finalBase64) throw new Error("เกิดข้อผิดพลาดในการแปลงไฟล์ PDF");
 
-// 1. ตรวจสอบความถูกต้องของ Base64 (ใช้ตัวแปร finalBase64 ให้ตรงกัน)
-if (!finalBase64 || typeof finalBase64 !== 'string') {
-    throw new Error("เกิดข้อผิดพลาดในการแปลงไฟล์ PDF (Base64 is empty)");
-}
+        const safeIdForFile = realId.replace(/[\/\\\:\.\s]/g, '-'); 
+        const safeFilename = `memo_${safeIdForFile}.pdf`;
 
-console.log("📦 PDF Prepared. Length:", finalBase64.length);
+        // ** เพิ่ม requestId เข้าไปใน payload เพื่อให้ฝั่ง Server รู้ว่าต้องผูกไฟล์กับรายการไหน **
+        const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
+            data: finalBase64,
+            filename: safeFilename,
+            mimeType: 'application/pdf',
+            username: user.username,
+            requestId: realId // สำคัญ: เพื่อป้องกัน "No item with given ID"
+        });
 
-// 2. จัดการชื่อไฟล์ให้ปลอดภัย (รองรับช่องว่างและอักขระพิเศษ)
-const safeIdForFile = realId.replace(/[\/\\\:\.\s]/g, '-'); 
-const safeFilename = `memo_${safeIdForFile}.pdf`;
+        if (uploadRes.status !== 'success') throw new Error("อัปโหลดไม่สำเร็จ: " + uploadRes.message);
 
-// 3. ส่งข้อมูลไปยัง Server
-const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
-    data: finalBase64, // ส่งข้อมูลที่ตัด Header ออกแล้ว (Base64 เพียวๆ)
-    filename: safeFilename,
-    mimeType: 'application/pdf',
-    username: user.username
-});
+        const finalFileUrl = uploadRes.url;
 
-// 4. ตรวจสอบผลลัพธ์
-if (uploadRes.status !== 'success') {
-    throw new Error("อัปโหลดเอกสารไม่สำเร็จ: " + (uploadRes.message || "Unknown Error"));
-}
-
-const finalFileUrl = uploadRes.url;
-
-        // -----------------------------------------------------------------------
-        // 🔹 ขั้นตอนที่ 4: อัปเดตลิงก์ไฟล์กลับไปที่ฐานข้อมูล (Update Back)
-        // -----------------------------------------------------------------------
-        console.log("🔗 Updating file URL to database...");
+        // --- ขั้นตอนที่ 4: อัปเดตข้อมูลกลับฐานข้อมูล ---
         await apiCall('POST', 'updateRequest', {
             requestId: realId,
             fileUrl: finalFileUrl
         });
 
-        // อัปเดตลง Firebase เพื่อให้แสดงผลทันที (ไม่ต้องรอ Sync)
+        // อัปเดต Firebase
         if (typeof db !== 'undefined') {
             const docId = realId.replace(/[\/\\\:\.]/g, '-');
             await db.collection('requests').doc(docId).set({
                 ...formData,
                 id: realId,
-                fileUrl: finalFileUrl, // บันทึกลิงก์
-                pdfUrl: finalFileUrl,  // backup field
+                fileUrl: finalFileUrl,
                 status: 'Pending',
-                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                isSynced: true
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
         }
 
-        // -----------------------------------------------------------------------
-        // 🔹 เสร็จสิ้น
-        // -----------------------------------------------------------------------
-        
-        // ★★★ จุดแก้ไขที่ 3: สั่งเปิดไฟล์ทันที ★★★
-        if (finalFileUrl) {
-            window.open(finalFileUrl, '_blank');
-        }
+        if (finalFileUrl) window.open(finalFileUrl, '_blank');
 
         showAlert("สำเร็จ", `สร้างเอกสารเลขที่ ${realId} เรียบร้อยแล้ว`);
         
-        // เคลียร์ค่าและกลับหน้าหลัก
         resetRequestForm();
         if (typeof clearRequestsCache === 'function') clearRequestsCache();
-        await fetchUserRequests(); // ดึงข้อมูลใหม่เพื่อให้รายการล่าสุดปรากฏ
+        await fetchUserRequests();
         switchPage('dashboard-page');
 
     } catch (error) {

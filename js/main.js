@@ -188,6 +188,7 @@ function renderNotificationUI(count, items) {
     }
 }
 function setupEventListeners() {
+    if (typeof setupFormConditions === 'function') setupFormConditions();
     // --- Auth & User Management ---
     const loginForm = document.getElementById('login-form');
     if (loginForm) loginForm.addEventListener('submit', handleLogin);

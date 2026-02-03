@@ -268,10 +268,56 @@
                                    <div><label for="form-requester-position" class="form-label">ตำแหน่ง</label><input type="text" id="form-requester-position" class="form-input" required></div>
                               </div>
                              <div class="mt-4"><label for="form-location" class="form-label">ขออนุญาตไปราชการ ณ สถานที่</label><input type="text" id="form-location" class="form-input" required></div>
-                             <div class="mt-4"><label for="form-purpose" class="form-label">เพื่อ</label><textarea id="form-purpose" rows="2" class="form-input" required></textarea></div>
                              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                                   <div><label for="form-start-date" class="form-label">ตั้งแต่วันที่</label><input type="date" id="form-start-date" class="form-input" required></div>
-                                   <div><label for="form-end-date" class="form-label">ถึงวันที่</label><input type="date" id="form-end-date" class="form-input" required></div>
+    <div>
+   <div class="mt-4">
+    <label for="form-province" class="form-label">จังหวัด</label>
+    <select id="form-province" class="form-input">
+        </select>
+    <input type="text" id="form-province-other" class="form-input mt-2 hidden" placeholder="ระบุชื่อจังหวัด">
+</div>
+
+<div id="form-stay-container" class="hidden mt-4 bg-yellow-50 p-4 border border-yellow-200 rounded-lg">
+    <label class="form-label font-bold text-yellow-800">🏠 สถานที่พักค้างคืน (สำหรับการเดินทาง 2 วันขึ้นไป นอก จ.สระแก้ว)</label>
+    <input type="text" id="form-stay-at" class="form-input" placeholder="ระบุชื่อโรงแรม/รีสอร์ท">
+</div>
+
+<div id="form-dispatch-vehicle-container" class="hidden mt-4 bg-blue-50 p-4 border border-blue-200 rounded-lg">
+    <h4 class="text-sm font-bold text-blue-800 mb-2">🚍 ข้อมูลยานพาหนะ (สำหรับออกหนังสือราชการ)</h4>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label class="form-label text-blue-700">ประเภทรถ (ระบุเอง)</label>
+            <input type="text" id="form-dispatch-vehicle-type" class="form-input" placeholder="เช่น รถบัสปรับอากาศ / รถตู้">
+        </div>
+        <div>
+            <label class="form-label text-blue-700">หมายเลขทะเบียน</label>
+            <input type="text" id="form-dispatch-vehicle-id" class="form-input" placeholder="เช่น 30-1234 กทม.">
+        </div>
+    </div>
+</div>
+
+<div id="form-dispatch-vehicle-container" class="hidden mt-4 bg-blue-50 p-4 border border-blue-200 rounded-lg transition-all duration-300">
+    <h4 class="text-sm font-bold text-blue-800 mb-3 flex items-center gap-2">
+        <span>🚍</span> ข้อมูลยานพาหนะ (สำหรับออกหนังสือส่ง)
+    </h4>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label class="form-label text-blue-700">ประเภทรถ (ระบุเอง)</label>
+            <input type="text" id="form-dispatch-vehicle-type" class="form-input" placeholder="เช่น รถบัสปรับอากาศ / รถตู้">
+        </div>
+        <div>
+            <label class="form-label text-blue-700">หมายเลขทะเบียน</label>
+            <input type="text" id="form-dispatch-vehicle-id" class="form-input" placeholder="เช่น 30-1234 กทม.">
+        </div>
+    </div>
+    <p class="text-xs text-blue-600 mt-2">* กรุณาระบุให้ชัดเจนเพื่อใช้ในการออกหนังสือส่งภายนอก</p>
+</div>
+</div>
+</div>
+ <div class="mt-4"><label for="form-purpose" class="form-label">เพื่อ</label><textarea id="form-purpose" rows="2" class="form-input" required></textarea></div>
+                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                   <div><label for="form-start-date" class="form-label">ตั้งแต่วันที่</label><input type="date" id="form-start-date" class="form-input" required></div><div><label>เวลาไป (น.)</label><input type="time" id="form-start-time" class="form-input" value="06:00"></div>
+                                   <div><label for="form-end-date" class="form-label">ถึงวันที่</label><input type="date" id="form-end-date" class="form-input" required></div><div><label>เวลากลับ (น.)</label><input type="time" id="form-end-time" class="form-input" value="18:00"></div>
                               </div>
                          </fieldset>
                             <fieldset class="border p-4 rounded-lg mb-6"><legend>ผู้ร่วมเดินทาง (ถ้ามี)</legend>
@@ -1004,58 +1050,131 @@
             </div>
         </div>
 
-        <div id="dispatch-modal" class="modal">
-            <div class="modal-content">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-xl font-bold">สร้างหนังสือส่ง</h3>
-                    <button id="dispatch-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
-                </div>
-                <form id="dispatch-form">
-                    <input type="hidden" id="dispatch-request-id">
-                    <div class="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <label for="dispatch-month" class="form-label">เดือน</label>
-                            <select id="dispatch-month" class="form-input" required>
-                                <option value="">-- เลือกเดือน --</option>
-                                <option value="มกราคม">มกราคม</option>
-                                <option value="กุมภาพันธ์">กุมภาพันธ์</option>
-                                <option value="มีนาคม">มีนาคม</option>
-                                <option value="เมษายน">เมษายน</option>
-                                <option value="พฤษภาคม">พฤษภาคม</option>
-                                <option value="มิถุนายน">มิถุนายน</option>
-                                <option value="กรกฎาคม">กรกฎาคม</option>
-                                <option value="สิงหาคม">สิงหาคม</option>
-                                <option value="กันยายน">กันยายน</option>
-                                <option value="ตุลาคม">ตุลาคม</option>
-                                <option value="พฤศจิกายน">พฤศจิกายน</option>
-                                <option value="ธันวาคม">ธันวาคม</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="dispatch-year" class="form-label">ปี พ.ศ.</label>
-                            <input type="number" id="dispatch-year" class="form-input" min="2560" max="2580" required>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <label for="command-count" class="form-label">จำนวนคำสั่ง</label>
-                            <input type="number" id="command-count" class="form-input" min="0" required>
-                        </div>
-                        <div>
-                            <label for="memo-count" class="form-label">จำนวนบันทึก</label>
-                            <input type="number" id="memo-count" class="form-input" min="0" required>
-                        </div>
-                    </div>
-                    <div class="flex justify-end gap-4">
-                        <button type="button" id="dispatch-cancel-button" class="btn bg-gray-500 text-white">ยกเลิก</button>
-                        <button type="submit" id="dispatch-submit-button" class="btn btn-primary">
-                            <div id="dispatch-loader" class="loader hidden"></div>
-                            <span>สร้างหนังสือส่ง</span>
-                        </button>
-                    </div>
-                </form>
+        <div id="dispatch-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-60 overflow-y-auto h-full w-full z-50 hidden flex items-center justify-center backdrop-blur-sm">
+    <div class="modal-content bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 overflow-hidden">
+        
+        <div class="bg-gradient-to-r from-blue-600 to-blue-800 p-4 flex justify-between items-center text-white">
+            <div class="flex items-center gap-2">
+                <span class="text-2xl">📦</span>
+                <h3 class="text-xl font-bold">ออกหนังสือส่งราชการ</h3>
             </div>
+            <button id="dispatch-modal-close-button" class="text-white hover:text-gray-200 text-3xl font-light leading-none">&times;</button>
         </div>
+
+        <form id="dispatch-form" class="p-6 max-h-[85vh] overflow-y-auto">
+            <input type="hidden" id="dispatch-request-id">
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                <div class="lg:col-span-8 space-y-6">
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h4 class="font-bold text-gray-700 mb-3 border-b pb-2">1. ข้อมูลส่วนหัว</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-sm text-gray-600 block mb-1">เดือน</label>
+                                <select id="dispatch-month" class="w-full form-input bg-white"></select>
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-600 block mb-1">ปี พ.ศ.</label>
+                                <input type="number" id="dispatch-year" class="w-full form-input">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-600 block mb-1">จำนวนครู</label>
+                                <input type="number" id="teacher-count" class="w-full form-input font-bold text-blue-600 bg-blue-50">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-600 block mb-1">จำนวนนักเรียน</label>
+                                <input type="number" id="student-count" class="w-full form-input font-bold text-green-600 bg-green-50">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h4 class="font-bold text-gray-700 mb-3 border-b pb-2">2. รายละเอียดการเดินทาง</h4>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="text-sm text-gray-600">เรื่อง/วัตถุประสงค์</label>
+                                <input type="text" id="dispatch-purpose" class="w-full form-input">
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-sm text-gray-600">สถานที่ไป</label>
+                                    <input type="text" id="dispatch-location" class="w-full form-input">
+                                </div>
+                                <div>
+                                    <label class="text-sm text-gray-600 font-bold text-red-600">พักค้างคืนที่ (จำเป็นถ้าต่างจังหวัด)</label>
+                                    <input type="text" id="dispatch-stay-at" class="w-full form-input border-red-200 focus:border-red-500" placeholder="-">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                <div><label class="text-xs">วันไป</label><input type="date" id="dispatch-date-start" class="w-full form-input text-sm"></div>
+                                <div><label class="text-xs">เวลาไป</label><input type="time" id="dispatch-time-start" class="w-full form-input text-sm"></div>
+                                <div><label class="text-xs">วันกลับ</label><input type="date" id="dispatch-date-end" class="w-full form-input text-sm"></div>
+                                <div><label class="text-xs">เวลากลับ</label><input type="time" id="dispatch-time-end" class="w-full form-input text-sm"></div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-sm text-gray-600">พาหนะ</label>
+                                    <input type="text" id="dispatch-vehicle-type" class="w-full form-input">
+                                </div>
+                                <div>
+                                    <label class="text-sm text-gray-600">ทะเบียนรถ</label>
+                                    <input type="text" id="dispatch-vehicle-id" class="w-full form-input">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-4 bg-yellow-50 p-4 rounded-lg border border-yellow-200 h-fit">
+                    <h4 class="font-bold text-yellow-800 mb-3 border-b border-yellow-200 pb-2">📎 สิ่งที่ส่งมาด้วย (จำนวนชุด)</h4>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between items-center">
+                            <label>1. หนังสือเชิญ</label>
+                            <input type="text" id="qty1" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>2. คำสั่งโรงเรียน</label>
+                            <input type="text" id="qty2" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>3. รายชื่อนักเรียน</label>
+                            <input type="text" id="qty3" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>4. แผนที่เดินทาง</label>
+                            <input type="text" id="qty4" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>5. หนังสือขออนุญาต</label>
+                            <input type="text" id="qty5" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>6. กรมธรรม์</label>
+                            <input type="text" id="qty6" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>7. กำหนดการ</label>
+                            <input type="text" id="qty7" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                    </div>
+                    <div class="mt-4 text-xs text-yellow-700">
+                        * ระบุเป็นเลขไทยหรืออารบิกก็ได้ ระบบจะแปลงเป็นเลขไทยให้อัตโนมัติ
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="flex justify-end gap-3 mt-6 pt-4 border-t">
+                <button type="button" id="dispatch-cancel-button" class="px-6 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100">ยกเลิก</button>
+                <button type="submit" id="dispatch-submit-button" class="px-6 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 shadow-lg flex items-center gap-2">
+                    <div id="dispatch-loader" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>สร้างเอกสารและบันทึก</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
 <div id="announcement-modal" class="modal" style="z-index: 200;">
     <div class="modal-content w-[95%] md:w-[60%] mx-auto p-0 overflow-hidden rounded-2xl shadow-2xl animate-bounce-in">
         <div id="announcement-header" class="bg-indigo-600 p-4 text-white flex justify-between items-center">
