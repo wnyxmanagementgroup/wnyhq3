@@ -290,7 +290,102 @@ async function fetchUserRequests() {
         if (container) container.innerHTML = `<div class="text-center text-red-500 py-10">เกิดข้อผิดพลาด: ${error.message}</div>`;
     }
 }
+// --- ฟังก์ชันแสดงผลรายการคำขอ (Render) ---
+function renderUserRequests(requests) {
+    const container = document.getElementById('user-requests-list');
+    
+    if (!container) return; // ป้องกัน Error ถ้าหา element ไม่เจอ
 
+    if (!requests || requests.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-10 bg-white rounded-xl border border-dashed border-gray-300">
+                <p class="text-gray-400 text-lg">ไม่พบประวัติการขอไปราชการ</p>
+                <button onclick="switchPage('form-page')" class="mt-3 btn bg-indigo-500 hover:bg-indigo-600 text-white btn-sm">
+                    + สร้างคำขอใหม่
+                </button>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = requests.map(req => {
+        const safeId = escapeHtml(req.id);
+        
+        // กำหนดสถานะ (Badge)
+        let statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600">รอตรวจสอบ</span>`;
+        if (req.commandPdfUrl || req.commandStatus === 'เสร็จสิ้น') {
+            statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">✅ อนุมัติ/ออกคำสั่งแล้ว</span>`;
+        } else if (req.status === 'ไม่อนุมัติ') {
+            statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-red-100 text-red-700">❌ ไม่อนุมัติ</span>`;
+        } else if (req.status === 'Pending') {
+            statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-700">⏳ รอตรวจสอบ</span>`;
+        }
+
+        // --- ส่วนปุ่มไฟล์แนบ ---
+        let actionButtons = '';
+
+        // 1. ปุ่มดูบันทึกข้อความ (ต้นเรื่อง)
+        if (req.pdfUrl) {
+            actionButtons += `
+                <a href="${req.pdfUrl}" target="_blank" class="btn bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 btn-sm flex items-center gap-1 shadow-sm">
+                    📄 บันทึกข้อความ
+                </a>`;
+        }
+
+        // 2. ปุ่มดูคำสั่ง (ถ้ามี)
+        if (req.commandPdfUrl) {
+            actionButtons += `
+                <a href="${req.commandPdfUrl}" target="_blank" class="btn bg-green-50 text-green-600 hover:bg-green-100 border border-green-200 btn-sm flex items-center gap-1 shadow-sm">
+                    📋 คำสั่ง
+                </a>`;
+        }
+
+        // 3. ปุ่มดูหนังสือส่ง (ถ้ามี)
+        const dispatchUrl = req.dispatchBookUrl || req.dispatchBookPdfUrl;
+        if (dispatchUrl) {
+            actionButtons += `
+                <a href="${dispatchUrl}" target="_blank" class="btn bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-200 btn-sm flex items-center gap-1 shadow-sm">
+                    📦 หนังสือส่ง
+                </a>`;
+        }
+
+        // Helper function สำหรับวันที่ (ถ้ายังไม่มีใน utils.js)
+        const formatDate = (date) => {
+            if (!date) return '-';
+            const d = new Date(date);
+            return isNaN(d.getTime()) ? date : d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+        };
+
+        return `
+        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition duration-200 mb-4">
+            <div class="flex flex-col md:flex-row justify-between gap-4">
+                <div class="flex-1">
+                    <div class="flex items-center gap-3 mb-2">
+                        <h4 class="font-bold text-indigo-700 text-lg">${safeId}</h4>
+                        ${statusBadge}
+                    </div>
+                    <div class="space-y-1 text-sm text-gray-600">
+                        <p><strong>เรื่อง:</strong> ${escapeHtml(req.purpose)}</p>
+                        <p><strong>สถานที่:</strong> ${escapeHtml(req.location)}</p>
+                        <p><strong>วันที่:</strong> ${formatDate(req.startDate)} - ${formatDate(req.endDate)}</p>
+                    </div>
+                </div>
+                
+                <div class="flex flex-col items-end gap-2 min-w-[160px]">
+                    <div class="flex flex-wrap justify-end gap-2 w-full">
+                        ${actionButtons}
+                    </div>
+                    
+                    ${!req.commandPdfUrl ? `
+                        <div class="flex gap-2 mt-2 pt-2 border-t border-gray-100 w-full justify-end">
+                            <button onclick="editRequest('${safeId}')" class="text-xs text-indigo-500 hover:text-indigo-700 underline">✏️ แก้ไข</button>
+                            <button onclick="deleteRequest('${safeId}')" class="text-xs text-red-500 hover:text-red-700 underline">🗑️ ยกเลิก</button>
+                        </div>` : ''
+                    }
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
 // ... (ส่วนล่าง renderRequestsList และอื่นๆ คงเดิม) ...
 
 // แสดงรายการคำขอ (Render UI)
