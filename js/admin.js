@@ -662,16 +662,16 @@ async function generateOfficialPDF(requestData) {
 
                 // สร้างข้อความช่วงเวลา (ใช้ \u00A0 เชื่อมคำสำคัญ)
                 if (rawStartDate === rawEndDate) {
-                    dateRangeStr = `ในวันที่ \u00A0${toThaiNum(start.getDate())}\u00A0${thaiMonths[start.getMonth()]}\u00A0พ.ศ.\u00A0${toThaiNum(start.getFullYear() + 543)}`;
+                    dateRangeStr = `ในวันที่\u00A0${toThaiNum(start.getDate())}\u00A0${thaiMonths[start.getMonth()]}\u00A0พ.ศ.\u00A0${toThaiNum(start.getFullYear() + 543)}`;
                 } else if (start.getMonth() === end.getMonth()) {
                     // กรณีเดือนเดียวกัน: ระหว่างวันที่ 1 - 5 มกราคม ...
-                    dateRangeStr = `ระหว่างวันที่ \u00A0${toThaiNum(start.getDate())}\u00A0-\u00A0${toThaiNum(end.getDate())}\u00A0${thaiMonths[start.getMonth()]}\u00A0พ.ศ.\u00A0${toThaiNum(start.getFullYear() + 543)}`;
+                    dateRangeStr = `ระหว่างวันที่\u00A0${toThaiNum(start.getDate())}\u00A0-\u00A0${toThaiNum(end.getDate())}\u00A0${thaiMonths[start.getMonth()]}\u00A0พ.ศ.\u00A0${toThaiNum(start.getFullYear() + 543)}`;
                 } else {
                     // กรณีคนละเดือน: ระหว่างวันที่ ... - ...
-                    dateRangeStr = `ระหว่างวันที่ \u00A0${formatDateThai(rawStartDate)}\u00A0-\u00A0${formatDateThai(rawEndDate)}`;
+                    dateRangeStr = `ระหว่างวันที่\u00A0${formatDateThai(rawStartDate)}\u00A0-\u00A0${formatDateThai(rawEndDate)}`;
                 }
             } else {
-                 dateRangeStr = `ในวันที่ \u00A0${formatDateThai(rawStartDate)}`;
+                 dateRangeStr = `ในวันที่\u00A0${formatDateThai(rawStartDate)}`;
                  endDateStr = startDateStr;
                  durationStr = "1";
             }
