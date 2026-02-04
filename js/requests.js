@@ -196,45 +196,37 @@ async function handleDeleteRequest(requestId) {
 
 // ✅ [แก้ไข] ดึงข้อมูลและกรองเฉพาะของฉัน (สำหรับ Dashboard)
 // --- แก้ไขใน js/requests.js ---
-
+// ==========================================
+// 1. ฟังก์ชันดึงข้อมูล (Fetch Data) - ปรับปรุงการดึงลิงก์
+// ==========================================
 async function fetchUserRequests() {
     const user = getCurrentUser();
     if (!user) return;
 
-    // 1. ตรวจสอบปีที่เลือก (ต้องมี Dropdown id="user-year-select" ในหน้า HTML)
+    const container = document.getElementById('user-requests-list');
+    if (container) container.innerHTML = '<div class="text-center py-10"><span class="loader"></span> กำลังโหลดข้อมูล...</div>';
+
     const yearSelect = document.getElementById('user-year-select');
     const currentYear = new Date().getFullYear() + 543;
     const selectedYear = yearSelect ? parseInt(yearSelect.value) : currentYear;
     const isHistoryMode = selectedYear !== currentYear;
 
-    // UI: แสดง Loader
-    const container = document.getElementById('user-requests-list');
-    if (container) container.innerHTML = '<div class="text-center py-10"><span class="loader"></span> กำลังโหลดข้อมูล...</div>';
-
     try {
         let requests = [];
 
-        // 2. Logic การดึงข้อมูลแยกตามโหมด
         if (isHistoryMode) {
+            // โหมดประวัติ: ดึงจาก GAS
             console.log(`📜 Fetching HISTORY data for year ${selectedYear}...`);
-            
-            // ★ โหมดดูย้อนหลัง: ดึงจาก GAS โดยตรง (API: getRequestsByYear)
-            // ต้องมั่นใจว่าใน Code.gs มีฟังก์ชัน getRequestsByYear แล้ว
-            const res = await apiCall('GET', 'getRequestsByYear', { 
-                year: selectedYear, 
-                username: user.username 
-            });
-            
+            const res = await apiCall('GET', 'getRequestsByYear', { year: selectedYear, username: user.username });
             if (res.status === 'success') requests = res.data || [];
 
         } else {
-            // ★ โหมดปีปัจจุบัน: ใช้ระบบ Hybrid (GAS + Firebase) เพื่อความรวดเร็วและ Realtime
-            
-            // 2.1 ดึงจาก GAS (Base Data)
+            // โหมดปัจจุบัน: Hybrid
+            // 1. ดึงข้อมูลพื้นฐานจาก GAS
             const res = await apiCall('GET', 'getUserRequests', { username: user.username });
             if (res.status === 'success') requests = res.data || [];
 
-            // 2.2 Merge กับ Firebase (เพื่อเอาลิงก์ไฟล์และสถานะล่าสุด)
+            // 2. Merge ข้อมูลจาก Firebase (เพื่อเอาลิงก์ไฟล์ล่าสุด)
             if (typeof db !== 'undefined') {
                 const snapshot = await db.collection('requests').get();
                 const firebaseData = {};
@@ -247,12 +239,17 @@ async function fetchUserRequests() {
                     if (fbDoc) {
                         return {
                             ...req,
-                            // ใช้ลิงก์ล่าสุดจาก Cloud Run/Firebase
-                            pdfUrl: fbDoc.pdfUrl || fbDoc.fileUrl || req.pdfUrl,
+                            // ★★★ จุดสำคัญ: ลำดับการเลือกไฟล์ (Priority) ★★★
+                            // 1. fbDoc.fileUrl (ลิงก์ล่าสุดจากการแก้ไข/สร้างใหม่)
+                            // 2. fbDoc.pdfUrl (ลิงก์สำรองใน Firebase)
+                            // 3. req.pdfUrl (ลิงก์เดิมจาก GAS)
+                            pdfUrl: fbDoc.fileUrl || fbDoc.pdfUrl || req.pdfUrl,
+                            
+                            // ลิงก์คำสั่งและหนังสือส่ง
                             commandPdfUrl: fbDoc.commandPdfUrl || fbDoc.commandBookUrl || req.commandPdfUrl,
                             dispatchBookUrl: fbDoc.dispatchBookUrl || fbDoc.dispatchBookPdfUrl || req.dispatchBookUrl,
                             
-                            // ใช้สถานะล่าสุด
+                            // สถานะล่าสุด
                             status: fbDoc.status || req.status,
                             commandStatus: fbDoc.commandStatus || req.commandStatus,
                             timestamp: fbDoc.timestamp || req.timestamp
@@ -263,26 +260,20 @@ async function fetchUserRequests() {
             }
         }
 
-        // 3. กรองและเรียงลำดับ (สำคัญมาก: ต้องรองรับ Timestamp แบบ Firebase)
+        // 3. เรียงลำดับ (ใหม่ -> เก่า)
         if (requests && requests.length > 0) {
-            // กรองเฉพาะของ User คนนี้ (กันพลาด)
-            requests = requests.filter(req => req.username === user.username);
-            
             requests.sort((a, b) => {
                 const getTime = (val) => {
                     if (!val) return 0;
-                    if (typeof val.toDate === 'function') return val.toDate().getTime(); // Firestore Timestamp
-                    if (val.seconds) return val.seconds * 1000; // JSON Timestamp
-                    return new Date(val).getTime(); // Date String
+                    if (typeof val.toDate === 'function') return val.toDate().getTime();
+                    if (val.seconds) return val.seconds * 1000;
+                    return new Date(val).getTime();
                 };
-                
-                const timeA = getTime(a.timestamp) || getTime(a.docDate);
-                const timeB = getTime(b.timestamp) || getTime(b.docDate);
-                return timeB - timeA; // เรียงใหม่ -> เก่า
+                return getTime(b.timestamp || b.docDate) - getTime(a.timestamp || a.docDate);
             });
         }
 
-        // 4. แสดงผล (ใช้ฟังก์ชัน renderUserRequests ที่มีอยู่)
+        // 4. แสดงผล
         renderUserRequests(requests);
 
     } catch (error) {
@@ -290,11 +281,13 @@ async function fetchUserRequests() {
         if (container) container.innerHTML = `<div class="text-center text-red-500 py-10">เกิดข้อผิดพลาด: ${error.message}</div>`;
     }
 }
-// --- ฟังก์ชันแสดงผลรายการคำขอ (Render) ---
+
+// ==========================================
+// 2. ฟังก์ชันแสดงผล (Render UI)
+// ==========================================
 function renderUserRequests(requests) {
     const container = document.getElementById('user-requests-list');
-    
-    if (!container) return; // ป้องกัน Error ถ้าหา element ไม่เจอ
+    if (!container) return;
 
     if (!requests || requests.length === 0) {
         container.innerHTML = `
@@ -307,10 +300,16 @@ function renderUserRequests(requests) {
         return;
     }
 
+    const formatDate = (date) => {
+        if (!date) return '-';
+        const d = new Date(date);
+        return isNaN(d.getTime()) ? date : d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+    };
+
     container.innerHTML = requests.map(req => {
         const safeId = escapeHtml(req.id);
         
-        // กำหนดสถานะ (Badge)
+        // Badge สถานะ
         let statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600">รอตรวจสอบ</span>`;
         if (req.commandPdfUrl || req.commandStatus === 'เสร็จสิ้น') {
             statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">✅ อนุมัติ/ออกคำสั่งแล้ว</span>`;
@@ -320,10 +319,10 @@ function renderUserRequests(requests) {
             statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-700">⏳ รอตรวจสอบ</span>`;
         }
 
-        // --- ส่วนปุ่มไฟล์แนบ ---
+        // ปุ่ม Action
         let actionButtons = '';
 
-        // 1. ปุ่มดูบันทึกข้อความ (ต้นเรื่อง)
+        // ★ ใช้ req.pdfUrl ซึ่งผ่านการเลือกมาแล้วจาก fetchUserRequests
         if (req.pdfUrl) {
             actionButtons += `
                 <a href="${req.pdfUrl}" target="_blank" class="btn bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 btn-sm flex items-center gap-1 shadow-sm">
@@ -331,7 +330,6 @@ function renderUserRequests(requests) {
                 </a>`;
         }
 
-        // 2. ปุ่มดูคำสั่ง (ถ้ามี)
         if (req.commandPdfUrl) {
             actionButtons += `
                 <a href="${req.commandPdfUrl}" target="_blank" class="btn bg-green-50 text-green-600 hover:bg-green-100 border border-green-200 btn-sm flex items-center gap-1 shadow-sm">
@@ -339,7 +337,6 @@ function renderUserRequests(requests) {
                 </a>`;
         }
 
-        // 3. ปุ่มดูหนังสือส่ง (ถ้ามี)
         const dispatchUrl = req.dispatchBookUrl || req.dispatchBookPdfUrl;
         if (dispatchUrl) {
             actionButtons += `
@@ -347,13 +344,6 @@ function renderUserRequests(requests) {
                     📦 หนังสือส่ง
                 </a>`;
         }
-
-        // Helper function สำหรับวันที่ (ถ้ายังไม่มีใน utils.js)
-        const formatDate = (date) => {
-            if (!date) return '-';
-            const d = new Date(date);
-            return isNaN(d.getTime()) ? date : d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
-        };
 
         return `
         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition duration-200 mb-4">
@@ -374,7 +364,6 @@ function renderUserRequests(requests) {
                     <div class="flex flex-wrap justify-end gap-2 w-full">
                         ${actionButtons}
                     </div>
-                    
                     ${!req.commandPdfUrl ? `
                         <div class="flex gap-2 mt-2 pt-2 border-t border-gray-100 w-full justify-end">
                             <button onclick="editRequest('${safeId}')" class="text-xs text-indigo-500 hover:text-indigo-700 underline">✏️ แก้ไข</button>
