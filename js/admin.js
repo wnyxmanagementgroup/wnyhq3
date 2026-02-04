@@ -605,7 +605,7 @@ async function handleAdminGenerateMemo() {
 }
 
 /**
- * ฟังก์ชันสร้างเอกสาร PDF (ฉบับสมบูรณ์: แก้ไขการตัดคำ วันที่ และ ณ สถานที่)
+ * ฟังก์ชันสร้างเอกสาร PDF (ฉบับแก้ไขการตัดคำ: วันที่เกาะกลุ่ม, ณ ติดสถานที่, แต่แยกคำนำหน้าได้)
  */
 async function generateOfficialPDF(requestData) {
     // 1. กำหนดปุ่มสำหรับแสดง Loader ตามประเภทเอกสาร
@@ -620,38 +620,36 @@ async function generateOfficialPDF(requestData) {
     try {
         const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
         
-        // Helper: แปลงตัวเลขเป็นเลขไทย (ป้องกันค่า null/undefined)
+        // Helper: แปลงตัวเลขเป็นเลขไทย
         const toThaiNum = (num) => {
             if (num === null || num === undefined || num === "") return "";
             return num.toString().replace(/\d/g, d => "๐๑๒๓๔๕๖๗๘๙"[d]);
         };
 
-        // Helper: จัดรูปแบบวันที่แบบไทย (ใช้ \u00A0 เพื่อป้องกันการฉีกคำ)
+        // Helper: จัดรูปแบบวันที่ (ใช้ \u00A0 ยึด วัน-เดือน-ปี ให้ติดกันเสมอ)
         const formatDateThai = (dateStr) => {
             if (!dateStr) return ".....";
             const d = new Date(dateStr);
-            // ใช้ \u00A0 (Non-breaking space) เชื่อม วัน-เดือน-ปี
+            // \u00A0 คือ Non-Breaking Space (ห้ามตัดคำ)
             return `${toThaiNum(d.getDate())}\u00A0${thaiMonths[d.getMonth()]}\u00A0${toThaiNum(d.getFullYear() + 543)}`;
         };
 
-        // --- ส่วนจัดการวันที่ (Common Logic) ---
-        // ใช้สำหรับเอกสารทั่วไป (คำสั่ง/บันทึกข้อความ)
+        // --- ส่วนจัดการวันที่ (Header) ---
         const docDateObj = requestData.docDate ? new Date(requestData.docDate) : new Date();
         const docDay = docDateObj.getDate();
         const docMonth = thaiMonths[docDateObj.getMonth()];
         const docYear = docDateObj.getFullYear() + 543;
-        // วันที่เอกสารส่วนหัว (ไม่ฉีกคำ)
+        // วันที่ส่วนหัวกระดาษ (ยึดติดกัน)
         const fullDocDate = `${toThaiNum(docDay)}\u00A0${docMonth}\u00A0${toThaiNum(docYear)}`; 
 
-        // --- ส่วนจัดการช่วงเวลาเดินทาง (Duration calculation) ---
+        // --- ส่วนจัดการช่วงเวลาเดินทาง (Content) ---
         let dateRangeStr = "", startDateStr = "", endDateStr = "", durationStr = "0";
-        // รองรับทั้งคีย์ startDate (คำสั่ง) และ dateStart (หนังสือส่ง)
         const rawStartDate = requestData.startDate || requestData.dateStart;
         const rawEndDate = requestData.endDate || requestData.dateEnd;
 
         if (rawStartDate) {
             const start = new Date(rawStartDate);
-            startDateStr = formatDateThai(rawStartDate); // ใช้ Helper
+            startDateStr = formatDateThai(rawStartDate);
             
             if (rawEndDate) {
                 const end = new Date(rawEndDate);
@@ -660,27 +658,27 @@ async function generateOfficialPDF(requestData) {
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; 
                 durationStr = diffDays.toString();
 
-                // สร้างข้อความช่วงเวลา (ใช้ \u00A0 เชื่อมคำสำคัญ)
+                // ★★★ แก้ไขตรงนี้: ใช้ Space ธรรมดาหลัง "ในวันที่" เพื่อให้ตัดคำได้ ★★★
                 if (rawStartDate === rawEndDate) {
-                    dateRangeStr = `ในวันที่\u00A0${toThaiNum(start.getDate())}\u00A0${thaiMonths[start.getMonth()]}\u00A0พ.ศ.\u00A0${toThaiNum(start.getFullYear() + 543)}`;
+                    // "ในวันที่" (เว้นวรรคปกติ) "๙(NBSP)กุมภาพันธ์(NBSP)๒๕๖๙"
+                    dateRangeStr = `ในวันที่ ${formatDateThai(rawStartDate)}`;
                 } else if (start.getMonth() === end.getMonth()) {
-                    // กรณีเดือนเดียวกัน: ระหว่างวันที่ 1 - 5 มกราคม ...
-                    dateRangeStr = `ระหว่างวันที่\u00A0${toThaiNum(start.getDate())}\u00A0-\u00A0${toThaiNum(end.getDate())}\u00A0${thaiMonths[start.getMonth()]}\u00A0พ.ศ.\u00A0${toThaiNum(start.getFullYear() + 543)}`;
+                    // กรณีเดือนเดียวกัน: "ระหว่างวันที่" (วรรคปกติ) "๑-๒(NBSP)มกราคม..."
+                    dateRangeStr = `ระหว่างวันที่ ${toThaiNum(start.getDate())}\u00A0-\u00A0${toThaiNum(end.getDate())}\u00A0${thaiMonths[start.getMonth()]}\u00A0พ.ศ.\u00A0${toThaiNum(start.getFullYear() + 543)}`;
                 } else {
-                    // กรณีคนละเดือน: ระหว่างวันที่ ... - ...
-                    dateRangeStr = `ระหว่างวันที่\u00A0${formatDateThai(rawStartDate)}\u00A0-\u00A0${formatDateThai(rawEndDate)}`;
+                    // กรณีคนละเดือน
+                    dateRangeStr = `ระหว่างวันที่ ${formatDateThai(rawStartDate)}\u00A0-\u00A0${formatDateThai(rawEndDate)}`;
                 }
             } else {
-                 dateRangeStr = `ในวันที่\u00A0${formatDateThai(rawStartDate)}`;
+                 dateRangeStr = `ในวันที่ ${formatDateThai(rawStartDate)}`;
                  endDateStr = startDateStr;
                  durationStr = "1";
             }
         }
 
-        // --- ส่วนจัดการรายชื่อผู้ร่วมเดินทาง (Attendees) ---
+        // --- ส่วนจัดการรายชื่อผู้ร่วมเดินทาง ---
         const requesterName = (requestData.requesterName || "").trim().replace(/\s+/g, ' ');
         let mergedAttendees = [];
-        // ถ้ามีชื่อผู้ขอ ใส่เป็นคนแรก
         if (requesterName) mergedAttendees.push({ name: requesterName, position: requestData.requesterPosition });
         
         if (requestData.attendees && Array.isArray(requestData.attendees)) {
@@ -694,7 +692,7 @@ async function generateOfficialPDF(requestData) {
         const attendeesWithIndex = mergedAttendees.map((att, index) => ({ i: toThaiNum(index + 1), name: att.name, position: att.position }));
         const totalCount = mergedAttendees.length.toString();
 
-        // --- ส่วนจัดการค่าใช้จ่าย (Expense) ---
+        // --- ส่วนจัดการค่าใช้จ่าย ---
         let expense_no = "", expense_partial = "", totalExpenseStr = "";
         let expense_allowance = "", expense_food = "", expense_accommodation = "", expense_transport = "", expense_fuel = "";
         let expense_other_check = "", expense_other_text = ""; 
@@ -704,7 +702,6 @@ async function generateOfficialPDF(requestData) {
         } else {
             expense_partial = "/";
             let itemsStr = "";
-            
             if (Array.isArray(requestData.expenseItems)) {
                 itemsStr = JSON.stringify(requestData.expenseItems);
                 const otherItem = requestData.expenseItems.find(item => item.name === 'ค่าใช้จ่ายอื่นๆ' || item.name === 'other');
@@ -715,20 +712,17 @@ async function generateOfficialPDF(requestData) {
             } else if (typeof requestData.expenseItems === 'string') {
                 itemsStr = requestData.expenseItems;
             }
-
             if (itemsStr.includes('allowance') || itemsStr.includes('เบี้ยเลี้ยง')) expense_allowance = "/";
             if (itemsStr.includes('food') || itemsStr.includes('อาหาร')) expense_food = "/";
             if (itemsStr.includes('accommodation') || itemsStr.includes('ที่พัก')) expense_accommodation = "/";
             if (itemsStr.includes('transport') || itemsStr.includes('พาหนะ')) expense_transport = "/";
             if (itemsStr.includes('fuel') || itemsStr.includes('น้ำมัน')) expense_fuel = "/";
-
             totalExpenseStr = requestData.totalExpense ? toThaiNum(parseFloat(requestData.totalExpense).toLocaleString('th-TH', {minimumFractionDigits: 2})) : toThaiNum("0");
         }
         
-        // --- ส่วนจัดการพาหนะ (Vehicle) ---
+        // --- ส่วนจัดการพาหนะ ---
         let vehicle_gov = "", vehicle_private = "", vehicle_public = "";
         let license_plate = "", other_detail = "";
-        
         if (requestData.vehicleOption === 'gov') { vehicle_gov = "/"; }
         else if (requestData.vehicleOption === 'private') { 
             vehicle_private = "/"; 
@@ -738,7 +732,7 @@ async function generateOfficialPDF(requestData) {
             other_detail = toThaiNum(requestData.licensePlate || requestData.publicVehicleDetails || ""); 
         }
 
-        // --- ส่วนจัดการเลขที่เอกสาร (Doc ID) ---
+        // --- ส่วนจัดการเลขที่เอกสาร ---
         let rawId = requestData.id || requestData.requestId || "";
         let docNumberRaw = ".....";
         if (rawId) {
@@ -747,14 +741,13 @@ async function generateOfficialPDF(requestData) {
             docNumberRaw = docNumberRaw.replace(/บค/gi, '').trim();
         }
 
-        // --- 2. เลือกไฟล์แม่แบบ (Template Selection) ---
+        // --- 2. เลือกไฟล์แม่แบบ ---
         let templateFilename = '';
         if (requestData.doctype === 'dispatch') {
             templateFilename = 'แม่แบบหนังสือส่งใหม่.docx'; 
         } else if (requestData.doctype === 'memo') {
             templateFilename = 'template_memo.docx';
         } else {
-            // Default: Command (คำสั่ง)
             switch (requestData.templateType) {
                 case 'groupSmall': templateFilename = 'template_command_small.docx'; break;
                 case 'groupLarge': templateFilename = 'template_command_large.docx'; break;
@@ -762,106 +755,71 @@ async function generateOfficialPDF(requestData) {
             }
         }
 
-        // --- 3. โหลดและเตรียมข้อมูล (Render Data) ---
-        const response = await fetch(`./${templateFilename}`); // โหลดจากโฟลเดอร์เดียวกัน
+        // --- 3. โหลดและ Render Template ---
+        const response = await fetch(`./${templateFilename}`); 
         if (!response.ok) throw new Error(`ไม่พบไฟล์แม่แบบ "${templateFilename}"`);
         const content = await response.arrayBuffer();
 
         const zip = new PizZip(content);
         const doc = new window.docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
 
-        // เตรียมข้อมูลพื้นฐาน (Common Fields)
+        // เตรียมข้อมูล (Render Data)
         let renderData = {
             id: toThaiNum(rawId || "......."), 
             doc_number: toThaiNum(docNumberRaw),
-            
-            // วันที่เอกสาร
             dd: toThaiNum(docDay), MMMM: docMonth, YYYY: toThaiNum(docYear),
             doc_date: fullDocDate, 
-            
-            // ช่วงเวลา
             start_date: startDateStr, end_date: endDateStr, duration: toThaiNum(durationStr),
-            date_range: dateRangeStr,
+            date_range: dateRangeStr, // ใช้ตัวแปรที่แก้แล้ว (มีวรรคปกติ)
             
-            // ข้อมูลผู้ขอ
             requesterName, requester_position: requestData.requesterPosition, 
             requesterPosition: requestData.requesterPosition,
             
-            // ★★★ แก้ไข: สถานที่ (ใช้ \u00A0 เชื่อม "ณ" กับสถานที่) ★★★
+            // ★★★ สถานที่: ยึด "ณ" ให้ติดกับสถานที่เหมือนเดิม ★★★
             location: toThaiNum((requestData.location || "").replace(/ณ /g, "ณ\u00A0")), 
             
             purpose: toThaiNum(requestData.purpose || ""),
             learning_area: requestData.department || "..............", 
             head_name: requestData.headName || "..............",
-            
-            // ผู้ร่วมเดินทาง
             attendees: attendeesWithIndex, total_count: toThaiNum(totalCount),
-            
-            // ยานพาหนะ (Checkbox Logic)
             vehicle_gov, vehicle_private, vehicle_public, license_plate, other_detail,
-            
-            // ค่าใช้จ่าย
             expense_no, expense_partial, 
             expense_allowance, expense_food, expense_accommodation, expense_transport, expense_fuel,
             expense_other_check, expense_other_text: toThaiNum(expense_other_text), 
             expense_total: totalExpenseStr
         };
 
-        // ข้อมูลเฉพาะสำหรับหนังสือส่ง (Dispatch Specifics)
         if (requestData.doctype === 'dispatch') {
             Object.assign(renderData, {
-                // ส่วนหัว
                 dispatch_month: requestData.dispatchMonth || "",
                 dispatch_year: toThaiNum(requestData.dispatchYear || ""),
-                
-                // สิ่งที่ส่งมาด้วย
-                qty1: toThaiNum(requestData.qty1 || "๑"),
-                qty2: toThaiNum(requestData.qty2 || "๑"),
-                qty3: toThaiNum(requestData.qty3 || "๑"),
-                qty4: toThaiNum(requestData.qty4 || "๑"),
-                qty5: toThaiNum(requestData.qty5 || "๑"),
-                qty6: toThaiNum(requestData.qty6 || "๑"),
+                qty1: toThaiNum(requestData.qty1 || "๑"), qty2: toThaiNum(requestData.qty2 || "๑"),
+                qty3: toThaiNum(requestData.qty3 || "๑"), qty4: toThaiNum(requestData.qty4 || "๑"),
+                qty5: toThaiNum(requestData.qty5 || "๑"), qty6: toThaiNum(requestData.qty6 || "๑"),
                 qty7: toThaiNum(requestData.qty7 || "๑"),
-                
-                // เนื้อหาหลัก
                 student_count: toThaiNum(requestData.studentCount || "0"),
                 teacher_count: toThaiNum(requestData.teacherCount || "0"),
-                
-                // วันเวลาเดินทาง
                 date_start: formatDateThai(requestData.dateStart),
                 time_start: toThaiNum(requestData.timeStart || ""),
                 date_end: formatDateThai(requestData.dateEnd),
                 time_end: toThaiNum(requestData.timeEnd || ""),
-                
-                // ยานพาหนะ (ใช้ข้อความเต็ม ไม่ใช่ Checkbox)
                 vehicle_type: requestData.vehicleType || "-",
                 vehicle_id: toThaiNum(requestData.vehicleId || "-"),
-                
-                // ที่พัก (ถ้าว่าง ใส่ขีด)
                 stay_at: (requestData.stayAt && requestData.stayAt.trim() !== "") ? requestData.stayAt : "-"
             });
         }
 
-        // กำจัดค่า undefined/null
         Object.keys(renderData).forEach(key => {
-            if (renderData[key] === undefined || renderData[key] === null) {
-                renderData[key] = ""; 
-            }
+            if (renderData[key] === undefined || renderData[key] === null) renderData[key] = ""; 
         });
 
-        // --- 4. Render Template ---
         doc.render(renderData);
 
-        // --- 5. Convert to PDF (Cloud Run) ---
         const docxBlob = doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
         const formData = new FormData();
         formData.append("files", docxBlob, "document.docx");
         
-        // ใช้ Config จากไฟล์ config.js ถ้ามี
-        const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') 
-            ? PDF_ENGINE_CONFIG.BASE_URL 
-            : "https://wny-pdf-engine-660310608742.asia-southeast1.run.app"; // Fallback URL
-
+        const cloudRunBaseUrl = (typeof PDF_ENGINE_CONFIG !== 'undefined') ? PDF_ENGINE_CONFIG.BASE_URL : "https://wny-pdf-engine-660310608742.asia-southeast1.run.app";
         const cloudRunResponse = await fetch(`${cloudRunBaseUrl}/forms/libreoffice/convert`, { method: "POST", body: formData });
         
         if (!cloudRunResponse.ok) throw new Error(`Cloud Run Error: ${cloudRunResponse.status}`);
@@ -871,7 +829,6 @@ async function generateOfficialPDF(requestData) {
 
     } catch (error) {
         console.error("PDF Generation Error:", error);
-        
         if (error.properties && error.properties.errors) {
             const errorMessages = error.properties.errors.map(e => e.properties.explanation).join("\n");
             alert(`❌ เกิดข้อผิดพลาดใน Template:\n${errorMessages}`);
@@ -883,6 +840,7 @@ async function generateOfficialPDF(requestData) {
         toggleLoader(btnId, false);
     }
 }
+
 
 function renderUsersList(users) {
     const container = document.getElementById('users-content');
