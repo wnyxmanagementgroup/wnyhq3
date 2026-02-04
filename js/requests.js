@@ -2001,3 +2001,12 @@ function validateRequestForm(data) {
 
     return true;
 }
+window.editRequest = async function(requestId) {
+    console.log("Triggering edit for:", requestId);
+    await openEditPage(requestId);
+};
+
+window.deleteRequest = async function(requestId) {
+    console.log("Triggering delete for:", requestId);
+    await handleDeleteRequest(requestId);
+};
