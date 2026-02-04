@@ -370,7 +370,8 @@ function renderUserRequests(requests) {
 }
 // ... (ส่วนล่าง renderRequestsList และอื่นๆ คงเดิม) ...
 
-// แสดงรายการคำขอ (Render UI)
+// ไฟล์ js/requests.js
+
 function renderRequestsList(requests, memos, searchTerm = '') {
     const container = document.getElementById('requests-list');
     const noRequestsMessage = document.getElementById('no-requests-message');
@@ -404,30 +405,27 @@ function renderRequestsList(requests, memos, searchTerm = '') {
         let displayRequestStatus = request.status;
         let displayCommandStatus = request.commandStatus;
         
-        // ถ้ามี Memo ให้ใช้สถานะจาก Memo แทน (ในกรณีที่ยังไม่ได้ Sync)
         if (relatedMemo) {
             displayRequestStatus = relatedMemo.status;
             displayCommandStatus = relatedMemo.status === 'เสร็จสิ้น/รับไฟล์ไปใช้งาน' ? 'เสร็จสิ้น' : relatedMemo.status;
         }
         
-        // ตรวจสอบไฟล์ที่เสร็จสมบูรณ์ (Priority: จาก Memo -> จาก Request เอง)
-        //const completedMemoUrl = relatedMemo?.completedMemoUrl || request.completedMemoUrl;
-        //const completedCommandUrl = relatedMemo?.completedCommandUrl || request.completedCommandUrl;
-        //const dispatchBookUrl = relatedMemo?.dispatchBookUrl || request.dispatchBookUrl;
+        // ลิงก์ไฟล์ต่างๆ
         const completedMemoUrl = relatedMemo?.completedMemoUrl || request.completedMemoUrl || request.memoPdfUrl || request.fileUrl;
-const completedCommandUrl = relatedMemo?.completedCommandUrl || request.completedCommandUrl || request.commandBookUrl; // เพิ่ม commandBookUrl เผื่อไว้
-const dispatchBookUrl = relatedMemo?.dispatchBookUrl || request.dispatchBookUrl;
+        const completedCommandUrl = relatedMemo?.completedCommandUrl || request.completedCommandUrl || request.commandBookUrl;
+        const dispatchBookUrl = relatedMemo?.dispatchBookUrl || request.dispatchBookUrl || request.dispatchBookPdfUrl;
 
         const hasCompletedFiles = completedMemoUrl || completedCommandUrl || dispatchBookUrl;
-        
         const isFullyCompleted = displayRequestStatus === 'เสร็จสิ้น/รับไฟล์ไปใช้งาน' || displayRequestStatus === 'เสร็จสิ้น';
         
-        // Sanitization (ป้องกัน XSS)
         const safeId = escapeHtml(request.id || request.requestId || 'รอออกเลข');
         const safePurpose = escapeHtml(request.purpose || 'ไม่มีวัตถุประสงค์');
         const safeLocation = escapeHtml(request.location || 'ไม่ระบุ');
         const safeDate = `${formatDisplayDate(request.startDate)} - ${formatDisplayDate(request.endDate)}`;
         
+        // ★★★ แก้ไขจุดนี้: เลือกไฟล์คำขอ (Cloud Run) ก่อนไฟล์ GAS ★★★
+        const requestDocUrl = request.fileUrl || request.memoPdfUrl || request.pdfUrl;
+
         return `
             <div class="border rounded-lg p-4 mb-4 bg-white shadow-sm ${isFullyCompleted ? 'border-green-300 bg-green-50' : ''} hover:shadow-md transition-all">
                 <div class="flex justify-between items-start">
@@ -484,11 +482,11 @@ const dispatchBookUrl = relatedMemo?.dispatchBookUrl || request.dispatchBookUrl;
                     </div>
                     
                     <div class="flex flex-col gap-2 ml-4 min-w-[100px]">
-                        ${(request.pdfUrl || request.fileUrl) ? `
-    <a href="${request.pdfUrl || request.fileUrl}" target="_blank" class="btn btn-success btn-sm w-full text-center">
-        📄 ดูคำขอ
-    </a>
-` : ''}
+                        ${requestDocUrl ? `
+                            <a href="${requestDocUrl}" target="_blank" class="btn btn-success btn-sm w-full text-center">
+                                📄 ดูคำขอ
+                            </a>
+                        ` : ''}
                         
                         ${!isFullyCompleted ? `
                             <button data-action="edit" data-id="${request.id || request.requestId}" class="btn bg-blue-500 hover:bg-blue-600 text-white btn-sm w-full">
