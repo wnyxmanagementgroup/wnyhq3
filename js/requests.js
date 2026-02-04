@@ -192,7 +192,7 @@ async function handleDeleteRequest(requestId) {
     }
 }
 // ==========================================
-// 1. ฟังก์ชันดึงข้อมูล (Fetch Data) - แบบ Direct GAS (Google Sheets Only)
+// 1. ฟังก์ชันดึงข้อมูล (Fetch Data) - แก้ไขให้ Hybrid (GAS + Firebase)
 // ==========================================
 async function fetchUserRequests() {
     const user = getCurrentUser();
@@ -204,63 +204,82 @@ async function fetchUserRequests() {
     
     if (container) {
         container.classList.remove('hidden');
-        container.innerHTML = '<div class="text-center py-10"><span class="loader"></span> กำลังดึงข้อมูลจาก Google Sheets...</div>';
+        container.innerHTML = '<div class="text-center py-10"><span class="loader"></span> กำลังโหลดข้อมูลล่าสุด...</div>';
     }
     if (noMsg) noMsg.classList.add('hidden');
 
-    // 1. ตรวจสอบปีที่เลือก
     const yearSelect = document.getElementById('user-year-select');
     const currentYear = new Date().getFullYear() + 543;
     const selectedYear = yearSelect ? parseInt(yearSelect.value) : currentYear;
 
     try {
-        console.log(`📜 Fetching data for year ${selectedYear} directly from Google Sheets...`);
-
-        // 2. เรียก API ไปที่ Google Apps Script โดยตรง
-        // ใช้ getRequestsByYear เพื่อดึงเฉพาะปีที่เลือกและเฉพาะ User คนนี้
+        // 1. ดึงข้อมูลหลักจาก Google Sheets (GAS)
         const result = await apiCall('GET', 'getRequestsByYear', { 
             year: selectedYear, 
             username: user.username 
         });
 
-        let requests = [];
-        if (result.status === 'success') {
-            requests = result.data || [];
-        } else {
-            throw new Error(result.message || "ไม่สามารถดึงข้อมูลได้");
+        let requests = (result.status === 'success') ? result.data || [] : [];
+
+        // 2. ★★★ (สำคัญ) ดึงข้อมูลจาก Firebase มาทับ เพื่อให้ได้ลิงก์ Cloud Run ล่าสุด ★★★
+        if (typeof db !== 'undefined') {
+            try {
+                // ดึงเฉพาะของ User นี้
+                const snapshot = await db.collection('requests')
+                    .where('username', '==', user.username)
+                    .get();
+                
+                const firebaseData = {};
+                snapshot.forEach(doc => { firebaseData[doc.id] = doc.data(); });
+
+                requests = requests.map(req => {
+                    // แปลง ID ให้ตรงกับ Key ใน Firebase (เช่น บค/ -> บค-)
+                    const safeId = req.id.replace(/[\/\\:\.]/g, '-');
+                    const fbDoc = firebaseData[safeId];
+                    
+                    if (fbDoc) {
+                        return {
+                            ...req,
+                            // เอาลิงก์ fileUrl (Cloud Run) จาก Firebase มาใช้ก่อน
+                            fileUrl: fbDoc.fileUrl || req.fileUrl,
+                            pdfUrl: fbDoc.pdfUrl || req.pdfUrl,
+                            
+                            // เอาลิงก์อื่นๆ และสถานะล่าสุดมาด้วย
+                            completedMemoUrl: fbDoc.completedMemoUrl || req.completedMemoUrl,
+                            commandPdfUrl: fbDoc.commandPdfUrl || fbDoc.commandBookUrl || req.commandPdfUrl,
+                            dispatchBookUrl: fbDoc.dispatchBookUrl || fbDoc.dispatchBookPdfUrl || req.dispatchBookUrl,
+                            status: fbDoc.status || req.status,
+                            commandStatus: fbDoc.commandStatus || req.commandStatus
+                        };
+                    }
+                    return req;
+                });
+            } catch (e) {
+                console.warn("Firebase Sync Error (User):", e);
+            }
         }
 
-        console.log(`✅ ได้รับข้อมูลจำนวน ${requests.length} รายการ`);
-
-        // 3. เรียงลำดับ (ใหม่ -> เก่า) โดยใช้ docDate เป็นหลัก
+        // 3. เรียงลำดับ (ใหม่ -> เก่า)
         if (requests.length > 0) {
             requests.sort((a, b) => {
-                // แปลงวันที่ "2024-02-04" เป็น Timestamp
                 const getTime = (d) => d ? new Date(d).getTime() : 0;
                 return getTime(b.docDate) - getTime(a.docDate);
             });
         }
 
-        // 4. แสดงผลทันที
+        // 4. แสดงผล
         renderUserRequests(requests);
 
     } catch (error) {
         console.error('Error fetching requests:', error);
         if (container) {
-            container.innerHTML = `
-                <div class="text-center py-10 border border-red-200 bg-red-50 rounded-xl">
-                    <p class="text-red-500 font-bold">เกิดข้อผิดพลาดในการเชื่อมต่อ</p>
-                    <p class="text-gray-600 text-sm mt-1">${error.message}</p>
-                    <button onclick="fetchUserRequests()" class="mt-4 btn bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 btn-sm">
-                        🔄 ลองใหม่อีกครั้ง
-                    </button>
-                </div>`;
+            container.innerHTML = `<p class="text-center text-red-500 py-10">โหลดข้อมูลไม่สำเร็จ: ${error.message}</p>`;
         }
     }
 }
 
 // ==========================================
-// 2. ฟังก์ชันแสดงผล (Render UI)
+// 2. ฟังก์ชันแสดงผล (Render UI) - ปรับลำดับการเลือกไฟล์
 // ==========================================
 function renderUserRequests(requests) {
     const container = document.getElementById('user-requests-list');
@@ -300,7 +319,6 @@ function renderUserRequests(requests) {
         
         // Badge สถานะ
         let statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600">รอตรวจสอบ</span>`;
-        
         if (req.commandStatus === 'เสร็จสิ้น' || req.commandPdfUrl) {
             statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">✅ อนุมัติ/ออกคำสั่งแล้ว</span>`;
         } else if (req.status === 'ไม่อนุมัติ') {
@@ -314,11 +332,11 @@ function renderUserRequests(requests) {
         // ปุ่ม Action
         let actionButtons = '';
 
-        // ★★★ แก้ไขจุดสำคัญ: เลือก fileUrl (Cloud Run) ก่อน pdfUrl (GAS) ★★★
-        // เรียงลำดับ: completedMemoUrl (ถ้ามี) > fileUrl (Cloud Run) > pdfUrl (GAS)
+        // ★★★ (สำคัญ) เลือก fileUrl (Cloud Run) เป็นอันดับแรก ★★★
+        // เรียงลำดับ: ไฟล์สมบูรณ์ > ไฟล์ Cloud Run > ไฟล์ GAS
         const finalPdfUrl = req.completedMemoUrl || req.fileUrl || req.pdfUrl;
 
-        // 1. ปุ่มดูบันทึกข้อความ
+        // 1. บันทึกข้อความ
         if (finalPdfUrl) {
             actionButtons += `
                 <a href="${finalPdfUrl}" target="_blank" class="btn bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 btn-sm flex items-center gap-1 shadow-sm">
@@ -326,7 +344,7 @@ function renderUserRequests(requests) {
                 </a>`;
         }
 
-        // 2. ปุ่มดูคำสั่ง
+        // 2. คำสั่ง
         const finalCommandUrl = req.completedCommandUrl || req.commandPdfUrl;
         if (finalCommandUrl) {
             actionButtons += `
@@ -335,16 +353,16 @@ function renderUserRequests(requests) {
                 </a>`;
         }
 
-        // 3. ปุ่มดูหนังสือส่ง
-        const finalDispatchUrl = req.dispatchBookUrl || req.dispatchBookPdfUrl;
-        if (finalDispatchUrl) {
+        // 3. หนังสือส่ง
+        const dispatchUrl = req.dispatchBookUrl || req.dispatchBookPdfUrl;
+        if (dispatchUrl) {
             actionButtons += `
-                <a href="${finalDispatchUrl}" target="_blank" class="btn bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-200 btn-sm flex items-center gap-1 shadow-sm">
+                <a href="${dispatchUrl}" target="_blank" class="btn bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-200 btn-sm flex items-center gap-1 shadow-sm">
                     📦 หนังสือส่ง
                 </a>`;
         }
 
-        // ตรวจสอบว่าเป็นเจ้าของหรือไม่ (เพื่อแสดงปุ่มแก้ไข)
+        // เงื่อนไขปุ่มแก้ไข (ถ้ายังไม่ออกคำสั่ง หรือโดนส่งคืน)
         const canEdit = (!req.commandPdfUrl && !req.commandStatus) || req.status === 'นำกลับไปแก้ไข';
 
         return `
@@ -368,12 +386,8 @@ function renderUserRequests(requests) {
                     </div>
                     ${canEdit ? `
                         <div class="flex gap-2 mt-2 pt-2 border-t border-gray-100 w-full justify-end">
-                            <button onclick="editRequest('${safeId}')" class="text-xs text-indigo-500 hover:text-indigo-700 underline flex items-center gap-1">
-                                ✏️ แก้ไข
-                            </button>
-                            <button onclick="deleteRequest('${safeId}')" class="text-xs text-red-500 hover:text-red-700 underline flex items-center gap-1">
-                                🗑️ ยกเลิก
-                            </button>
+                            <button onclick="editRequest('${safeId}')" class="text-xs text-indigo-500 hover:text-indigo-700 underline flex items-center gap-1">✏️ แก้ไข</button>
+                            <button onclick="deleteRequest('${safeId}')" class="text-xs text-red-500 hover:text-red-700 underline flex items-center gap-1">🗑️ ยกเลิก</button>
                         </div>` : ''
                     }
                 </div>
