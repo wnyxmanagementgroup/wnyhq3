@@ -630,7 +630,7 @@ async function generateOfficialPDF(requestData) {
         const formatDateThai = (dateStr) => {
             if (!dateStr) return ".....";
             const d = new Date(dateStr);
-            return `${toThaiNum(d.getDate())} ${thaiMonths[d.getMonth()]} ${toThaiNum(d.getFullYear() + 543)}`;
+           return `${toThaiNum(d.getDate())}\u00A0${thaiMonths[d.getMonth()]}\u00A0${toThaiNum(d.getFullYear() + 543)}`;
         };
 
         // --- ส่วนจัดการวันที่ (Common Logic) ---
