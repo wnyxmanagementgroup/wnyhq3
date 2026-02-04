@@ -248,7 +248,7 @@
         <p class="text-gray-500">กำลังโหลดข้อมูล...</p>
     </div>
 
-    <div id="requests-list" class="space-y-4"></div>
+    <div id="user-requests-list" class="space-y-4"></div>
 
     <div id="no-requests-message" class="hidden text-center py-8 text-gray-500 bg-gray-50 rounded-lg border border-gray-200 mt-4">
         <p>ไม่พบรายการคำขอในปีงบประมาณนี้</p>
@@ -281,21 +281,6 @@
     <label class="form-label font-bold text-yellow-800">🏠 สถานที่พักค้างคืน (สำหรับการเดินทาง 2 วันขึ้นไป นอก จ.สระแก้ว) ถ้าพานักเรียนไปแบบไม่ได้ค้างคืนใส่ (-)</label>
     <input type="text" id="form-stay-at" class="form-input" placeholder="ระบุชื่อโรงแรม/รีสอร์ท">
 </div>
-
-<div id="form-dispatch-vehicle-container" class="hidden mt-4 bg-blue-50 p-4 border border-blue-200 rounded-lg">
-    <h4 class="text-sm font-bold text-blue-800 mb-2">🚍 ข้อมูลยานพาหนะ (สำหรับออกหนังสือส่งเขต) ถ้าพานักเรียนไปแบบไม่ได้ค้างคืนใส่ (-)</h4>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-            <label class="form-label text-blue-700">ประเภทรถ (ระบุเอง)</label>
-            <input type="text" id="form-dispatch-vehicle-type" class="form-input" placeholder="เช่น รถบัสปรับอากาศ / รถตู้">
-        </div>
-        <div>
-            <label class="form-label text-blue-700">หมายเลขทะเบียน</label>
-            <input type="text" id="form-dispatch-vehicle-id" class="form-input" placeholder="เช่น 30-1234 กทม.">
-        </div>
-    </div>
-</div>
-
 <div id="form-dispatch-vehicle-container" class="hidden mt-4 bg-blue-50 p-4 border border-blue-200 rounded-lg transition-all duration-300">
     <h4 class="text-sm font-bold text-blue-800 mb-3 flex items-center gap-2">
         <span>🚍</span> ข้อมูลยานพาหนะ (สำหรับออกหนังสือส่ง)
@@ -906,8 +891,7 @@
                 <p>พัฒนาระบบโดย ครูกีรติ ประสพพรรังสี </p>
             </footer>
         </div></div>
-
-        <div id="register-modal" class="modal">
+<div id="register-modal" class="modal">
             <div class="modal-content">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-xl font-bold">ลงทะเบียนผู้ใช้ใหม่</h3>
@@ -1312,5 +1296,4 @@
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 </body>
 </html>
-</body>
-</html>
+
