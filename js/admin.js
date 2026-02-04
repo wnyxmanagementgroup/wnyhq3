@@ -605,7 +605,7 @@ async function handleAdminGenerateMemo() {
 }
 
 /**
- * ฟังก์ชันสร้างเอกสาร PDF (ฉบับสมบูรณ์: แก้ไข doc_number และ undefined)
+ * ฟังก์ชันสร้างเอกสาร PDF (ฉบับสมบูรณ์: แก้ไขการตัดคำ วันที่ และ ณ สถานที่)
  */
 async function generateOfficialPDF(requestData) {
     // 1. กำหนดปุ่มสำหรับแสดง Loader ตามประเภทเอกสาร
@@ -626,11 +626,12 @@ async function generateOfficialPDF(requestData) {
             return num.toString().replace(/\d/g, d => "๐๑๒๓๔๕๖๗๘๙"[d]);
         };
 
-        // Helper: จัดรูปแบบวันที่แบบไทย (สำหรับใช้ในหนังสือส่ง)
+        // Helper: จัดรูปแบบวันที่แบบไทย (ใช้ \u00A0 เพื่อป้องกันการฉีกคำ)
         const formatDateThai = (dateStr) => {
             if (!dateStr) return ".....";
             const d = new Date(dateStr);
-           return `${toThaiNum(d.getDate())}\u00A0${thaiMonths[d.getMonth()]}\u00A0${toThaiNum(d.getFullYear() + 543)}`;
+            // ใช้ \u00A0 (Non-breaking space) เชื่อม วัน-เดือน-ปี
+            return `${toThaiNum(d.getDate())}\u00A0${thaiMonths[d.getMonth()]}\u00A0${toThaiNum(d.getFullYear() + 543)}`;
         };
 
         // --- ส่วนจัดการวันที่ (Common Logic) ---
@@ -639,7 +640,8 @@ async function generateOfficialPDF(requestData) {
         const docDay = docDateObj.getDate();
         const docMonth = thaiMonths[docDateObj.getMonth()];
         const docYear = docDateObj.getFullYear() + 543;
-        const fullDocDate = `${toThaiNum(docDay)} ${docMonth} ${toThaiNum(docYear)}`; 
+        // วันที่เอกสารส่วนหัว (ไม่ฉีกคำ)
+        const fullDocDate = `${toThaiNum(docDay)}\u00A0${docMonth}\u00A0${toThaiNum(docYear)}`; 
 
         // --- ส่วนจัดการช่วงเวลาเดินทาง (Duration calculation) ---
         let dateRangeStr = "", startDateStr = "", endDateStr = "", durationStr = "0";
@@ -658,16 +660,18 @@ async function generateOfficialPDF(requestData) {
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; 
                 durationStr = diffDays.toString();
 
-                // สร้างข้อความช่วงเวลา (เช่น ระหว่างวันที่ ... ถึง ...)
+                // สร้างข้อความช่วงเวลา (ใช้ \u00A0 เชื่อมคำสำคัญ)
                 if (rawStartDate === rawEndDate) {
-                    dateRangeStr = `ในวันที่ ${toThaiNum(start.getDate())} ${thaiMonths[start.getMonth()]} พ.ศ. ${toThaiNum(start.getFullYear() + 543)}`;
+                    dateRangeStr = `ในวันที่\u00A0${toThaiNum(start.getDate())}\u00A0${thaiMonths[start.getMonth()]}\u00A0พ.ศ.\u00A0${toThaiNum(start.getFullYear() + 543)}`;
                 } else if (start.getMonth() === end.getMonth()) {
-                    dateRangeStr = `ระหว่างวันที่ ${toThaiNum(start.getDate())} - ${toThaiNum(end.getDate())} ${thaiMonths[start.getMonth()]} พ.ศ. ${toThaiNum(start.getFullYear() + 543)}`;
+                    // กรณีเดือนเดียวกัน: ระหว่างวันที่ 1 - 5 มกราคม ...
+                    dateRangeStr = `ระหว่างวันที่\u00A0${toThaiNum(start.getDate())}\u00A0-\u00A0${toThaiNum(end.getDate())}\u00A0${thaiMonths[start.getMonth()]}\u00A0พ.ศ.\u00A0${toThaiNum(start.getFullYear() + 543)}`;
                 } else {
-                    dateRangeStr = `ระหว่างวันที่ ${toThaiNum(start.getDate())} ${thaiMonths[start.getMonth()]} - ${toThaiNum(end.getDate())} ${thaiMonths[end.getMonth()]} พ.ศ. ${toThaiNum(start.getFullYear() + 543)}`;
+                    // กรณีคนละเดือน: ระหว่างวันที่ ... - ...
+                    dateRangeStr = `ระหว่างวันที่\u00A0${formatDateThai(rawStartDate)}\u00A0-\u00A0${formatDateThai(rawEndDate)}`;
                 }
             } else {
-                 dateRangeStr = `ในวันที่ ${toThaiNum(start.getDate())} ${thaiMonths[start.getMonth()]} พ.ศ. ${toThaiNum(start.getFullYear() + 543)}`;
+                 dateRangeStr = `ในวันที่\u00A0${formatDateThai(rawStartDate)}`;
                  endDateStr = startDateStr;
                  durationStr = "1";
             }
@@ -746,7 +750,7 @@ async function generateOfficialPDF(requestData) {
         // --- 2. เลือกไฟล์แม่แบบ (Template Selection) ---
         let templateFilename = '';
         if (requestData.doctype === 'dispatch') {
-            templateFilename = 'แม่แบบหนังสือส่งใหม่.docx'; // ★ Template ใหม่
+            templateFilename = 'แม่แบบหนังสือส่งใหม่.docx'; 
         } else if (requestData.doctype === 'memo') {
             templateFilename = 'template_memo.docx';
         } else {
@@ -782,7 +786,10 @@ async function generateOfficialPDF(requestData) {
             // ข้อมูลผู้ขอ
             requesterName, requester_position: requestData.requesterPosition, 
             requesterPosition: requestData.requesterPosition,
-            location: toThaiNum(requestData.location || ""), 
+            
+            // ★★★ แก้ไข: สถานที่ (ใช้ \u00A0 เชื่อม "ณ" กับสถานที่) ★★★
+            location: toThaiNum((requestData.location || "").replace(/ณ /g, "ณ\u00A0")), 
+            
             purpose: toThaiNum(requestData.purpose || ""),
             learning_area: requestData.department || "..............", 
             head_name: requestData.headName || "..............",
@@ -800,7 +807,7 @@ async function generateOfficialPDF(requestData) {
             expense_total: totalExpenseStr
         };
 
-        // ★★★ เพิ่ม: ข้อมูลเฉพาะสำหรับหนังสือส่ง (Dispatch Specifics) ★★★
+        // ข้อมูลเฉพาะสำหรับหนังสือส่ง (Dispatch Specifics)
         if (requestData.doctype === 'dispatch') {
             Object.assign(renderData, {
                 // ส่วนหัว
@@ -820,7 +827,7 @@ async function generateOfficialPDF(requestData) {
                 student_count: toThaiNum(requestData.studentCount || "0"),
                 teacher_count: toThaiNum(requestData.teacherCount || "0"),
                 
-                // วันเวลาเดินทาง (ใช้ key: date_start, time_start ตามแม่แบบใหม่)
+                // วันเวลาเดินทาง
                 date_start: formatDateThai(requestData.dateStart),
                 time_start: toThaiNum(requestData.timeStart || ""),
                 date_end: formatDateThai(requestData.dateEnd),
@@ -865,7 +872,6 @@ async function generateOfficialPDF(requestData) {
     } catch (error) {
         console.error("PDF Generation Error:", error);
         
-        // จัดการ Error ของ Docxtemplater ให้แสดงรายละเอียด
         if (error.properties && error.properties.errors) {
             const errorMessages = error.properties.errors.map(e => e.properties.explanation).join("\n");
             alert(`❌ เกิดข้อผิดพลาดใน Template:\n${errorMessages}`);
