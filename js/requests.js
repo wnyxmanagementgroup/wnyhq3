@@ -198,86 +198,96 @@ async function handleDeleteRequest(requestId) {
 // --- แก้ไขใน js/requests.js ---
 
 async function fetchUserRequests() {
+    const user = getCurrentUser();
+    if (!user) return;
+
+    // 1. ตรวจสอบปีที่เลือก (ต้องมี Dropdown id="user-year-select" ในหน้า HTML)
+    const yearSelect = document.getElementById('user-year-select');
+    const currentYear = new Date().getFullYear() + 543;
+    const selectedYear = yearSelect ? parseInt(yearSelect.value) : currentYear;
+    const isHistoryMode = selectedYear !== currentYear;
+
+    // UI: แสดง Loader
+    const container = document.getElementById('user-requests-list');
+    if (container) container.innerHTML = '<div class="text-center py-10"><span class="loader"></span> กำลังโหลดข้อมูล...</div>';
+
     try {
-        const user = getCurrentUser();
-        if (!user) return;
-
-        // 1. ตรวจสอบปีที่เลือก
-        const yearSelect = document.getElementById('user-year-select');
-        const selectedYear = yearSelect ? parseInt(yearSelect.value) : (new Date().getFullYear() + 543);
-        const currentYear = new Date().getFullYear() + 543;
-        
-        const isHistoryMode = selectedYear !== currentYear; // เช็คว่าเป็นโหมดดูย้อนหลังหรือไม่
-
-        document.getElementById('requests-loader').classList.remove('hidden');
-        document.getElementById('requests-list').classList.add('hidden');
-        document.getElementById('no-requests-message').classList.add('hidden');
-
-        let requestsData = [];
-        let memosData = [];
+        let requests = [];
 
         // 2. Logic การดึงข้อมูลแยกตามโหมด
         if (isHistoryMode) {
-            console.log(`📜 Fetching HISTORY data for year ${selectedYear} directly from GAS...`);
+            console.log(`📜 Fetching HISTORY data for year ${selectedYear}...`);
             
-            // ★ ยิงตรงไป GAS (ไม่ผ่าน Firebase)
+            // ★ โหมดดูย้อนหลัง: ดึงจาก GAS โดยตรง (API: getRequestsByYear)
+            // ต้องมั่นใจว่าใน Code.gs มีฟังก์ชัน getRequestsByYear แล้ว
             const res = await apiCall('GET', 'getRequestsByYear', { 
                 year: selectedYear, 
                 username: user.username 
             });
             
-            if (res.status === 'success') requestsData = res.data;
-            
-            // (Optional) อาจต้องดึง Memo ของปีนั้นด้วย ถ้า API แยกกัน
-            // const memoRes = await apiCall('GET', 'getMemosByYear', { ... });
+            if (res.status === 'success') requests = res.data || [];
 
         } else {
-            // ★ โหมดปกติ (ปีปัจจุบัน) ใช้ Hybrid/Firebase เหมือนเดิม
-            if (typeof fetchRequestsHybrid === 'function' && typeof USE_FIREBASE !== 'undefined' && USE_FIREBASE) {
-                const firebaseResult = await fetchRequestsHybrid(user);
-                if (firebaseResult !== null) {
-                    requestsData = firebaseResult;
-                } else {
-                    const res = await apiCall('GET', 'getUserRequests', { username: user.username });
-                    if (res.status === 'success') requestsData = res.data;
-                }
-            } else {
-                const res = await apiCall('GET', 'getUserRequests', { username: user.username });
-                if (res.status === 'success') requestsData = res.data;
-            }
+            // ★ โหมดปีปัจจุบัน: ใช้ระบบ Hybrid (GAS + Firebase) เพื่อความรวดเร็วและ Realtime
             
-            // ดึง Memo ปัจจุบัน
-            const memosResult = await apiCall('GET', 'getSentMemos', { username: user.username });
-            if (memosResult.status === 'success') memosData = memosResult.data || [];
+            // 2.1 ดึงจาก GAS (Base Data)
+            const res = await apiCall('GET', 'getUserRequests', { username: user.username });
+            if (res.status === 'success') requests = res.data || [];
+
+            // 2.2 Merge กับ Firebase (เพื่อเอาลิงก์ไฟล์และสถานะล่าสุด)
+            if (typeof db !== 'undefined') {
+                const snapshot = await db.collection('requests').get();
+                const firebaseData = {};
+                snapshot.forEach(doc => { firebaseData[doc.id] = doc.data(); });
+
+                requests = requests.map(req => {
+                    const safeId = req.id.replace(/[\/\\:\.]/g, '-');
+                    const fbDoc = firebaseData[safeId];
+                    
+                    if (fbDoc) {
+                        return {
+                            ...req,
+                            // ใช้ลิงก์ล่าสุดจาก Cloud Run/Firebase
+                            pdfUrl: fbDoc.pdfUrl || fbDoc.fileUrl || req.pdfUrl,
+                            commandPdfUrl: fbDoc.commandPdfUrl || fbDoc.commandBookUrl || req.commandPdfUrl,
+                            dispatchBookUrl: fbDoc.dispatchBookUrl || fbDoc.dispatchBookPdfUrl || req.dispatchBookUrl,
+                            
+                            // ใช้สถานะล่าสุด
+                            status: fbDoc.status || req.status,
+                            commandStatus: fbDoc.commandStatus || req.commandStatus,
+                            timestamp: fbDoc.timestamp || req.timestamp
+                        };
+                    }
+                    return req;
+                });
+            }
         }
 
-        // 3. กรองและเรียงลำดับ
-        if (requestsData && requestsData.length > 0) {
-            // ถ้าเป็น GAS (History) อาจจะกรองมาให้แล้ว แต่กรองซ้ำเพื่อความชัวร์
-            requestsData = requestsData.filter(req => req.username === user.username);
+        // 3. กรองและเรียงลำดับ (สำคัญมาก: ต้องรองรับ Timestamp แบบ Firebase)
+        if (requests && requests.length > 0) {
+            // กรองเฉพาะของ User คนนี้ (กันพลาด)
+            requests = requests.filter(req => req.username === user.username);
             
-            requestsData.sort((a, b) => {
-                const dateA = new Date(a.timestamp || a.docDate || 0).getTime();
-                const dateB = new Date(b.timestamp || b.docDate || 0).getTime();
-                return dateB - dateA;
+            requests.sort((a, b) => {
+                const getTime = (val) => {
+                    if (!val) return 0;
+                    if (typeof val.toDate === 'function') return val.toDate().getTime(); // Firestore Timestamp
+                    if (val.seconds) return val.seconds * 1000; // JSON Timestamp
+                    return new Date(val).getTime(); // Date String
+                };
+                
+                const timeA = getTime(a.timestamp) || getTime(a.docDate);
+                const timeB = getTime(b.timestamp) || getTime(b.docDate);
+                return timeB - timeA; // เรียงใหม่ -> เก่า
             });
         }
 
-        // 4. แสดงผล
-        allRequestsCache = requestsData;
-        userMemosCache = memosData;
-        renderRequestsList(allRequestsCache, userMemosCache);
-        
-        // ถ้าเป็นโหมดประวัติ อาจปิดการแจ้งเตือนหรือปุ่มแก้ไขบางอย่าง
-        if (!isHistoryMode) {
-            updateNotifications(allRequestsCache, userMemosCache);
-        }
+        // 4. แสดงผล (ใช้ฟังก์ชัน renderUserRequests ที่มีอยู่)
+        renderUserRequests(requests);
 
     } catch (error) {
         console.error('Error fetching requests:', error);
-        showAlert('ผิดพลาด', 'ไม่สามารถโหลดข้อมูลได้');
-    } finally {
-        document.getElementById('requests-loader').classList.add('hidden');
+        if (container) container.innerHTML = `<div class="text-center text-red-500 py-10">เกิดข้อผิดพลาด: ${error.message}</div>`;
     }
 }
 
