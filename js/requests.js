@@ -269,7 +269,7 @@ function renderUserRequests(requests) {
     if (!container) return;
 
     if (!requests || requests.length === 0) {
-        container.innerHTML = ''; // ล้าง Loader
+        container.innerHTML = ''; 
         container.classList.add('hidden');
         if (noMsg) {
             noMsg.classList.remove('hidden');
@@ -301,42 +301,51 @@ function renderUserRequests(requests) {
         // Badge สถานะ
         let statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600">รอตรวจสอบ</span>`;
         
-        // เช็คจากข้อมูลใน Sheet โดยตรง
         if (req.commandStatus === 'เสร็จสิ้น' || req.commandPdfUrl) {
             statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">✅ อนุมัติ/ออกคำสั่งแล้ว</span>`;
         } else if (req.status === 'ไม่อนุมัติ') {
             statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-red-100 text-red-700">❌ ไม่อนุมัติ</span>`;
         } else if (req.status === 'Pending') {
             statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-700">⏳ รอตรวจสอบ</span>`;
+        } else if (req.status === 'นำกลับไปแก้ไข') {
+            statusBadge = `<span class="px-2 py-1 rounded-full text-xs bg-red-100 text-red-700">⚠️ ต้องแก้ไข</span>`;
         }
 
         // ปุ่ม Action
         let actionButtons = '';
 
-        // 1. บันทึกข้อความ
-        if (req.pdfUrl) {
+        // ★★★ แก้ไขจุดสำคัญ: เลือก fileUrl (Cloud Run) ก่อน pdfUrl (GAS) ★★★
+        // เรียงลำดับ: completedMemoUrl (ถ้ามี) > fileUrl (Cloud Run) > pdfUrl (GAS)
+        const finalPdfUrl = req.completedMemoUrl || req.fileUrl || req.pdfUrl;
+
+        // 1. ปุ่มดูบันทึกข้อความ
+        if (finalPdfUrl) {
             actionButtons += `
-                <a href="${req.pdfUrl}" target="_blank" class="btn bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 btn-sm flex items-center gap-1 shadow-sm">
+                <a href="${finalPdfUrl}" target="_blank" class="btn bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 btn-sm flex items-center gap-1 shadow-sm">
                     📄 บันทึกข้อความ
                 </a>`;
         }
 
-        // 2. คำสั่ง
-        if (req.commandPdfUrl) {
+        // 2. ปุ่มดูคำสั่ง
+        const finalCommandUrl = req.completedCommandUrl || req.commandPdfUrl;
+        if (finalCommandUrl) {
             actionButtons += `
-                <a href="${req.commandPdfUrl}" target="_blank" class="btn bg-green-50 text-green-600 hover:bg-green-100 border border-green-200 btn-sm flex items-center gap-1 shadow-sm">
+                <a href="${finalCommandUrl}" target="_blank" class="btn bg-green-50 text-green-600 hover:bg-green-100 border border-green-200 btn-sm flex items-center gap-1 shadow-sm">
                     📋 คำสั่ง
                 </a>`;
         }
 
-        // 3. หนังสือส่ง
-        const dispatchUrl = req.dispatchBookUrl || req.dispatchBookPdfUrl;
-        if (dispatchUrl) {
+        // 3. ปุ่มดูหนังสือส่ง
+        const finalDispatchUrl = req.dispatchBookUrl || req.dispatchBookPdfUrl;
+        if (finalDispatchUrl) {
             actionButtons += `
-                <a href="${dispatchUrl}" target="_blank" class="btn bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-200 btn-sm flex items-center gap-1 shadow-sm">
+                <a href="${finalDispatchUrl}" target="_blank" class="btn bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-200 btn-sm flex items-center gap-1 shadow-sm">
                     📦 หนังสือส่ง
                 </a>`;
         }
+
+        // ตรวจสอบว่าเป็นเจ้าของหรือไม่ (เพื่อแสดงปุ่มแก้ไข)
+        const canEdit = (!req.commandPdfUrl && !req.commandStatus) || req.status === 'นำกลับไปแก้ไข';
 
         return `
         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition duration-200 mb-4">
@@ -357,10 +366,14 @@ function renderUserRequests(requests) {
                     <div class="flex flex-wrap justify-end gap-2 w-full">
                         ${actionButtons}
                     </div>
-                    ${(!req.commandPdfUrl && !req.commandStatus) ? `
+                    ${canEdit ? `
                         <div class="flex gap-2 mt-2 pt-2 border-t border-gray-100 w-full justify-end">
-                            <button onclick="editRequest('${safeId}')" class="text-xs text-indigo-500 hover:text-indigo-700 underline">✏️ แก้ไข</button>
-                            <button onclick="deleteRequest('${safeId}')" class="text-xs text-red-500 hover:text-red-700 underline">🗑️ ยกเลิก</button>
+                            <button onclick="editRequest('${safeId}')" class="text-xs text-indigo-500 hover:text-indigo-700 underline flex items-center gap-1">
+                                ✏️ แก้ไข
+                            </button>
+                            <button onclick="deleteRequest('${safeId}')" class="text-xs text-red-500 hover:text-red-700 underline flex items-center gap-1">
+                                🗑️ ยกเลิก
+                            </button>
                         </div>` : ''
                     }
                 </div>
