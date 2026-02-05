@@ -1444,29 +1444,7 @@ function tryAutoFillRequester(retry = 0) {
     else if (retry < 5) setTimeout(() => tryAutoFillRequester(retry + 1), 1000);
 }
 
-// ✅ ฟังก์ชัน Modal ส่งบันทึกข้อความ (ใส่ไว้เพื่อป้องกัน error)
-async function handleMemoSubmitFromModal(e) {
-    e.preventDefault();
-    const user = getCurrentUser();
-    if (!user) return;
-    const requestId = document.getElementById('memo-modal-request-id').value;
-    const memoType = document.querySelector('input[name="modal_memo_type"]:checked').value;
-    const fileInput = document.getElementById('modal-memo-file');
-    let fileObject = null;
-    if (memoType === 'non_reimburse' && fileInput.files.length > 0) { fileObject = await fileToObject(fileInput.files[0]); }
-    
-    toggleLoader('send-memo-submit-button', true);
-    try {
-        const result = await apiCall('POST', 'uploadMemo', { refNumber: requestId, file: fileObject, username: user.username, memoType: memoType });
-        if (result.status === 'success') { 
-            showAlert('สำเร็จ', 'ส่งบันทึกข้อความสำเร็จ'); 
-            document.getElementById('send-memo-modal').style.display = 'none'; 
-            document.getElementById('send-memo-form').reset(); 
-            await fetchUserRequests(); 
-        } 
-        else { showAlert('ผิดพลาด', result.message); }
-    } catch (error) { showAlert('ผิดพลาด', error.message); } finally { toggleLoader('send-memo-submit-button', false); }
-}
+
 
 // Public Data
 async function loadPublicWeeklyData() {
@@ -2036,4 +2014,153 @@ window.editRequest = async function(requestId) {
 window.deleteRequest = async function(requestId) {
     console.log("Triggering delete for:", requestId);
     await handleDeleteRequest(requestId);
+};
+// ไฟล์: js/requests.js
+
+// ==========================================
+// 3. ฟังก์ชันสำหรับหน้า "ส่งบันทึก" (แยกออกมาเฉพาะ)
+// ==========================================
+
+async function fetchPendingMemos() {
+    const user = getCurrentUser();
+    if (!user) return;
+
+    // UI Setup
+    const container = document.getElementById('pending-memos-list');
+    const loader = document.getElementById('pending-memos-loader');
+    const noMsg = document.getElementById('no-pending-memos-message');
+    
+    container.innerHTML = '';
+    loader.classList.remove('hidden');
+    noMsg.classList.add('hidden');
+
+    try {
+        // ใช้ Logic เดียวกับ fetchUserRequests แต่เราจะกรองในขั้นถัดไป
+        // เพื่อความชัวร์ ให้ดึงข้อมูลปีปัจจุบันและย้อนหลัง 1 ปี (เผื่อมีงานค้างข้ามปี)
+        const currentYear = new Date().getFullYear() + 543;
+        
+        // ดึงข้อมูลปีปัจจุบัน
+        const resultNow = await apiCall('GET', 'getRequestsByYear', { year: currentYear, username: user.username });
+        let requests = (resultNow.status === 'success') ? resultNow.data || [] : [];
+
+        // ผสานข้อมูล Firebase เพื่อสถานะที่แม่นยำ
+        if (typeof db !== 'undefined') {
+            const snapshot = await db.collection('requests').where('username', '==', user.username).get();
+            const firebaseData = {};
+            snapshot.forEach(doc => { firebaseData[doc.id] = doc.data(); });
+
+            requests = requests.map(req => {
+                const safeId = req.id.replace(/[\/\\:\.]/g, '-');
+                const fbDoc = firebaseData[safeId];
+                if (fbDoc) {
+                    return { ...req, ...fbDoc }; // ใช้ข้อมูลล่าสุดจาก FB
+                }
+                return req;
+            });
+        }
+
+        // ★ กรองเฉพาะรายการที่ต้องส่งบันทึก ★
+        // เงื่อนไข: (มีเลขที่เอกสาร) AND (ยังไม่เสร็จสิ้น OR สถานะ = นำกลับไปแก้ไข)
+        const pendingRequests = requests.filter(req => {
+            const hasId = req.id && req.id !== '' && !req.id.includes('รอ');
+            
+            // เช็คสถานะเสร็จสิ้น
+            const isCompleted = 
+                req.status === 'เสร็จสิ้น' || 
+                req.status === 'เสร็จสิ้น/รับไฟล์ไปใช้งาน' || 
+                req.memoStatus === 'เสร็จสิ้น/รับไฟล์ไปใช้งาน' ||
+                req.commandStatus === 'เสร็จสิ้น'; // ถ้าออกคำสั่งแล้วถือว่าผ่านขั้นตอนนี้แล้ว
+
+            // เช็คสถานะแก้ไข
+            const isFixing = req.status === 'นำกลับไปแก้ไข' || req.memoStatus === 'นำกลับไปแก้ไข';
+            
+            // ยังไม่มีไฟล์แนบ (หรือมีแต่ต้องแก้) และยังไม่จบกระบวนการ
+            // หมายเหตุ: เช็ค completedMemoUrl ด้วย เพราะบางทีอาจจะส่งแล้วแต่ status ยังไม่อัปเดต
+            const hasMemoFile = req.completedMemoUrl && req.completedMemoUrl !== "";
+
+            if (!hasId) return false; // ไม่มีเลข ไม่ต้องแสดง
+            
+            // แสดงถ้า: (ต้องแก้ไข) หรือ (ยังไม่เสร็จ และ ยังไม่มีไฟล์แนบสมบูรณ์)
+            return isFixing || (!isCompleted && !hasMemoFile);
+        });
+
+        // เรียงลำดับ (เก่า -> ใหม่ จะได้รีบเคลียร์ของเก่า)
+        pendingRequests.sort((a, b) => new Date(a.docDate) - new Date(b.docDate));
+
+        renderPendingMemos(pendingRequests);
+
+    } catch (error) {
+        console.error("Error fetching pending memos:", error);
+        container.innerHTML = `<p class="text-center text-red-500">โหลดข้อมูลไม่สำเร็จ: ${error.message}</p>`;
+    } finally {
+        loader.classList.add('hidden');
+    }
+}
+
+function renderPendingMemos(requests) {
+    const container = document.getElementById('pending-memos-list');
+    const noMsg = document.getElementById('no-pending-memos-message');
+
+    if (requests.length === 0) {
+        noMsg.classList.remove('hidden');
+        return;
+    }
+
+    container.innerHTML = requests.map(req => {
+        const safeId = escapeHtml(req.id);
+        const isFixing = req.status === 'นำกลับไปแก้ไข' || req.memoStatus === 'นำกลับไปแก้ไข';
+        
+        let statusBadge = isFixing 
+            ? `<span class="bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded border border-red-200">⚠️ ตีกลับให้แก้ไข</span>`
+            : `<span class="bg-yellow-100 text-yellow-700 text-xs font-bold px-2 py-1 rounded border border-yellow-200">⏳ รอส่งบันทึก</span>`;
+
+        // ปุ่มดูไฟล์ (เพื่อให้ดูเลขที่/รายละเอียดก่อนแนบ)
+        const viewFileUrl = req.fileUrl || req.pdfUrl;
+        const viewBtn = viewFileUrl 
+            ? `<a href="${viewFileUrl}" target="_blank" class="text-indigo-600 hover:underline text-sm mr-4">📄 ดูรายละเอียด</a>` 
+            : '';
+
+        return `
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div class="flex-1">
+                    <div class="flex items-center gap-3 mb-1">
+                        <h4 class="text-lg font-bold text-gray-800">${safeId}</h4>
+                        ${statusBadge}
+                    </div>
+                    <p class="text-gray-600 font-medium">${escapeHtml(req.purpose)}</p>
+                    <p class="text-sm text-gray-500 mt-1">
+                        📅 ${formatDisplayDate(req.startDate)} | 📍 ${escapeHtml(req.location)}
+                    </p>
+                    <div class="mt-2">
+                        ${viewBtn}
+                    </div>
+                </div>
+                
+                <div class="w-full sm:w-auto">
+                    <button onclick="openSendMemoFromList('${safeId}')" class="btn bg-teal-600 hover:bg-teal-700 text-white w-full sm:w-auto shadow-md flex items-center justify-center gap-2 py-2 px-6">
+                        <span>📤</span>
+                        <span>ส่งบันทึก/แนบไฟล์</span>
+                    </button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ฟังก์ชันเปิด Modal จากหน้านี้ (เพิ่ม Global Function)
+window.openSendMemoFromList = function(requestId) {
+    document.getElementById('memo-modal-request-id').value = requestId;
+    
+    // Reset Form
+    document.getElementById('send-memo-form').reset();
+    
+    // Trigger การตรวจสอบเงื่อนไข Radio Button (เพื่อให้ UI อัปเดต)
+    const nonReimburseRadio = document.getElementById('memo_type_non_reimburse');
+    if(nonReimburseRadio) {
+        nonReimburseRadio.checked = true; // Default เป็นแบบไม่เบิก (แนบไฟล์)
+        nonReimburseRadio.dispatchEvent(new Event('change'));
+    }
+
+    document.getElementById('send-memo-modal').style.display = 'flex';
 };

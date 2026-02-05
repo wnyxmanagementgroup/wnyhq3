@@ -279,7 +279,7 @@ function handleRegister(e) {
     const formData = {
         username: document.getElementById('reg-username').value.trim(),
         password: password,
-        fullName: document.getElementById('reg-fullname').value.trim(),
+        fullName: document.getElementById('reg-name').value.trim(),
         email: document.getElementById('reg-email').value.trim(),
         position: document.getElementById('reg-position').value,
         department: document.getElementById('reg-department').value,

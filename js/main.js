@@ -5,18 +5,25 @@ let notificationUnsubscribe = null;
 async function switchPage(targetPageId) {
     console.log("🔄 Switching to page:", targetPageId);
     
-    // 1. ซ่อนทุกหน้าก่อน
+    // ... (โค้ดซ่อนหน้าเดิม) ...
     document.querySelectorAll('.page-view').forEach(page => { page.classList.add('hidden'); });
     
-    // 2. แสดงหน้าเป้าหมายทันที (เพื่อให้ UI ตอบสนองไว)
+    // ... (โค้ดแสดงหน้าเป้าหมาย) ...
     const targetPage = document.getElementById(targetPageId);
     if (targetPage) { targetPage.classList.remove('hidden'); }
 
-    // 3. ปรับสถานะปุ่มเมนู (Active State)
+    // ... (โค้ดปรับปุ่ม Active) ...
     document.querySelectorAll('.nav-button').forEach(btn => {
         btn.classList.remove('active');
         if(btn.dataset.target === targetPageId) { btn.classList.add('active'); }
     });
+
+    // --- เพิ่ม Logic สำหรับหน้า send-memo-page ---
+    if (targetPageId === 'send-memo-page') {
+        if (typeof fetchPendingMemos === 'function') {
+            fetchPendingMemos(); // เรียกฟังก์ชันโหลดข้อมูลเฉพาะหน้านี้
+        }
+    }
 
     // --- Logic เฉพาะของแต่ละหน้า (Parallel Processing) ---
 
@@ -285,13 +292,37 @@ function setupEventListeners() {
     
     document.querySelectorAll('input[name="expense_option"]').forEach(radio => radio.addEventListener('change', toggleExpenseOptions));
     
-    document.querySelectorAll('input[name="modal_memo_type"]').forEach(radio => radio.addEventListener('change', (e) => {
-        const fileContainer = document.getElementById('modal-memo-file-container');
-        const fileInput = document.getElementById('modal-memo-file');
-        const isReimburse = e.target.value === 'reimburse';
-        fileContainer.classList.toggle('hidden', isReimburse);
-        if(fileInput) fileInput.required = !isReimburse;
-    }));
+    // --- โค้ดใหม่ (ใช้ ID ที่ถูกต้อง) ---
+document.querySelectorAll('input[name="modal_memo_type"]').forEach(radio => radio.addEventListener('change', (e) => {
+    const isReimburse = e.target.value === 'reimburse';
+    
+    // 1. จัดการกล่องอัปโหลด 3 ไฟล์ (สำหรับแบบไม่เบิก)
+    const nonReimburseContainer = document.getElementById('modal-non-reimburse-files');
+    if (nonReimburseContainer) {
+        if (isReimburse) {
+            nonReimburseContainer.classList.add('hidden');
+            // ปลดล็อค required (ไม่ต้องกรอก)
+            const f1 = document.getElementById('file-exchange');
+            const f2 = document.getElementById('file-ref-doc');
+            if(f1) f1.required = false;
+            if(f2) f2.required = false;
+        } else {
+            nonReimburseContainer.classList.remove('hidden');
+            // บังคับ required (ต้องกรอก)
+            const f1 = document.getElementById('file-exchange');
+            const f2 = document.getElementById('file-ref-doc');
+            if(f1) f1.required = true;
+            if(f2) f2.required = true;
+        }
+    }
+
+    // 2. จัดการกล่องไฟล์เดียว (Legacy - เผื่อยังมีอยู่ใน HTML)
+    const singleFileContainer = document.getElementById('modal-single-file-container');
+    const oldFileContainer = document.getElementById('modal-memo-file-container'); // เผื่อยังมี ID เก่าหลงเหลือ
+    
+    if (singleFileContainer) singleFileContainer.classList.add('hidden');
+    if (oldFileContainer) oldFileContainer.classList.add('hidden');
+}));
     
     document.querySelectorAll('input[name="vehicle_option"]').forEach(checkbox => {checkbox.addEventListener('change', toggleVehicleDetails);});
     
@@ -712,5 +743,198 @@ async function handleSaveAnnouncement(e) {
         showAlert('ผิดพลาด', 'บันทึกไม่สำเร็จ: ' + error.message);
     } finally {
         toggleLoader('save-announcement-btn', false);
+    }
+}
+// --- เพิ่ม/แก้ไขใน main.js ---
+
+// 1. เพิ่ม Logic การสลับหน้าจอ Modal
+function setupMemoModalLogic() {
+    const radios = document.querySelectorAll('input[name="modal_memo_type"]');
+    const nonReimburseContainer = document.getElementById('modal-non-reimburse-files');
+    
+    // ตั้งค่าเริ่มต้น
+    const updateVisibility = () => {
+        const isNonReimburse = document.getElementById('memo_type_non_reimburse').checked;
+        if (isNonReimburse) {
+            nonReimburseContainer.classList.remove('hidden');
+            // บังคับ Required
+            document.getElementById('file-exchange').required = true;
+            document.getElementById('file-ref-doc').required = true;
+        } else {
+            nonReimburseContainer.classList.add('hidden');
+            // ปลด Required
+            document.getElementById('file-exchange').required = false;
+            document.getElementById('file-ref-doc').required = false;
+        }
+    };
+
+    radios.forEach(radio => radio.addEventListener('change', updateVisibility));
+    
+    // เรียกครั้งแรก
+    updateVisibility();
+}
+// ==========================================
+// 🛠️ ส่วนจัดการการส่งบันทึกและรวมไฟล์ (PDF Merge) - ฉบับแก้ไขสมบูรณ์
+// ==========================================
+
+// 1. ฟังก์ชันช่วยรวมไฟล์ (PDF และ รูปภาพ) ให้เป็น PDF ไฟล์เดียว
+async function mergeFilesToSinglePDF(files) {
+    if (typeof PDFLib === 'undefined') {
+        throw new Error("ไม่พบไลบรารี PDF-Lib กรุณาตรวจสอบว่าได้ใส่ Script ใน index.html แล้ว");
+    }
+
+    const { PDFDocument } = PDFLib;
+    const mergedPdf = await PDFDocument.create();
+
+    for (const file of files) {
+        if (!file) continue;
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+
+            if (file.type === 'application/pdf') {
+                const pdfSrc = await PDFDocument.load(arrayBuffer);
+                const copiedPages = await mergedPdf.copyPages(pdfSrc, pdfSrc.getPageIndices());
+                copiedPages.forEach((page) => mergedPdf.addPage(page));
+            } else if (file.type.startsWith('image/')) {
+                let image;
+                if (file.type === 'image/jpeg' || file.type === 'image/jpg') {
+                    image = await mergedPdf.embedJpg(arrayBuffer);
+                } else if (file.type === 'image/png') {
+                    image = await mergedPdf.embedPng(arrayBuffer);
+                }
+
+                if (image) {
+                    const page = mergedPdf.addPage([595.28, 841.89]); // A4
+                    // ปรับขนาดรูปให้พอดี (เว้นขอบ 20px)
+                    const { width, height } = image.scaleToFit(555.28, 801.89); 
+                    page.drawImage(image, {
+                        x: (595.28 - width) / 2,
+                        y: (841.89 - height) / 2,
+                        width,
+                        height,
+                    });
+                }
+            }
+        } catch (err) {
+            console.error("Error processing file:", file.name, err);
+        }
+    }
+
+    const pdfBytes = await mergedPdf.save();
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+}
+
+// 2. ฟังก์ชันหลักสำหรับส่งบันทึกจาก Modal (รวมไฟล์แล้วอัปโหลด)
+async function handleMemoSubmitFromModal(e) {
+    e.preventDefault();
+    const user = getCurrentUser();
+    if (!user) return;
+
+    const requestId = document.getElementById('memo-modal-request-id').value;
+    
+    // ตรวจสอบว่ามีการเลือก Radio Button หรือไม่
+    const memoTypeInput = document.querySelector('input[name="modal_memo_type"]:checked');
+    const memoType = memoTypeInput ? memoTypeInput.value : 'non_reimburse'; 
+    
+    toggleLoader('send-memo-submit-button', true);
+
+    try {
+        let finalFileUrlForAdmin = ""; 
+
+        if (memoType === 'non_reimburse') {
+            // --- ดึงไฟล์จาก Input (ตาม ID ใหม่) ---
+            // ใช้ Optional Chaining (?.) เพื่อกัน Error ถ้าหา Element ไม่เจอ
+            const fileSigned = document.getElementById('file-signed-memo')?.files[0]; // 1. ลงนาม
+            const fileExchange = document.getElementById('file-exchange')?.files[0];  // 2. แลกคาบ
+            const fileRef = document.getElementById('file-ref-doc')?.files[0];        // 3. ต้นเรื่อง
+            const fileOther = document.getElementById('file-other')?.files[0];        // 4. อื่นๆ
+
+            // ตรวจสอบไฟล์บังคับ (1, 2, 3)
+            if (!fileSigned || !fileExchange || !fileRef) {
+                throw new Error("กรุณาแนบไฟล์บังคับให้ครบถ้วน:\n1. บันทึกข้อความที่ลงนามแล้ว\n2. ไฟล์แลกคาบสอน\n3. หนังสือต้นเรื่อง");
+            }
+
+            // --- รวมไฟล์ทั้งหมดเป็นไฟล์เดียว (Merge) ---
+            // เรียงลำดับ: ลงนาม -> แลกคาบ -> ต้นเรื่อง -> อื่นๆ
+            const filesToMerge = [fileSigned, fileExchange, fileRef, fileOther].filter(f => f); 
+            
+            // เปลี่ยนข้อความปุ่มเพื่อแจ้งสถานะ
+            const btn = document.getElementById('send-memo-submit-button');
+            const originalBtnText = btn.innerHTML;
+            btn.innerHTML = '<div class="loader"></div> กำลังรวมไฟล์ PDF...';
+
+            // เรียกฟังก์ชันรวมไฟล์
+            const mergedPdfBlob = await mergeFilesToSinglePDF(filesToMerge);
+
+            // --- อัปโหลดไฟล์ที่รวมเสร็จแล้ว ---
+            btn.innerHTML = '<div class="loader"></div> กำลังอัปโหลด...';
+            
+            // แปลง Blob เป็น Base64 เพื่อส่งผ่าน API
+            const mergedBase64 = await blobToBase64(mergedPdfBlob);
+            
+            const uploadRes = await apiCall('POST', 'uploadGeneratedFile', {
+                data: mergedBase64,
+                filename: `Complete_Memo_${requestId.replace(/[\/\\:\.]/g, '-')}.pdf`,
+                mimeType: 'application/pdf',
+                username: user.username,
+                requestId: requestId
+            });
+
+            if (uploadRes.status !== 'success') throw new Error("อัปโหลดไฟล์ไม่สำเร็จ: " + uploadRes.message);
+            
+            finalFileUrlForAdmin = uploadRes.url;
+
+            // --- บันทึกลิงก์ลง Database ---
+            await apiCall('POST', 'updateRequest', {
+                requestId: requestId,
+                completedMemoUrl: finalFileUrlForAdmin 
+            });
+
+            if (typeof db !== 'undefined') {
+                const docId = requestId.replace(/[\/\\:\.]/g, '-');
+                await db.collection('requests').doc(docId).set({
+                    completedMemoUrl: finalFileUrlForAdmin,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            }
+            
+            // คืนค่าข้อความปุ่ม
+            btn.innerHTML = originalBtnText;
+
+        } else {
+            // กรณีเบิกเงิน (ส่งเอกสารจริง)
+        }
+
+        // --- ส่งสถานะ "Submitted" ไปยังระบบ ---
+        const result = await apiCall('POST', 'uploadMemo', { 
+            refNumber: requestId, 
+            file: null, 
+            fileUrl: finalFileUrlForAdmin, 
+            username: user.username, 
+            memoType: memoType 
+        });
+
+        if (result.status === 'success') { 
+            showAlert('สำเร็จ', 'รวมไฟล์และส่งบันทึกข้อความเรียบร้อยแล้ว'); 
+            document.getElementById('send-memo-modal').style.display = 'none'; 
+            document.getElementById('send-memo-form').reset(); 
+            
+            // รีเฟรชหน้าจอ
+            if (!document.getElementById('send-memo-page').classList.contains('hidden')) {
+                if (typeof fetchPendingMemos === 'function') await fetchPendingMemos();
+            }
+            if (typeof fetchUserRequests === 'function') await fetchUserRequests(); 
+        } else { 
+            throw new Error(result.message); 
+        }
+
+    } catch (error) {
+        console.error(error);
+        showAlert('ผิดพลาด', error.message);
+        const btn = document.getElementById('send-memo-submit-button');
+        if(btn) btn.innerHTML = 'ยืนยันการส่งบันทึก';
+    } finally {
+        toggleLoader('send-memo-submit-button', false);
     }
 }
