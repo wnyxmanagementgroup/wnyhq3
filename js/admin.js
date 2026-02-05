@@ -260,46 +260,52 @@ function renderAdminRequestsList(requests) {
     }
     
     container.innerHTML = requests.map(request => {
-        // --- (แก้) Logic นับจำนวนคน (ตัดช่องว่างเกิน) ---
+        // --- Logic นับจำนวนคน (คงเดิม) ---
         let attendeesList = [];
         try {
             attendeesList = typeof request.attendees === 'string' ? JSON.parse(request.attendees) : (request.attendees || []);
         } catch(e) { attendeesList = []; }
 
-        // ฟังก์ชันช่วยตัดช่องว่าง (Normalize) เพื่อให้เปรียบเทียบชื่อได้แม่นยำ
         const normalize = (str) => (str || "").trim().replace(/\s+/g, ' ');
-
         const reqName = normalize(request.requesterName);
-        
-        // เช็คว่าผู้ขอมีชื่ออยู่ในลิสต์ผู้ติดตามไหม
         const hasRequesterInList = attendeesList.some(att => normalize(att.name) === reqName);
         
-        // คำนวณจำนวนรวม
         let totalPeople = 1;
         if (attendeesList.length > 0) {
-            // ถ้ามีชื่อผู้ขอในลิสต์แล้ว ใช้นับตามลิสต์เลย (ไม่ต้อง +1)
             totalPeople = hasRequesterInList ? attendeesList.length : attendeesList.length + 1;
         } else if (request.attendeeCount) {
-            // กรณีไม่มีรายชื่อแนบ ใช้เลขที่กรอกมา
             totalPeople = parseInt(request.attendeeCount) + 1;
         }
         
         let peopleCategory = totalPeople === 1 ? "คำสั่งเดี่ยว" : (totalPeople <= 5 ? "คำสั่งกลุ่มเล็ก" : "คำสั่งกลุ่มใหญ่");
         
+        // --- ★★★ ส่วนที่เพิ่มใหม่: Logic แสดงสถานะเบิกจ่าย ★★★ ---
+        let expenseBadge = '';
+        if (request.expenseOption === 'partial') {
+            // กรณีเบิก: แสดงจำนวนเงินด้วย (ใส่ลูกน้ำคั่นหลักพัน)
+            const amount = request.totalExpense ? Number(request.totalExpense).toLocaleString() : '0';
+            expenseBadge = `<span class="ml-2 px-2 py-0.5 rounded text-xs bg-teal-100 text-teal-800 border border-teal-200 font-bold whitespace-nowrap">
+                                💸 เบิกงบ (${amount} บ.)
+                            </span>`;
+        } else {
+            // กรณีไม่เบิก
+            expenseBadge = `<span class="ml-2 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-500 border border-gray-200 whitespace-nowrap">
+                                ⛔ ไม่เบิก
+                            </span>`;
+        }
+        // -----------------------------------------------------
+
         const safeId = escapeHtml(request.id);
         const safeName = escapeHtml(request.requesterName);
         const safePurpose = escapeHtml(request.purpose);
         const safeLocation = escapeHtml(request.location);
         const safeDate = `${formatDisplayDate(request.startDate)} - ${formatDisplayDate(request.endDate)}`;
 
-        // --- (แก้) ปุ่มหนังสือส่ง (แยกออกมาให้แสดงตลอด) ---
+        // --- ปุ่มหนังสือส่ง (คงเดิม) ---
         const dispatchUrl = request.dispatchBookUrl || request.dispatchBookPdfUrl;
-        
-        // ★★★ (แก้) ปรับปุ่มหนังสือส่ง ให้มีปุ่มแก้ไขด้วย ★★★
         let dispatchButtonHtml = '';
         
         if (dispatchUrl) {
-            // กรณีมีไฟล์แล้ว -> แสดงปุ่ม [ดู] และ [แก้ไข]
             dispatchButtonHtml = `
                 <div class="flex gap-1">
                     <a href="${dispatchUrl}" target="_blank" class="btn bg-purple-600 hover:bg-purple-700 text-white btn-sm flex items-center gap-1 shadow-sm px-2" title="ดูไฟล์ PDF">
@@ -310,16 +316,14 @@ function renderAdminRequestsList(requests) {
                     </button>
                 </div>`;
         } else {
-            // กรณีไม่มีไฟล์ -> แสดงปุ่ม [ออกหนังสือส่ง]
             dispatchButtonHtml = `
                 <button onclick="openDispatchModal('${safeId}')" class="btn bg-purple-500 hover:bg-purple-600 text-white btn-sm flex items-center gap-1 shadow-sm px-3">
                     📦 ออกหนังสือส่ง
                 </button>`;
         }
+
         let commandActionButtons = '';
-        
         if (request.commandPdfUrl) {
-            // กรณี 1: ออกคำสั่งแล้ว
             commandActionButtons = `
                 <div class="flex flex-wrap gap-2 justify-end mt-2 md:mt-0">
                     <a href="${request.commandPdfUrl}" target="_blank" class="btn bg-blue-600 hover:bg-blue-700 text-white btn-sm flex items-center gap-1 shadow-sm px-3">
@@ -332,7 +336,6 @@ function renderAdminRequestsList(requests) {
                 </div>
             `;
         } else {
-            // กรณี 2: ยังไม่ออกคำสั่ง (เดิมปุ่มหนังสือส่งหายไปในนี้)
             commandActionButtons = `
                 <div class="flex flex-wrap gap-2 justify-end mt-2 md:mt-0">
                     ${dispatchButtonHtml}
@@ -347,12 +350,12 @@ function renderAdminRequestsList(requests) {
         <div class="border rounded-xl p-5 bg-white shadow-sm hover:shadow-md transition duration-200 mb-4 border-l-4 ${request.commandPdfUrl ? 'border-l-green-500' : 'border-l-yellow-400'}">
             <div class="flex flex-col md:flex-row justify-between items-start gap-4">
                 <div class="flex-1 min-w-[250px]">
-                    <div class="flex items-center gap-2 mb-1">
+                    <div class="flex flex-wrap items-center gap-2 mb-1">
                         <h4 class="font-bold text-indigo-700 text-lg">${safeId}</h4>
                         <span class="text-xs px-2 py-0.5 rounded-full ${request.commandPdfUrl ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">
                             ${request.commandPdfUrl ? 'ออกคำสั่งแล้ว' : 'รอออกคำสั่ง'}
                         </span>
-                        ${dispatchUrl ? `<span class="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">มีหนังสือส่ง</span>` : ''}
+                        ${expenseBadge} ${dispatchUrl ? `<span class="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">มีหนังสือส่ง</span>` : ''}
                     </div>
                     <p class="text-gray-800 font-bold text-md mb-1">${safeName}</p>
                     <p class="text-gray-600 text-sm mb-2 line-clamp-2">${safePurpose}</p>
