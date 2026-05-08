@@ -1,7 +1,7 @@
 /**
  * firebaseService.js
  * =====================================================================
- * Firestore เป็นฐานข้อมูลหลัก — GAS/Sheets เป็น async backup เท่านั้น
+ * Supabase เป็นฐานข้อมูลหลักผ่าน GAS/API ส่วน Google Sheets ใช้เป็นแหล่งข้อมูลสำรอง
  * Google Drive (ผ่าน GAS uploadGeneratedFile) เป็นที่เก็บไฟล์หลักของระบบ
  * =====================================================================
  */
@@ -341,84 +341,33 @@ async function generateCommandHybrid(data) {
 }
 
 // -----------------------------------------------------------------------
-// 6. MONTHLY BACKUP — ส่งข้อมูลทั้งหมดจาก Firestore ไป GAS Sheets
+// 6. MONTHLY BACKUP — ส่งข้อมูลทั้งหมดจาก Supabase ไป GAS Sheets
 // -----------------------------------------------------------------------
 
 /**
- * สำรองข้อมูลทั้งหมดจาก Firestore ไปยัง Google Sheets ผ่าน GAS
+ * สำรองข้อมูลทั้งหมดจาก Supabase ไปยัง Google Sheets ผ่าน GAS
  * เรียกใช้โดย Admin เดือนละครั้ง
  * @param {number} yearBE - ปี พ.ศ. ที่ต้องการ backup (default: ปีปัจจุบัน)
  */
-async function backupFirestoreToSheets(yearBE) {
+async function backupSupabaseToSheets(yearBE) {
     const targetYear = yearBE || (new Date().getFullYear() + 543);
-    const yearAD = targetYear - 543;
-    const yearStart = `${yearAD}-01-01`;
-    const yearEnd = `${yearAD}-12-31`;
+    console.log(`📦 Starting Supabase backup for year ${targetYear}...`);
 
-    console.log(`📦 Starting backup for year ${targetYear}...`);
+    const [requestsResult, memosResult] = await Promise.all([
+        apiCall('GET', 'getAllRequests', { year: targetYear, scope: 'year' }),
+        apiCall('GET', 'getAllMemos', { year: targetYear, scope: 'year' })
+    ]);
 
-    // ดึงข้อมูล Requests ทั้งหมดในปีนั้น
-    const snapshot = await db.collection('requests')
-        .where('docDate', '>=', yearStart)
-        .where('docDate', '<=', yearEnd)
-        .get();
+    const requests = requestsResult.status === 'success' ? (requestsResult.data || []) : [];
+    const memos = memosResult.status === 'success' ? (memosResult.data || []) : [];
 
-    if (snapshot.empty) {
+    if (!requests.length) {
         return { status: 'success', message: `ไม่มีข้อมูลในปี ${targetYear}`, count: 0 };
-    }
-
-    const requests = snapshot.docs.map(doc => {
-        const data = doc.data();
-        // แปลง Firestore Timestamp เป็น string
-        if (data.timestamp && data.timestamp.toDate) {
-            data.timestamp = data.timestamp.toDate().toISOString();
-        }
-        if (data.lastUpdated && data.lastUpdated.toDate) {
-            data.lastUpdated = data.lastUpdated.toDate().toISOString();
-        }
-        // ลบ field ที่ไม่จำเป็น
-        delete data.pdfBase64;
-        delete data._source;
-        return data;
-    });
-
-    const requestIds = new Set(
-        requests.map(req => String(req.id || req.requestId || '').trim()).filter(Boolean)
-    );
-    const safeRequestIds = new Set(
-        Array.from(requestIds).map(id => id.replace(/[\/\\:\.]/g, '-'))
-    );
-
-    let memos = [];
-    try {
-        const memoSnapshot = await db.collection('memos').get();
-        memos = memoSnapshot.docs
-            .map(doc => {
-                const data = doc.data() || {};
-                if (data.timestamp && data.timestamp.toDate) {
-                    data.timestamp = data.timestamp.toDate().toISOString();
-                }
-                if (data.lastUpdated && data.lastUpdated.toDate) {
-                    data.lastUpdated = data.lastUpdated.toDate().toISOString();
-                }
-                return {
-                    ...data,
-                    _docId: doc.id
-                };
-            })
-            .filter(memo => {
-                const refNumber = String(memo.refNumber || memo.id || '').trim();
-                if (!refNumber) return safeRequestIds.has(String(memo._docId || '').trim());
-                return requestIds.has(refNumber);
-            });
-    } catch (error) {
-        console.warn('⚠️ Memo backup skipped:', error.message);
     }
 
     console.log(`📤 Sending ${requests.length} requests and ${memos.length} memos to GAS...`);
 
-    // ส่ง batch ไปยัง GAS
-    const result = await apiCall('POST', 'batchSyncFromFirestore', {
+    const result = await apiCall('POST', 'batchSyncFromSupabase', {
         requests,
         memos,
         year: targetYear,
@@ -427,6 +376,10 @@ async function backupFirestoreToSheets(yearBE) {
 
     console.log('📦 Backup result:', result);
     return { ...result, count: requests.length };
+}
+
+async function backupFirestoreToSheets(yearBE) {
+    return backupSupabaseToSheets(yearBE);
 }
 
 // blobToBase64 is defined in utils.js (shared utility)

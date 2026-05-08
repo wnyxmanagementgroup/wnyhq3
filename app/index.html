@@ -1282,22 +1282,22 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             <div class="bg-white border border-violet-100 rounded-lg p-5 shadow-sm">
                                 <div class="text-sm font-semibold text-violet-700 mb-2">ฐานข้อมูล</div>
-                                <h3 class="text-lg font-bold text-gray-800 mb-2">Sync ข้อมูลสู่ Firebase</h3>
-                                <p class="text-sm text-gray-500 mb-4">ดึงข้อมูลจาก Google Sheets ไปอัปเดตใน Firebase เมื่อเริ่มระบบหรือข้อมูลไม่ตรงกัน</p>
-                                <button id="admin-sync-btn" class="btn-sync btn-sync--sky w-full hidden">🔄 Sync ข้อมูลสู่ Firebase</button>
+                                <h3 class="text-lg font-bold text-gray-800 mb-2">Sync ข้อมูลสู่ Supabase</h3>
+                                <p class="text-sm text-gray-500 mb-4">ดึงข้อมูลจาก Google Sheets ไปอัปเดตใน Supabase เมื่อเริ่มระบบหรือใช้ซ่อมข้อมูลกรณีข้อมูลไม่ตรงกัน</p>
+                                <button id="admin-sync-btn" class="btn-sync btn-sync--sky w-full hidden">🔄 Sync ข้อมูลสู่ Supabase</button>
                             </div>
 
                             <div class="bg-white border border-indigo-100 rounded-lg p-5 shadow-sm">
                                 <div class="text-sm font-semibold text-indigo-700 mb-2">สำรองข้อมูล</div>
                                 <h3 class="text-lg font-bold text-gray-800 mb-2">สำรองข้อมูลไปยัง Sheets</h3>
-                                <p class="text-sm text-gray-500 mb-4">สำรองข้อมูล Firestore ของปีที่เลือกกลับไปยัง Google Sheets</p>
-                                <button id="admin-backup-btn" onclick="adminBackupFirestoreToSheets()" class="btn-sync btn-sync--indigo w-full hidden">💾 สำรองข้อมูล → Sheets</button>
+                                <p class="text-sm text-gray-500 mb-4">สำรองข้อมูลจาก Supabase ของปีที่เลือกกลับไปยัง Google Sheets</p>
+                                <button id="admin-backup-btn" onclick="adminBackupSupabaseToSheets()" class="btn-sync btn-sync--indigo w-full hidden">💾 สำรองข้อมูลจาก Supabase → Sheets</button>
                             </div>
 
                             <div class="bg-white border border-cyan-100 rounded-lg p-5 shadow-sm">
                                 <div class="text-sm font-semibold text-cyan-700 mb-2">ส่งออก</div>
                                 <h3 class="text-lg font-bold text-gray-800 mb-2">ส่ง Email สำรอง</h3>
-                                <p class="text-sm text-gray-500 mb-4">ส่งอีเมลสำรองข้อมูลพร้อมลิงก์ดาวน์โหลดไฟล์ทั้งหมด</p>
+                                <p class="text-sm text-gray-500 mb-4">ส่งอีเมลสรุปข้อมูลสำรองจาก Supabase พร้อมลิงก์ดาวน์โหลดไฟล์ทั้งหมด</p>
                                 <button id="admin-email-backup-btn" onclick="adminSendYearlyBackupEmail()" class="btn-sync btn-sync--cyan w-full hidden" title="ส่ง Email สำรองข้อมูลพร้อม link ดาวน์โหลดทุกไฟล์">📧 ส่ง Email สำรอง</button>
                             </div>
 

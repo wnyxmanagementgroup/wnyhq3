@@ -15,7 +15,8 @@ async function loadStatsData(forceRefresh = false) {
         
         // เช็ค Cache (ถ้าไม่กด Refresh และเวลาไม่เกิน 5 นาที ให้ใช้ข้อมูลเดิม)
         const now = Date.now();
-        if (!forceRefresh && (now - lastStatsLoadTime < STATS_CACHE_DURATION) && allRequestsCache.length > 0) {
+        const canUseFullCache = window.allRequestsCacheScope === 'all' && window.allMemosCacheScope === 'all';
+        if (!forceRefresh && canUseFullCache && (now - lastStatsLoadTime < STATS_CACHE_DURATION) && allRequestsCache.length > 0) {
              console.log("⚡ Using cached stats data");
              const userRequests = user.role === 'admin' ? allRequestsCache : allRequestsCache.filter(req => req.username === user.username);
              const userMemos = user.role === 'admin' ? allMemosCache : userMemosCache; 
@@ -39,8 +40,14 @@ async function loadStatsData(forceRefresh = false) {
         ]);
 
         // อัปเดต Cache
-        if(requestsResult.status === 'success') allRequestsCache = requestsResult.data || [];
-        if(memosResult.status === 'success') allMemosCache = memosResult.data || [];
+        if(requestsResult.status === 'success') {
+            allRequestsCache = requestsResult.data || [];
+            window.allRequestsCacheScope = 'all';
+        }
+        if(memosResult.status === 'success') {
+            allMemosCache = memosResult.data || [];
+            window.allMemosCacheScope = 'all';
+        }
         if(usersResult.status === 'success') allUsersCache = usersResult.data || [];
         
         lastStatsLoadTime = Date.now();

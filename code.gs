@@ -141,6 +141,154 @@ function supabaseDeleteWhere_(tableName, filterQuery) {
   assertSupabaseResponseOk_(response, "ลบข้อมูลจาก " + tableName + " ไม่สำเร็จ");
 }
 
+function parseBooleanParam_(value) {
+  if (value === true || value === false) return value;
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["1", "true", "yes", "y"].includes(normalized);
+}
+
+function parseIntegerParam_(value) {
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) ? null : parsed;
+}
+
+function getSupabaseDateRangeForPeriod_(yearBE, month) {
+  const safeYear = parseIntegerParam_(yearBE);
+  const safeMonth = parseIntegerParam_(month);
+  if (!safeYear) return null;
+
+  if (safeMonth) {
+    const monthStart = new Date(safeYear - 543, safeMonth - 1, 1);
+    const monthEnd = new Date(safeYear - 543, safeMonth, 0);
+    return {
+      yearBE: safeYear,
+      month: safeMonth,
+      start: Utilities.formatDate(monthStart, "Asia/Bangkok", "yyyy-MM-dd"),
+      end: Utilities.formatDate(monthEnd, "Asia/Bangkok", "yyyy-MM-dd"),
+    };
+  }
+
+  return {
+    yearBE: safeYear,
+    month: null,
+    start: Utilities.formatDate(new Date(safeYear - 543, 0, 1), "Asia/Bangkok", "yyyy-MM-dd"),
+    end: Utilities.formatDate(new Date(safeYear - 543, 11, 31), "Asia/Bangkok", "yyyy-MM-dd"),
+  };
+}
+
+function getLatestRequestPeriodFromSupabase_(yearBE) {
+  let query = "select=doc_date,request_id&doc_date=not.is.null&order=doc_date.desc&limit=1";
+  const yearRange = getSupabaseDateRangeForPeriod_(yearBE, null);
+  if (yearRange) {
+    query += "&doc_date=gte." + yearRange.start + "&doc_date=lte." + yearRange.end;
+  }
+
+  const rows = supabaseSelectAll_("requests", query, 10);
+  if (!rows.length || !rows[0].doc_date) {
+    const now = new Date();
+    return {
+      yearBE: yearRange ? yearRange.yearBE : now.getFullYear() + 543,
+      month: now.getMonth() + 1,
+    };
+  }
+
+  const latestDate = new Date(rows[0].doc_date);
+  return {
+    yearBE: latestDate.getFullYear() + 543,
+    month: latestDate.getMonth() + 1,
+  };
+}
+
+function resolveSupabasePeriodOptions_(options) {
+  const rawOptions = options || {};
+  const scope = String(rawOptions.scope || "").trim().toLowerCase();
+  let yearBE = parseIntegerParam_(rawOptions.year);
+  let month = parseIntegerParam_(rawOptions.month);
+  const latestMonth = parseBooleanParam_(rawOptions.latestMonth);
+
+  if (latestMonth) {
+    const latest = getLatestRequestPeriodFromSupabase_(yearBE);
+    yearBE = latest.yearBE;
+    month = latest.month;
+  }
+
+  if (scope === "year" && yearBE) {
+    month = null;
+  }
+
+  const range = yearBE ? getSupabaseDateRangeForPeriod_(yearBE, month) : null;
+  return {
+    scope: scope,
+    latestMonth: latestMonth,
+    yearBE: yearBE,
+    month: month,
+    range: range,
+  };
+}
+
+function buildSupabaseDateFilterQuery_(columnName, options) {
+  const resolved = resolveSupabasePeriodOptions_(options);
+  if (!resolved.range) return "";
+  return (
+    "&" +
+    columnName +
+    "=gte." +
+    resolved.range.start +
+    "&" +
+    columnName +
+    "=lte." +
+    resolved.range.end
+  );
+}
+
+function supabaseSelectByValues_(tableName, columnName, values, queryPrefix, pageSize) {
+  const uniqueValues = Array.from(
+    new Set(
+      (values || [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  if (!uniqueValues.length) return [];
+
+  const rows = [];
+  const chunkSize = 50;
+  for (let i = 0; i < uniqueValues.length; i += chunkSize) {
+    const chunk = uniqueValues.slice(i, i + chunkSize);
+    const inValues = "(" + chunk.map((value) => '"' + value.replace(/"/g, '\\"') + '"').join(",") + ")";
+    const query =
+      queryPrefix +
+      "&" +
+      columnName +
+      "=in." +
+      encodeURIComponent(inValues);
+    rows.push.apply(rows, supabaseSelectAll_(tableName, query, pageSize || 1000));
+  }
+
+  return rows;
+}
+
+function supabaseDeleteWhereInValues_(tableName, columnName, values) {
+  const uniqueValues = Array.from(
+    new Set(
+      (values || [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  if (!uniqueValues.length) return;
+
+  const chunkSize = 50;
+  for (let i = 0; i < uniqueValues.length; i += chunkSize) {
+    const chunk = uniqueValues.slice(i, i + chunkSize);
+    const inValues = "(" + chunk.map((value) => '"' + value.replace(/"/g, '\\"') + '"').join(",") + ")";
+    supabaseDeleteWhere_(
+      tableName,
+      columnName + "=in." + encodeURIComponent(inValues),
+    );
+  }
+}
+
 function parseJsonSafely_(value, fallbackValue) {
   if (value === null || value === undefined || value === "") {
     return fallbackValue;
@@ -287,6 +435,116 @@ function syncRequestByIdToSupabase_(requestId, options) {
   }));
 
   supabaseUpsert_("attendees", attendeeRecords, "source_row_key");
+}
+
+function buildSupabaseUserRecordFromSheet_(userRow) {
+  return {
+    username: userRow.username || "",
+    login_name: userRow.loginName || userRow.loginname || "",
+    full_name: userRow.fullName || userRow.fullname || "",
+    position: userRow.position || "",
+    department: userRow.department || "",
+    role: userRow.role || "",
+    email: userRow.email || "",
+    special_position: userRow.specialPosition || userRow.specialposition || "",
+    token: userRow.token || "",
+    legacy_password: userRow.password || "",
+  };
+}
+
+function buildSupabaseMemoRecordFromSheet_(memoRow) {
+  return {
+    memo_id: memoRow.id || memoRow.memoId || memoRow.memoid || "",
+    submitted_by: memoRow.submittedBy || memoRow.submittedby || "",
+    ref_number: memoRow.refNumber || memoRow.refnumber || "",
+    status: memoRow.status || "",
+    created_at_source: memoRow.timestamp || "",
+    file_id: memoRow.fileId || memoRow.fileid || "",
+    file_url: memoRow.fileURL || memoRow.fileUrl || memoRow.fileurl || "",
+    completed_memo_url: memoRow.completedMemoUrl || memoRow.completedmemourl || "",
+    completed_command_url: memoRow.completedCommandUrl || memoRow.completedcommandurl || "",
+    dispatch_book_url: memoRow.dispatchBookUrl || memoRow.dispatchbookurl || "",
+  };
+}
+
+function syncSheetsToSupabase(payload) {
+  const syncOptions = payload || {};
+  const yearBE = parseIntegerParam_(syncOptions.year);
+  const requestSheet =
+    SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Requests");
+  const usersSheet =
+    SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
+  const attendeesSheet =
+    SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Attendees");
+  const memosSheet =
+    SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Memos");
+
+  const allUsers = usersSheet ? sheetToObject(usersSheet) : [];
+  const allRequests = requestSheet ? sheetToObject(requestSheet) : [];
+  const allAttendees = attendeesSheet ? sheetToObject(attendeesSheet) : [];
+  const allMemos = memosSheet ? sheetToObject(memosSheet) : [];
+
+  const filteredRequests = filterRequestsByPeriod_(
+    allRequests,
+    yearBE ? { year: yearBE, scope: "year" } : {},
+  );
+  const requestIds = new Set(
+    filteredRequests.map((row) => String(row.id || row.requestId || "").trim()).filter(Boolean),
+  );
+
+  const filteredAttendees = allAttendees.filter((row) =>
+    requestIds.has(String(row.requestid || row.requestId || "").trim()),
+  );
+  const filteredMemos = allMemos.filter((row) =>
+    requestIds.has(String(row.refNumber || row.refnumber || "").trim()),
+  );
+
+  const userRecords = allUsers
+    .map(buildSupabaseUserRecordFromSheet_)
+    .filter((row) => row.username);
+  const requestRecords = filteredRequests
+    .map(buildSupabaseRequestRecordFromSheet_)
+    .filter((row) => row.request_id);
+  const attendeeRecords = filteredAttendees
+    .map((row, index) => ({
+      request_id: String(row.requestid || row.requestId || "").trim(),
+      source_row_key:
+        "sheet-attendee:" +
+        String(row.requestid || row.requestId || "").trim() +
+        ":" +
+        (index + 1),
+      full_name: row.fullname || row.name || "",
+      position: row.position || "",
+      source_date_text: row.docdate || row.date || "",
+      attended_at: row.date || "",
+    }))
+    .filter((row) => row.request_id && row.full_name);
+  const memoRecords = filteredMemos
+    .map(buildSupabaseMemoRecordFromSheet_)
+    .filter((row) => row.memo_id);
+
+  supabaseUpsert_("app_users", userRecords, "username");
+  supabaseUpsert_("requests", requestRecords, "request_id");
+  supabaseDeleteWhereInValues_("attendees", "request_id", Array.from(requestIds));
+  if (attendeeRecords.length) {
+    supabaseUpsert_("attendees", attendeeRecords, "source_row_key");
+  }
+  if (memoRecords.length) {
+    supabaseUpsert_("memos", memoRecords, "memo_id");
+  }
+
+  return {
+    status: "success",
+    message:
+      "ซิงก์ข้อมูลจาก Google Sheets ไปยัง Supabase เรียบร้อยแล้ว" +
+      (yearBE ? " สำหรับปี " + yearBE : ""),
+    counts: {
+      users: userRecords.length,
+      requests: requestRecords.length,
+      attendees: attendeeRecords.length,
+      memos: memoRecords.length,
+    },
+  };
 }
 
 function buildSupabaseDraftRecordFromPayload_(draftId, payload, timestamp) {
@@ -620,19 +878,25 @@ function mapSupabaseMemoRow_(row, requestRow) {
   };
 }
 
-function getAllRequestsFromSupabase() {
+function getAllRequestsFromSupabase(options) {
+  const queryFilter = buildSupabaseDateFilterQuery_("doc_date", options);
   const requestRows = supabaseSelectAll_(
     "requests",
-    "select=*&order=request_id.asc",
+    "select=*" + queryFilter + "&order=doc_date.desc",
     1000,
   );
-  const attendeeRows = supabaseSelectAll_(
+  const requestIds = requestRows.map((row) => String(row.request_id || "").trim()).filter(Boolean);
+  const attendeeRows = supabaseSelectByValues_(
     "attendees",
+    "request_id",
+    requestIds,
     "select=request_id&order=id.asc",
     1000,
   );
-  const memoRows = supabaseSelectAll_(
+  const memoRows = supabaseSelectByValues_(
     "memos",
+    "ref_number",
+    requestIds,
     "select=ref_number,status,completed_memo_url,completed_command_url,dispatch_book_url,admin_memo_url&order=memo_id.asc",
     1000,
   );
@@ -666,13 +930,16 @@ function getAllRequestsFromSupabase() {
   );
 }
 
-function getAllMemosFromSupabase() {
-  const memoRows = supabaseSelectAll_(
+function getAllMemosFromSupabase(options) {
+  const requests = getAllRequestsFromSupabase(options);
+  const requestIds = requests.map((req) => String(req.id || "").trim()).filter(Boolean);
+  const memoRows = supabaseSelectByValues_(
     "memos",
-    "select=*&order=created_at_source.asc",
+    "ref_number",
+    requestIds,
+    "select=*&order=created_at_source.desc",
     1000,
   );
-  const requests = getAllRequestsFromSupabase();
   const requestMap = requests.reduce((map, req) => {
     map[req.id] = req;
     return map;
@@ -710,10 +977,10 @@ function doGet(e) {
         data = getSentMemos(params.username);
         break;
       case "getAllRequests":
-        data = getAllRequests();
+        data = getAllRequests(params);
         break;
       case "getAllRequestsFromSupabase":
-        data = getAllRequestsFromSupabase();
+        data = getAllRequestsFromSupabase(params);
         break;
       case "getMaxRequestSeq":
         data = getMaxRequestSeq(
@@ -721,10 +988,10 @@ function doGet(e) {
         );
         break;
       case "getAllMemos":
-        data = getAllMemos();
+        data = getAllMemos(params);
         break;
       case "getAllMemosFromSupabase":
-        data = getAllMemosFromSupabase();
+        data = getAllMemosFromSupabase(params);
         break;
       case "getAttendeesForRequest":
         data = getAttendeesForRequest(params.requestId);
@@ -907,6 +1174,9 @@ function doPost(e) {
       case "doSystemBackup":
         result = doSystemBackup();
         break;
+      case "syncSheetsToSupabase":
+        result = syncSheetsToSupabase(payload);
+        break;
       case "sendCompletionEmail":
         sendCompletionEmail(
           payload.requestId,
@@ -918,9 +1188,12 @@ function doPost(e) {
           message: "ส่งอีเมลแจ้งเตือนเรียบร้อยแล้ว",
         };
         break;
-      // --- Firestore → Sheets Batch Sync (monthly backup) ---
+      // --- Primary Database → Sheets Batch Sync ---
       case "batchSyncFromFirestore":
         result = batchSyncFromFirestore(payload);
+        break;
+      case "batchSyncFromSupabase":
+        result = batchSyncFromSupabase(payload);
         break;
 
       // --- Yearly Backup Email ---
@@ -1672,12 +1945,37 @@ function getAllRequestsFromSheets_() {
   return requests;
 }
 
-function getAllRequests() {
+function filterRequestsByPeriod_(requests, options) {
+  const rows = Array.isArray(requests) ? requests : [];
+  const resolved = resolveSupabasePeriodOptions_(options);
+  if (!resolved.range) return rows;
+
+  const start = resolved.range.start;
+  const end = resolved.range.end;
+  return rows.filter((req) => {
+    const dateValue = formatSupabaseDateValue_(req.docDate || req.docdate || req.startDate || "");
+    if (!dateValue) return false;
+    return dateValue >= start && dateValue <= end;
+  });
+}
+
+function filterMemosByPeriod_(memos, requests, options) {
+  const filteredRequests = filterRequestsByPeriod_(requests, options);
+  const requestIds = new Set(
+    filteredRequests.map((req) => String(req.id || req.requestId || "").trim()).filter(Boolean),
+  );
+  if (!requestIds.size) return [];
+  return (Array.isArray(memos) ? memos : []).filter((memo) =>
+    requestIds.has(String(memo.refNumber || memo.requestId || "").trim()),
+  );
+}
+
+function getAllRequests(options) {
   try {
-    return getAllRequestsFromSupabase();
+    return getAllRequestsFromSupabase(options);
   } catch (error) {
     Logger.log("getAllRequests fallback to Sheets: " + error.message);
-    return getAllRequestsFromSheets_();
+    return filterRequestsByPeriod_(getAllRequestsFromSheets_(), options);
   }
 }
 
@@ -3103,12 +3401,16 @@ function getAllMemosFromSheets_() {
   });
 }
 
-function getAllMemos() {
+function getAllMemos(options) {
   try {
-    return getAllMemosFromSupabase();
+    return getAllMemosFromSupabase(options);
   } catch (error) {
     Logger.log("getAllMemos fallback to Sheets: " + error.message);
-    return getAllMemosFromSheets_();
+    return filterMemosByPeriod_(
+      getAllMemosFromSheets_(),
+      getAllRequestsFromSheets_(),
+      options,
+    );
   }
 }
 
@@ -3471,28 +3773,11 @@ function generateDispatch(data) {
 }
 // --- ฟังก์ชันสำหรับดึงข้อมูลตามปีงบประมาณ ---
 function getRequestsByYear(yearBE, username) {
-  // 1. แปลงปี พ.ศ. (BE) เป็น ค.ศ. (AD) เพราะ Date object ใช้ ค.ศ.
-  // เช่น รับมา 2569 -> ลบ 543 = 2026
-  var targetYearAD = parseInt(yearBE) - 543;
+  var allData = getAllRequests({ year: yearBE, scope: "year" });
 
-  // 2. ดึงข้อมูลทั้งหมดมาก่อน (ใช้ฟังก์ชันเดิมที่มีอยู่แล้ว)
-  var allData = getAllRequests();
-
-  // 3. กรองข้อมูล (Filter)
   var filteredData = allData.filter(function (item) {
-    if (!item.docDate) return false; // ถ้าไม่มีวันที่ ข้ามไป
-
-    // แปลงวันที่ใน Sheet เป็นปี ค.ศ.
-    var itemDate = new Date(item.docDate);
-    var itemYear = itemDate.getFullYear();
-
-    // เงื่อนไข 1: ปีต้องตรงกัน
-    var yearMatch = itemYear === targetYearAD;
-
-    // เงื่อนไข 2: Username ต้องตรงกัน (หรือถ้าเป็น ADMIN_ALL คือเอาทั้งหมด)
     var userMatch = username === "ADMIN_ALL" || item.username === username;
-
-    return yearMatch && userMatch;
+    return userMatch;
   });
 
   return filteredData;
@@ -3957,15 +4242,15 @@ function createAutoMemoRecord(requestId, username) {
 }
 
 // ==================================================================
-// === FIRESTORE → SHEETS BATCH SYNC (สำรองข้อมูลรายเดือน) ===========
+// === PRIMARY DATABASE → SHEETS BATCH SYNC (สำรองข้อมูลรายเดือน) =====
 // ==================================================================
 
 /**
- * รับข้อมูล batch จาก Firestore แล้วเขียนลง Google Sheets
- * เรียกผ่าน POST action: "batchSyncFromFirestore"
- * payload: { requests: [...], year: 2568, syncedAt: "..." }
+ * รับข้อมูล batch จากฐานข้อมูลหลักแล้วเขียนลง Google Sheets
+ * เรียกผ่าน POST action: "batchSyncFromSupabase"
+ * payload: { requests: [...], memos: [...], year: 2568, syncedAt: "..." }
  */
-function batchSyncFromFirestore(payload) {
+function batchSyncPrimaryDataToSheets_(payload) {
   try {
     const { requests, memos, year, syncedAt } = payload;
     if (!requests || !Array.isArray(requests) || requests.length === 0) {
@@ -4003,8 +4288,8 @@ function batchSyncFromFirestore(payload) {
       "StayAt",
       "CompletedMemoUrl",
       "Timestamp",
-      "SyncedFromFirestore",
-      "FirestoreSyncedAt",
+      "SyncedFromPrimaryStore",
+      "PrimaryStoreSyncedAt",
     ]);
     ensureSheetColumns(attendeesSheet, ["RequestId", "FullName", "Position", "DocDate"]);
     ensureSheetColumns(memosSheet, [
@@ -4087,8 +4372,8 @@ function batchSyncFromFirestore(payload) {
         stayat: req.stayAt || "",
         completedmemourl: req.completedMemoUrl || "",
         timestamp: formatDate(req.timestamp || req.docDate),
-        syncedfromfirestore: "TRUE",
-        firestoresyncedat: syncedAt || new Date().toISOString(),
+        syncedfromprimarystore: "TRUE",
+        primarystoresyncedat: syncedAt || new Date().toISOString(),
       };
 
       let existingRowMap = {};
@@ -4257,9 +4542,17 @@ function batchSyncFromFirestore(payload) {
       total: insertedCount + upsertedCount,
     };
   } catch (error) {
-    Logger.log("batchSyncFromFirestore Error: " + error.message);
+    Logger.log("batchSyncPrimaryDataToSheets_ Error: " + error.message);
     return { status: "error", message: error.message };
   }
+}
+
+function batchSyncFromSupabase(payload) {
+  return batchSyncPrimaryDataToSheets_(payload);
+}
+
+function batchSyncFromFirestore(payload) {
+  return batchSyncPrimaryDataToSheets_(payload);
 }
 
 /**
@@ -4287,7 +4580,7 @@ function setupMonthlyBackupTrigger() {
 
 /**
  * ส่งอีเมลแจ้งเตือน Admin ให้กด "สำรองข้อมูล" ทุกต้นเดือน
- * (GAS ไม่สามารถอ่าน Firestore โดยตรง ต้องให้ Admin กด Sync จาก Web App)
+ * (ระบบใช้ฐานข้อมูลหลักผ่าน Web App แล้วค่อยสำรองกลับมา Sheets ตามรอบ)
  */
 function runMonthlyBackupEmail() {
   try {
@@ -4320,7 +4613,7 @@ function runMonthlyBackupEmail() {
         <h2 style="color: #4f46e5;">แจ้งเตือนสำรองข้อมูลรายเดือน</h2>
         <p>ถึงผู้ดูแลระบบ WNY App,</p>
         <p>ถึงเวลาสำรองข้อมูลประจำเดือน <strong>${monthTH} ${yearBE}</strong> แล้ว</p>
-        <p>กรุณาเข้าสู่ระบบและคลิกปุ่ม <strong>"สำรองข้อมูล → Google Sheets"</strong> ในหน้า Admin เพื่อบันทึกข้อมูลทั้งหมดจาก Firestore ไปยัง Google Sheets</p>
+        <p>กรุณาเข้าสู่ระบบและคลิกปุ่ม <strong>"สำรองข้อมูลจาก Supabase → Sheets"</strong> ในหน้า Admin เพื่อบันทึกข้อมูลล่าสุดกลับไปยัง Google Sheets</p>
         <p style="color: #6b7280; font-size: 0.9em;">อีเมลนี้ส่งอัตโนมัติทุกวันที่ 1 ของเดือน</p>
       </div>
     `;

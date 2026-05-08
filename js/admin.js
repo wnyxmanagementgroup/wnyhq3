@@ -14,7 +14,7 @@ function checkAdminAccess() {
 // --- แก้ไข: ดึงข้อมูลเนื้อหาจาก Google Sheet เป็นหลัก 100% ---
 // --- แก้ไข: เรียงลำดับจาก เลขที่เอกสาร (ล่าสุดขึ้นก่อน) และกรองปีงบประมาณ ---
 // --- FETCH DATA (Admin) ---
-// ดึงข้อมูลคำขอทั้งหมด (สำหรับหน้าออกคำสั่ง) โดยผสานข้อมูลจาก Google Sheets และ Firestore
+// ดึงข้อมูลคำขอทั้งหมด (สำหรับหน้าออกคำสั่ง) แบบโหลดเฉพาะเดือนล่าสุดของปีที่เลือกก่อน
 async function fetchAllRequestsForCommand() {
     try {
         // 1. ตรวจสอบสิทธิ์ Admin เบื้องต้น (Client-side)
@@ -26,97 +26,27 @@ async function fetchAllRequestsForCommand() {
             : document.getElementById('admin-requests-table-list');
         if (container) {
             container.innerHTML = isCompactAdminCardView()
-                ? `<div class="admin-card-loading"><span class="loader"></span><p class="text-gray-500 animate-pulse mt-2">กำลังโหลดข้อมูลคำขอทั้งหมด...</p></div>`
-                : `<tr><td colspan="9" class="text-center py-12"><div class="flex flex-col items-center justify-center gap-2"><span class="loader"></span><p class="text-gray-500 animate-pulse mt-2">กำลังโหลดข้อมูลคำขอทั้งหมด...</p></div></td></tr>`;
+                ? `<div class="admin-card-loading"><span class="loader"></span><p class="text-gray-500 animate-pulse mt-2">กำลังโหลดข้อมูลคำขอของเดือนล่าสุด...</p></div>`
+                : `<tr><td colspan="9" class="text-center py-12"><div class="flex flex-col items-center justify-center gap-2"><span class="loader"></span><p class="text-gray-500 animate-pulse mt-2">กำลังโหลดข้อมูลคำขอของเดือนล่าสุด...</p></div></td></tr>`;
         }
 
-        // 3. ★★★ รอให้ Firebase Auth พร้อมใช้งาน (แก้ปัญหา Rules Block) ★★★
-        if (typeof firebase !== 'undefined' && !firebase.auth().currentUser) {
-            console.warn("⏳ Waiting for Firebase Auth...");
-            await new Promise(resolve => {
-                const unsubscribe = firebase.auth().onAuthStateChanged(user => {
-                    unsubscribe();
-                    resolve(user);
-                });
-            });
-            
-            // ถ้าจังหวะนี้ยังไม่มี User แปลว่าไม่ได้ล็อกอินจริง -> ดีดออก
-            if (!firebase.auth().currentUser) {
-                console.error("❌ Admin not logged in (Firebase)");
-                showAlert('แจ้งเตือน', 'กรุณาเข้าสู่ระบบใหม่');
-                return;
-            }
-        }
-
-        // 4. ดึงปีงบประมาณที่เลือกจาก Dropdown
+        // 3. ดึงปีงบประมาณที่เลือกจาก Dropdown
         const yearSelect = document.getElementById('admin-year-select');
         const currentYear = new Date().getFullYear() + 543;
         const selectedYear = yearSelect ? parseInt(yearSelect.value) : currentYear;
         
-        console.log(`📥 Fetching admin requests for year: ${selectedYear}`);
+        console.log(`📥 Fetching latest-month admin requests for year: ${selectedYear}`);
 
-        // ── 5. ดึงข้อมูลจาก GAS Sheets (source of truth) ──
-        const gasResult = await apiCall('GET', 'getAllRequests');
-        if (gasResult.status !== 'success') {
-            throw new Error(gasResult.message || 'ไม่สามารถดึงข้อมูลจาก Google Sheets ได้');
-        }
-        let requests = (gasResult.data || []).filter(req => {
-            if (!req.id && !req.docDate) return false;
-            const idYear = req.id ? parseInt(req.id.split('/')[1]) : 0;
-            if (idYear === selectedYear) return true;
-            if (req.docDate) return new Date(req.docDate).getFullYear() + 543 === selectedYear;
-            return false;
+        // ── 4. ดึงข้อมูลจาก Supabase ผ่าน GAS เฉพาะเดือนล่าสุดของปีที่เลือก ──
+        const gasResult = await apiCall('GET', 'getAllRequests', {
+            year: selectedYear,
+            latestMonth: 'true'
         });
-        console.log(`📋 Admin loaded ${requests.length} requests from GAS Sheets`);
-
-        // 6.5 ผสานข้อมูลจาก Firestore เพิ่มเติมเพื่ออุด field ที่อาจว่างใน Google Sheets
-        if (typeof db !== 'undefined') {
-            try {
-                const fbSnapshot = await db.collection('requests').get();
-                const fbMap = {};
-
-                fbSnapshot.forEach(doc => {
-                    const data = doc.data() || {};
-                    fbMap[doc.id] = data;
-                    if (data.id) fbMap[data.id] = data;
-                });
-
-                requests = requests.map(req => {
-                    const rawId = req.id || req.requestId || '';
-                    const safeId = rawId.replace(/[\/\\:\.]/g, '-');
-                    const fb = fbMap[safeId] || fbMap[rawId] || {};
-
-                    return {
-                        ...req,
-                        username: req.username || fb.username || fb.createdby || '',
-                        requesterName: req.requesterName || fb.requesterName || fb.name || req.username || fb.username || '',
-                        requesterPosition: req.requesterPosition || fb.requesterPosition || '',
-                        purpose: req.purpose || fb.purpose || fb.subject || '',
-                        location: req.location || fb.location || '',
-                        province: req.province || fb.province || '',
-                        docDate: req.docDate || fb.docDate || '',
-                        startDate: req.startDate || fb.startDate || fb.dateStart || '',
-                        endDate: req.endDate || fb.endDate || fb.dateEnd || '',
-                        expenseOption: req.expenseOption || fb.expenseOption || '',
-                        totalExpense: req.totalExpense || fb.totalExpense || '',
-                        commandPdfUrl: req.commandPdfUrl || fb.commandPdfUrl || '',
-                        completedMemoUrl: req.completedMemoUrl || fb.completedMemoUrl || '',
-                        dispatchBookUrl: req.dispatchBookUrl || fb.dispatchBookUrl || fb.dispatchBookPdfUrl || '',
-                        dispatchBookPdfUrl: req.dispatchBookPdfUrl || fb.dispatchBookPdfUrl || fb.dispatchBookUrl || '',
-                        status: req.status || fb.status || '',
-                        docStatus: req.docStatus || fb.docStatus || '',
-                        attendees: req.attendees || fb.attendees || [],
-                        attendeeCount: req.attendeeCount || fb.attendeeCount || 0,
-                        travelSchedule: fb.travelSchedule || req.travelSchedule || null,
-                        travelSchedulePdfUrl: fb.travelSchedulePdfUrl || req.travelSchedulePdfUrl || '',
-                        travelScheduleStatus: fb.travelScheduleStatus || req.travelScheduleStatus || '',
-                        timestamp: req.timestamp || fb.timestamp || '',
-                    };
-                });
-            } catch (firestoreError) {
-                console.warn('⚠️ Firestore enrich skipped in fetchAllRequestsForCommand:', firestoreError?.message || firestoreError);
-            }
+        if (gasResult.status !== 'success') {
+            throw new Error(gasResult.message || 'ไม่สามารถดึงข้อมูลจาก Supabase ได้');
         }
+        let requests = gasResult.data || [];
+        console.log(`📋 Admin loaded ${requests.length} requests from Supabase`);
 
         // 8. เรียงลำดับ (Sort): เลขที่เอกสารมาก -> น้อย (ล่าสุดขึ้นก่อน)
         requests.sort((a, b) => {
@@ -148,6 +78,7 @@ async function fetchAllRequestsForCommand() {
 
         // 9. อัปเดต Cache และแสดงผล
         allRequestsCache = requests; 
+        window.allRequestsCacheScope = 'latest-month-admin';
         _applyRequestFilterAndSearch();
 
     } catch (error) { 
@@ -167,104 +98,17 @@ async function fetchAllRequestsForCommand() {
 async function fetchAllMemos() {
     try {
         if (!checkAdminAccess()) return;
-        if (typeof ensureFirebaseAuth === 'function') await ensureFirebaseAuth();
+        const yearSelect = document.getElementById('admin-year-select');
+        const currentYear = new Date().getFullYear() + 543;
+        const selectedYear = yearSelect ? parseInt(yearSelect.value) : currentYear;
 
-        const buildLookupKeys = (...values) => {
-            const keys = new Set();
-            values.forEach(value => {
-                const raw = String(value || '').trim();
-                if (!raw) return;
-                keys.add(raw);
-                keys.add(raw.replace(/[\/\\:\.]/g, '-'));
-            });
-            return Array.from(keys);
-        };
-
-        const tasks = [
-            apiCall('GET', 'getAllMemos'),
-            apiCall('GET', 'getAllRequests')
-        ];
-        if (typeof db !== 'undefined') {
-            tasks.push(db.collection('requests').get());
-        }
-
-        const [memoResult, requestResult, firestoreResult] = await Promise.allSettled(tasks);
-        const result = memoResult.status === 'fulfilled' ? memoResult.value : null;
-        if (!result) {
-            throw memoResult.reason || new Error('โหลดข้อมูลบันทึกข้อความไม่สำเร็จ');
-        }
-
-        let requestsResult = null;
-        if (requestResult.status === 'fulfilled') {
-            requestsResult = requestResult.value;
-        } else {
-            console.warn('⚠️ getAllRequests fallback unavailable for memos:', requestResult.reason);
-        }
-
-        let fbSnapshot = null;
-        if (firestoreResult) {
-            if (firestoreResult.status === 'fulfilled') {
-                fbSnapshot = firestoreResult.value;
-            } else {
-                const message = String(firestoreResult.reason?.message || firestoreResult.reason || '');
-                const isPermissionError = /Missing or insufficient permissions/i.test(message);
-                if (!isPermissionError) throw firestoreResult.reason;
-                console.warn('⚠️ Firestore memos query blocked, fallback to GAS only:', message);
-            }
-        }
+        const result = await apiCall('GET', 'getAllMemos', {
+            year: selectedYear,
+            latestMonth: 'true'
+        });
 
         if (result.status === 'success') {
             let memos = result.data || [];
-            const requestMap = {};
-            const gasRequests = requestsResult?.status === 'success' ? (requestsResult.data || []) : [];
-
-            gasRequests.forEach(req => {
-                buildLookupKeys(req.id, req.requestId).forEach(key => {
-                    requestMap[key] = req;
-                });
-            });
-
-            // สร้าง lookup map จาก Firestore: safeId → data
-            const fbMap = {};
-            if (fbSnapshot) {
-                fbSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    buildLookupKeys(doc.id, data.id, data.requestId).forEach(key => {
-                        fbMap[key] = data;
-                    });
-                });
-            }
-
-            // Merge ข้อมูลจาก Requests/Firestore เข้า memo
-            memos = memos.map(memo => {
-                const lookupKeys = buildLookupKeys(memo.refNumber, memo.requestId);
-                const req = lookupKeys.map(key => requestMap[key]).find(Boolean) || {};
-                const fb = lookupKeys.map(key => fbMap[key]).find(Boolean) || {};
-
-                return {
-                    ...memo,
-                    requestId:        memo.requestId        || req.id              || req.requestId     || memo.refNumber || '',
-                    purpose:          memo.purpose          || req.purpose         || req.subject       || fb.purpose     || fb.subject || '',
-                    subject:          memo.subject          || req.subject         || req.purpose       || fb.subject     || fb.purpose || '',
-                    requesterName:    memo.requesterName    || req.requesterName   || fb.requesterName || req.username  || fb.username || memo.submittedBy || '',
-                    location:         memo.location         || req.location        || fb.location       || '',
-                    province:         memo.province         || req.province        || fb.province       || '',
-                    docDate:          memo.docDate          || req.docDate         || fb.docDate        || '',
-                    startDate:        memo.startDate        || req.startDate       || fb.startDate      || '',
-                    endDate:          memo.endDate          || req.endDate         || fb.endDate        || '',
-                    attendees:        memo.attendees        || req.attendees       || fb.attendees      || [],
-                    commandPdfUrl:    memo.commandPdfUrl    || req.commandPdfUrl   || req.completedCommandUrl || fb.commandPdfUrl || fb.completedCommandUrl || '',
-                    docStatus:        memo.docStatus        || req.docStatus       || fb.docStatus      || '',
-                    dispatchBookUrl:  memo.dispatchBookUrl  || req.dispatchBookUrl || req.dispatchBookPdfUrl || fb.dispatchBookUrl || '',
-                    // ★ ไฟล์ URL — ดึงจาก Firestore ก่อน (real-time) แล้วค่อย fallback ไป Sheet
-                    completedMemoUrl: fb.completedMemoUrl   || memo.completedMemoUrl || '',  // ไฟล์ที่ผู้ใช้ส่งมา (ต้นทาง)
-                    adminMemoUrl:     fb.adminMemoUrl        || memo.adminMemoUrl     || '',  // ★ ไฟล์ที่แอดมินอัพโหลด (บันทึก)
-                    pdfUrl:           fb.pdfUrl             || fb.fileUrl           || memo.pdfUrl       || '',
-                    fileUrl:          fb.fileUrl            || fb.pdfUrl            || memo.fileUrl      || '',
-                    memoPdfUrl:       fb.memoPdfUrl         || memo.memoPdfUrl      || '',
-                    currentPdfUrl:    fb.currentPdfUrl      || memo.currentPdfUrl   || '',
-                };
-            });
 
             // เรียงลำดับล่าสุดก่อน
             memos.sort((a, b) => {
@@ -274,6 +118,7 @@ async function fetchAllMemos() {
             });
 
             allMemosCache = memos;
+            window.allMemosCacheScope = 'latest-month-admin';
             filterAdminMemos(typeof _currentMemoFilter !== 'undefined' ? _currentMemoFilter : 'all');
         }
     } catch (error) {
@@ -2533,109 +2378,61 @@ async function deleteMemoByAdmin(refId, gasId) {
 // --- เพิ่มใน js/admin.js ---
 
 /**
- * ฟังก์ชัน Sync ข้อมูลจาก Google Sheets ลง Firebase
- * ใช้สำหรับกู้คืนข้อมูลรายชื่อแนบที่หายไป หรืออัปเดตข้อมูลให้ตรงกัน
+ * ฟังก์ชัน Sync ข้อมูลจาก Google Sheets ลง Supabase
+ * ใช้สำหรับกู้คืน/ซ่อมข้อมูลเมื่อข้อมูลฝั่ง Sheets กับ Supabase ไม่ตรงกัน
  */
-async function syncAllDataFromSheetToFirebase() {
+async function syncAllDataFromSheetToSupabase() {
     if (!checkAdminAccess()) return;
-    
-    // ถามยืนยันก่อนทำ เพราะอาจใช้เวลา
-    if (!confirm('ยืนยันการ Sync ข้อมูล?\nระบบจะดึงข้อมูลทั้งหมดจาก Google Sheets มาทับใน Firebase เพื่อแก้ไขข้อมูลรายชื่อที่สูญหาย')) return;
 
     const btn = document.getElementById('admin-sync-btn');
     if(btn) toggleLoader('admin-sync-btn', true);
 
     try {
-        console.log("🚀 Starting Full Sync...");
-        
-        // 1. ดึงข้อมูลทั้งหมดจาก Google Sheets ผ่าน GAS
-        const result = await apiCall('GET', 'getAllRequests');
-        
-        if (result.status !== 'success' || !result.data) {
-            throw new Error("ไม่สามารถดึงข้อมูลจาก Google Sheets ได้");
+        const yearSelect = document.getElementById('admin-year-select');
+        const currentYear = new Date().getFullYear() + 543;
+        const selectedYear = yearSelect ? parseInt(yearSelect.value) : currentYear;
+
+        console.log("🚀 Starting Supabase repair sync...");
+
+        const result = await apiCall('POST', 'syncSheetsToSupabase', {
+            year: selectedYear
+        });
+
+        if (result.status !== 'success') {
+            throw new Error(result.message || 'ไม่สามารถซิงก์ข้อมูลไปยัง Supabase ได้');
         }
 
-        const allRequests = result.data;
-        console.log(`📥 ได้รับข้อมูลจำนวน ${allRequests.length} รายการ`);
-
-        // 2. เตรียม Batch สำหรับเขียนลง Firebase (Firestore จำกัด 500 ops ต่อ batch)
-        const batchSize = 400;
-        let batch = db.batch();
-        let count = 0;
-        let totalUpdated = 0;
-
-        for (const req of allRequests) {
-            if (!req.id) continue;
-
-            const safeId = req.id.replace(/[\/\\:\.]/g, '-');
-            const docRef = db.collection('requests').doc(safeId);
-
-            // 3. แปลงข้อมูลให้ถูกต้อง (Clean Data)
-            let attendees = [];
-            if (req.attendees) {
-                // ถ้ามาเป็น String ให้แปลงเป็น JSON Array
-                if (typeof req.attendees === 'string') {
-                    try { attendees = JSON.parse(req.attendees); } catch(e) { attendees = []; }
-                } else if (Array.isArray(req.attendees)) {
-                    attendees = req.attendees;
-                }
-            }
-
-            let expenseItems = [];
-            if (req.expenseItems) {
-                if (typeof req.expenseItems === 'string') {
-                    try { expenseItems = JSON.parse(req.expenseItems); } catch(e) { expenseItems = []; }
-                } else if (Array.isArray(req.expenseItems)) {
-                    expenseItems = req.expenseItems;
-                }
-            }
-
-            // ข้อมูลที่จะอัปเดตลง Firebase
-            const updateData = {
-                ...req, // เอาข้อมูลเดิมทั้งหมดตั้ง
-                attendees: attendees, // ทับด้วย Array ที่แปลงแล้ว
-                expenseItems: expenseItems, // ทับด้วย Array ที่แปลงแล้ว
-                lastSynced: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            batch.set(docRef, updateData, { merge: true });
-            count++;
-            totalUpdated++;
-
-            // ถ้าครบ Batch ให้ Commit แล้วเริ่มใหม่
-            if (count >= batchSize) {
-                await batch.commit();
-                console.log(`💾 Saved batch of ${count} items...`);
-                batch = db.batch();
-                count = 0;
-            }
-        }
-
-        // Commit เศษที่เหลือ
-        if (count > 0) {
-            await batch.commit();
-        }
-
-        console.log("✅ Sync Complete!");
-        showAlert('สำเร็จ', `ซิงค์ข้อมูลเรียบร้อยแล้ว จำนวน ${totalUpdated} รายการ\nข้อมูลรายชื่อแนบได้รับการกู้คืนแล้ว`);
+        const counts = result.counts || {};
+        showAlert(
+            'สำเร็จ',
+            `ซิงก์ข้อมูลจาก Google Sheets ไปยัง Supabase เรียบร้อยแล้ว\n` +
+            `ปี ${selectedYear}: คำขอ ${counts.requests || 0} รายการ, ผู้ร่วมเดินทาง ${counts.attendees || 0} รายการ, บันทึก ${counts.memos || 0} รายการ, ผู้ใช้ ${counts.users || 0} รายการ`
+        );
         
         // รีโหลดหน้าจอเพื่อแสดงผล
         if (typeof fetchAllRequestsForCommand === 'function') await fetchAllRequestsForCommand();
+        if (typeof fetchAllMemos === 'function') await fetchAllMemos();
 
+        return result;
     } catch (error) {
-        console.error("Sync Error:", error);
+        console.error("Supabase Sync Error:", error);
         showAlert('ผิดพลาด', 'เกิดข้อผิดพลาดในการซิงค์: ' + error.message);
     } finally {
         if(btn) toggleLoader('admin-sync-btn', false);
     }
 }
-// --- FIRESTORE → SHEETS MONTHLY BACKUP (Admin) ---
+
+async function syncAllDataFromSheetToFirebase() {
+    return syncAllDataFromSheetToSupabase();
+}
+
+// --- SUPABASE → SHEETS MONTHLY BACKUP (Admin) ---
 
 /**
- * สำรองข้อมูลทั้งหมดจาก Firestore ไปยัง Google Sheets
+ * สำรองข้อมูลทั้งหมดจาก Supabase ไปยัง Google Sheets
  * เรียกจากปุ่ม "สำรองข้อมูล → Google Sheets" ในหน้า Admin
  */
-async function adminBackupFirestoreToSheets() {
+async function adminBackupSupabaseToSheets() {
     if (!checkAdminAccess()) return;
 
     const yearSelect = document.getElementById('admin-year-select');
@@ -2644,7 +2441,7 @@ async function adminBackupFirestoreToSheets() {
 
     const confirmed = await showConfirm(
         'ยืนยันการสำรองข้อมูล',
-        `ระบบจะส่งข้อมูลทั้งหมดในปี พ.ศ. ${selectedYear} จาก Firestore ไปบันทึกใน Google Sheets\nใช้เวลาสักครู่ กรุณารอ...`
+        `ระบบจะส่งข้อมูลทั้งหมดในปี พ.ศ. ${selectedYear} จาก Supabase ไปบันทึกใน Google Sheets\nใช้เวลาสักครู่ กรุณารอ...`
     );
     if (!confirmed) return;
 
@@ -2653,7 +2450,7 @@ async function adminBackupFirestoreToSheets() {
 
     try {
         showAlert('กำลังดำเนินการ', 'กำลังสำรองข้อมูลไปยัง Google Sheets... กรุณารอ', false);
-        const result = await backupFirestoreToSheets(selectedYear);
+        const result = await backupSupabaseToSheets(selectedYear);
         document.getElementById('alert-modal').style.display = 'none';
 
         if (result.status === 'success') {
@@ -2666,8 +2463,12 @@ async function adminBackupFirestoreToSheets() {
         console.error('Backup error:', error);
         showAlert('ผิดพลาด', 'เกิดข้อผิดพลาดในการสำรองข้อมูล: ' + error.message);
     } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '💾 สำรองข้อมูล → Sheets'; }
+        if (btn) { btn.disabled = false; btn.innerHTML = '💾 สำรองข้อมูลจาก Supabase → Sheets'; }
     }
+}
+
+async function adminBackupFirestoreToSheets() {
+    return adminBackupSupabaseToSheets();
 }
 
 // --- YEARLY BACKUP EMAIL ---
@@ -2703,43 +2504,13 @@ async function adminSendYearlyBackupEmail() {
     try {
         showAlert('กำลังดำเนินการ', 'กำลังรวบรวมข้อมูลและส่ง Email... กรุณารอสักครู่', false);
 
-        // 1. ดึงข้อมูลจาก Firestore
         let requests = [];
-        if (typeof db !== 'undefined') {
-            const yearAD = selectedYear - 543;
-            const snapshot = await db.collection('requests')
-                .where('docDate', '>=', `${yearAD}-01-01`)
-                .where('docDate', '<=', `${yearAD}-12-31`)
-                .get();
+        const gasResult = await apiCall('GET', 'getAllRequests', { year: selectedYear, scope: 'year' });
+        if (gasResult.status === 'success') requests = gasResult.data || [];
 
-            snapshot.forEach(doc => {
-                const d = doc.data();
-                // แปลง Timestamp → string
-                if (d.timestamp?.toDate) d.timestamp = d.timestamp.toDate().toISOString();
-                if (d.lastUpdated?.toDate) d.lastUpdated = d.lastUpdated.toDate().toISOString();
-                // ลบ field ขนาดใหญ่ที่ไม่จำเป็น
-                delete d.pdfBase64;
-                delete d.signatureBase64;
-                requests.push(d);
-            });
-
-            // ถ้า Firestore ไม่มีข้อมูล ลอง filter จาก id ปี
-            if (!requests.length) {
-                const snap2 = await db.collection('requests').get();
-                snap2.forEach(doc => {
-                    const d = doc.data();
-                    if ((d.id || '').includes('/' + selectedYear)) {
-                        delete d.pdfBase64; delete d.signatureBase64;
-                        requests.push(d);
-                    }
-                });
-            }
-        }
-
-        // Fallback: ดึงจาก GAS ถ้า Firestore ไม่มีข้อมูล
         if (!requests.length) {
-            const gasResult = await apiCall('GET', 'getArchiveRequests', { year: selectedYear });
-            if (gasResult.status === 'success') requests = gasResult.data || [];
+            const archiveResult = await apiCall('GET', 'getArchiveRequests', { year: selectedYear });
+            if (archiveResult.status === 'success') requests = archiveResult.data || [];
         }
 
         if (!requests.length) {
@@ -2888,14 +2659,21 @@ async function loadAdminDashboard() {
     if (!checkAdminAccess()) return;
 
     _setAdminDashboardLoading();
+    const yearSelect = document.getElementById('admin-year-select');
+    const currentYear = new Date().getFullYear() + 543;
+    const selectedYear = yearSelect ? parseInt(yearSelect.value) : currentYear;
 
     // ใช้ cache ถ้ามีอยู่แล้ว ไม่ต้องดึงใหม่
     let requests = allRequestsCache || [];
     if (!requests.length) {
         try {
-            const res = await apiCall('GET', 'getAllRequests');
+            const res = await apiCall('GET', 'getAllRequests', {
+                year: selectedYear,
+                latestMonth: 'true'
+            });
             requests = res.status === 'success' ? (res.data || []) : [];
             allRequestsCache = requests;
+            window.allRequestsCacheScope = 'latest-month-admin';
         } catch (e) {
             console.warn('Dashboard: failed to load requests', e.message);
         }

@@ -1253,27 +1253,19 @@ document.getElementById('edit-user-cancel')?.addEventListener('click', () => { d
     const adminSyncBtn = document.getElementById('admin-sync-btn');
     if (adminSyncBtn) {
         adminSyncBtn.addEventListener('click', async () => {
-            if (!confirm('⚠️ คำเตือน: การ Sync จะดึงข้อมูลทั้งหมดจาก Google Sheets มาทับใน Firebase\n\nควรทำเมื่อ:\n1. เริ่มระบบครั้งแรก\n2. ข้อมูลไม่ตรงกัน\n\nคุณต้องการดำเนินการต่อหรือไม่?')) return;
+            if (!confirm('⚠️ คำเตือน: การ Sync จะดึงข้อมูลจาก Google Sheets ไปซ่อม/อัปเดตใน Supabase\n\nควรทำเมื่อ:\n1. เริ่มระบบครั้งแรก\n2. ข้อมูลใน Supabase ไม่ตรงกับ Sheets\n\nคุณต้องการดำเนินการต่อหรือไม่?')) return;
             
             toggleLoader('admin-sync-btn', true);
             
             try {
-                // 1. Sync Requests (คำขอ)
-                if (typeof syncAllDataFromSheetToFirebase === 'function') {
-                    const reqResult = await syncAllDataFromSheetToFirebase();
-                    console.log('Request Sync Result:', reqResult);
+                if (typeof syncAllDataFromSheetToSupabase === 'function') {
+                    const syncResult = await syncAllDataFromSheetToSupabase();
+                    console.log('Supabase Sync Result:', syncResult);
                 }
-
-                // 2. Sync Users (ผู้ใช้งาน - เพื่อการ Login ที่เร็วขึ้น)
-                if (typeof syncUsersToFirebase === 'function') {
-                    const userResult = await syncUsersToFirebase();
-                    console.log('User Sync Result:', userResult);
-                }
-
-                showAlert('สำเร็จ', 'อัปเดตฐานข้อมูล (คำขอและผู้ใช้งาน) เรียบร้อยแล้ว');
                 
                 // รีโหลดหน้า Admin เพื่อแสดงข้อมูลล่าสุด
                 if (typeof fetchAllRequestsForCommand === 'function') await fetchAllRequestsForCommand();
+                if (typeof fetchAllMemos === 'function') await fetchAllMemos();
 
             } catch (error) {
                 showAlert('ผิดพลาด', 'เกิดข้อผิดพลาดในการ Sync: ' + error.message);
