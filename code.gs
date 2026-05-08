@@ -1201,7 +1201,7 @@ function deleteDraftById(draftId) {
 // === REQUEST & COMMAND MANAGEMENT =================================
 // ==================================================================
 
-function getAllRequests() {
+function getAllRequestsFromSheets_() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const requestSheet = ss.getSheetByName("Requests");
   const attendeesSheet = ss.getSheetByName("Attendees");
@@ -1255,6 +1255,15 @@ function getAllRequests() {
   });
 
   return requests;
+}
+
+function getAllRequests() {
+  try {
+    return getAllRequestsFromSupabase();
+  } catch (error) {
+    Logger.log("getAllRequests fallback to Sheets: " + error.message);
+    return getAllRequestsFromSheets_();
+  }
 }
 
 function getUserRequests(username) {
@@ -2613,12 +2622,12 @@ function uploadMemo(payload) {
   };
 }
 
-function getAllMemos() {
+function getAllMemosFromSheets_() {
   const memoSheet =
     SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Memos");
   if (!memoSheet) return [];
   const memos = sheetToObject(memoSheet);
-  const requests = getAllRequests();
+  const requests = getAllRequestsFromSheets_();
   const requestMap = requests.reduce((map, req) => {
     map[req.id] = req;
     return map;
@@ -2628,6 +2637,15 @@ function getAllMemos() {
     memo.dispatchBookUrl = req ? req.dispatchBookPdfUrl || "" : "";
     return memo;
   });
+}
+
+function getAllMemos() {
+  try {
+    return getAllMemosFromSupabase();
+  } catch (error) {
+    Logger.log("getAllMemos fallback to Sheets: " + error.message);
+    return getAllMemosFromSheets_();
+  }
 }
 
 function getSentMemos(username) {
