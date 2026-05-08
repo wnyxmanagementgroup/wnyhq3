@@ -98,6 +98,197 @@ function supabaseFetch_(path, options) {
   };
 }
 
+function assertSupabaseResponseOk_(response, actionLabel) {
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(
+      (actionLabel || "เรียกใช้ Supabase ไม่สำเร็จ") +
+        " (" +
+        response.statusCode +
+        "): " +
+        (response.bodyText || "Unknown error"),
+    );
+  }
+  return response;
+}
+
+function supabaseUpsert_(tableName, records, onConflict) {
+  const rows = Array.isArray(records) ? records : [records];
+  if (!rows.length) return;
+
+  const query = onConflict
+    ? "?on_conflict=" + encodeURIComponent(onConflict)
+    : "";
+  const response = supabaseFetch_("/rest/v1/" + tableName + query, {
+    method: "post",
+    payload: JSON.stringify(rows),
+    headers: {
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+  });
+
+  assertSupabaseResponseOk_(response, "อัปเดตตาราง " + tableName + " ไม่สำเร็จ");
+}
+
+function supabaseDeleteWhere_(tableName, filterQuery) {
+  const response = supabaseFetch_("/rest/v1/" + tableName + "?" + filterQuery, {
+    method: "delete",
+    headers: {
+      Prefer: "return=minimal",
+    },
+  });
+
+  assertSupabaseResponseOk_(response, "ลบข้อมูลจาก " + tableName + " ไม่สำเร็จ");
+}
+
+function parseJsonSafely_(value, fallbackValue) {
+  if (value === null || value === undefined || value === "") {
+    return fallbackValue;
+  }
+  if (typeof value === "object") {
+    return value;
+  }
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return fallbackValue;
+  }
+}
+
+function toSupabaseNumericOrNull_(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const numericValue = Number(value);
+  return isNaN(numericValue) ? null : numericValue;
+}
+
+function toSupabaseBoolean_(value) {
+  if (value === true || value === "true" || value === 1 || value === "1")
+    return true;
+  if (value === false || value === "false" || value === 0 || value === "0")
+    return false;
+  return null;
+}
+
+function buildSupabaseRequestRecordFromSheet_(requestRow) {
+  const expenseItems = parseJsonSafely_(requestRow.expenseItems, []);
+  const extra = {
+    startTime: requestRow.starttime || requestRow.startTime || "",
+    endTime: requestRow.endtime || requestRow.endTime || "",
+    dispatchMonth: requestRow.dispatchmonth || requestRow.dispatchMonth || "",
+    dispatchYear: requestRow.dispatchyear || requestRow.dispatchYear || "",
+    studentCount: requestRow.studentcount || requestRow.studentCount || "",
+    teacherCount: requestRow.teachercount || requestRow.teacherCount || "",
+    qty1: requestRow.qty1 || "",
+    qty2: requestRow.qty2 || "",
+    qty3: requestRow.qty3 || "",
+    qty4: requestRow.qty4 || "",
+    qty5: requestRow.qty5 || "",
+    qty6: requestRow.qty6 || "",
+    qty7: requestRow.qty7 || "",
+  };
+
+  return {
+    request_id: requestRow.id || "",
+    created_by: requestRow.username || "",
+    doc_date: requestRow.docDate || null,
+    requester_name: requestRow.requesterName || "",
+    requester_position: requestRow.requesterPosition || "",
+    location: requestRow.location || "",
+    purpose: requestRow.purpose || "",
+    start_date: requestRow.startDate || null,
+    end_date: requestRow.endDate || null,
+    duration: requestRow.duration || "",
+    expense_option: requestRow.expenseOption || "",
+    expense_items: expenseItems,
+    total_expense: toSupabaseNumericOrNull_(requestRow.totalExpense),
+    vehicle_option: requestRow.vehicleOption || "",
+    license_plate: requestRow.licensePlate || "",
+    department: requestRow.department || "",
+    head_name: requestRow.headName || "",
+    pdf_url: requestRow.pdfUrl || "",
+    created_at_source: requestRow.timestamp || null,
+    status: requestRow.status || "",
+    command_pdf_url: requestRow.commandPdfUrl || "",
+    command_status: requestRow.commandStatus || "",
+    command_pdf_url_solo: requestRow.commandPdfUrlSolo || "",
+    command_pdf_url_group_small: requestRow.commandPdfUrlGroupSmall || "",
+    command_pdf_url_group_large: requestRow.commandPdfUrlGroupLarge || "",
+    dispatch_book_pdf_url: requestRow.dispatchBookPdfUrl || "",
+    qty_1: toSupabaseNumericOrNull_(requestRow.qty1),
+    qty_2: toSupabaseNumericOrNull_(requestRow.qty2),
+    qty_3: toSupabaseNumericOrNull_(requestRow.qty3),
+    qty_4: toSupabaseNumericOrNull_(requestRow.qty4),
+    qty_5: toSupabaseNumericOrNull_(requestRow.qty5),
+    qty_6: toSupabaseNumericOrNull_(requestRow.qty6),
+    qty_7: toSupabaseNumericOrNull_(requestRow.qty7),
+    command_doc_url_solo: requestRow.commandDocUrlSolo || "",
+    command_doc_url_group_large: requestRow.commandDocUrlGroupLarge || "",
+    doc_url: requestRow.docUrl || "",
+    command_doc_url_group_small: requestRow.commandDocUrlGroupSmall || "",
+    province: requestRow.province || "",
+    stay_at: requestRow.stayAt || "",
+    dispatch_vehicle_type: requestRow.dispatchVehicleType || "",
+    dispatch_vehicle_id: requestRow.dispatchVehicleId || "",
+    completed_memo_url: requestRow.completedMemoUrl || "",
+    completed_command_url: requestRow.completedCommandUrl || "",
+    memo_status: requestRow.memoStatus || "",
+    dispatch_book_url: requestRow.dispatchBookUrl || "",
+    admin_memo_url: requestRow.adminMemoUrl || "",
+    doc_status: requestRow.docStatus || "",
+    was_rejected: toSupabaseBoolean_(requestRow.wasRejected),
+    rejection_reason: requestRow.rejectionReason || "",
+    command_template_type: requestRow.commandTemplateType || "",
+    extra: extra,
+  };
+}
+
+function getAttendeeRowsForRequestFromSheets_(requestId) {
+  const attendeesSheet =
+    SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Attendees");
+  const attendeeRows = sheetToObject(attendeesSheet);
+  return attendeeRows.filter(
+    (row) => String(row.requestid || row.requestId || "").trim() === String(requestId || "").trim(),
+  );
+}
+
+function syncRequestByIdToSupabase_(requestId, options) {
+  const syncOptions = options || {};
+  const requestSheet =
+    SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Requests");
+  const requestRows = sheetToObject(requestSheet);
+  const requestRow = requestRows.find(
+    (row) => String(row.id || "").trim() === String(requestId || "").trim(),
+  );
+
+  if (!requestRow) {
+    throw new Error("ไม่พบคำขอ " + requestId + " ในชีต Requests เพื่อ sync ไป Supabase");
+  }
+
+  supabaseUpsert_(
+    "requests",
+    buildSupabaseRequestRecordFromSheet_(requestRow),
+    "request_id",
+  );
+
+  if (!syncOptions.replaceAttendees) return;
+
+  const safeRequestId = encodeURIComponent(String(requestId || "").trim());
+  supabaseDeleteWhere_("attendees", "request_id=eq." + safeRequestId);
+
+  const attendeeRows = getAttendeeRowsForRequestFromSheets_(requestId);
+  if (!attendeeRows.length) return;
+
+  const attendeeRecords = attendeeRows.map((row, index) => ({
+    request_id: String(requestId || "").trim(),
+    source_row_key: String(requestId || "").trim() + ":" + (index + 1),
+    full_name: row.fullname || row.name || "",
+    position: row.position || "",
+    source_date_text: row.docdate || row.source_date_text || "",
+  }));
+
+  supabaseUpsert_("attendees", attendeeRecords, "source_row_key");
+}
+
 function testSupabaseConnection() {
   const cfg = getSupabaseConfig_();
   const projectRefMatch = cfg.url.match(/^https:\/\/([a-z0-9-]+)\.supabase\.co$/i);
@@ -1440,6 +1631,11 @@ function deleteRequestById(requestId) {
     attendeesSheet.deleteRow(rowsToDelete[i]);
   }
 
+  supabaseDeleteWhere_(
+    "requests",
+    "request_id=eq." + encodeURIComponent(String(requestId || "").trim()),
+  );
+
   deleteOldPdfFiles(requestId);
 }
 
@@ -1489,6 +1685,10 @@ function softDeleteRequest(payload) {
   });
   trashSheet.appendRow(trashRow);
   requestSheet.deleteRow(reqRow + 1);
+  supabaseDeleteWhere_(
+    "requests",
+    "request_id=eq." + encodeURIComponent(String(id || "").trim()),
+  );
   return { status: "success", message: "ย้ายไปถังขยะแล้ว" };
 }
 
@@ -1531,6 +1731,7 @@ function restoreRequest(payload) {
   });
   requestSheet.appendRow(restoredRow);
   trashSheet.deleteRow(trashRow + 1);
+  syncRequestByIdToSupabase_(id, { replaceAttendees: true });
   return { status: "success", message: "กู้คืนข้อมูลสำเร็จ" };
 }
 
@@ -1801,6 +2002,10 @@ function saveRequestAndGeneratePdf(payload) {
     requestSheet.appendRow(finalRowData);
     // (ส่วนส่งเมลแจ้งเตือนเดิม...)
   }
+
+  syncRequestByIdToSupabase_(requestId, {
+    replaceAttendees: payload.attendees !== undefined,
+  });
 
   return {
     status: "success",
@@ -2073,6 +2278,8 @@ function approveCommand(payload) {
       );
     }
 
+    syncRequestByIdToSupabase_(requestId, { replaceAttendees: true });
+
     return {
       status: "success",
       message: "อนุมัติคำสั่งและสร้างรายการบันทึกข้อความอัตโนมัติเรียบร้อยแล้ว",
@@ -2177,6 +2384,8 @@ function generateDispatchBook(payload) {
     if (urlCol > -1) {
       requestSheet.getRange(rowIndex + 1, urlCol + 1).setValue(pdfUrl);
     }
+
+    syncRequestByIdToSupabase_(requestId, { replaceAttendees: false });
 
     return {
       status: "success",
@@ -3510,6 +3719,10 @@ function updateRequest(payload) {
 
   // E. อัปเดต Timestamp การแก้ไข
   setVal("Timestamp", new Date());
+
+  syncRequestByIdToSupabase_(requestId, {
+    replaceAttendees: payload.attendees !== undefined,
+  });
 
   return {
     status: "success",
