@@ -1374,29 +1374,10 @@ function importUsers(payload) {
 function saveDraftRequest(payload) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const draftSheet = ss.getSheetByName("DraftRequests");
-  ensureSheetColumns(draftSheet, [
-    "DraftId",
-    "Username",
-    "DocDate",
-    "RequesterName",
-    "RequesterPosition",
-    "Location",
-    "Purpose",
-    "StartDate",
-    "EndDate",
-    "Attendees",
-    "ExpenseOption",
-    "ExpenseItems",
-    "TotalExpense",
-    "VehicleOption",
-    "LicensePlate",
-    "Department",
-    "HeadName",
-    "Timestamp",
-    "Status",
-  ]);
   const timestamp = new Date();
   let draftId = payload.draftId;
+  let savedToSupabase = false;
+  let savedToSheets = false;
 
   if (!draftId) {
     draftId = `DRAFT-${Date.now()}`;
@@ -1407,36 +1388,66 @@ function saveDraftRequest(payload) {
   const formatDate = (d) =>
     d ? Utilities.formatDate(new Date(d), "Asia/Bangkok", "yyyy-MM-dd") : "";
 
-  const rowData = [
-    draftId,
-    payload.username,
-    formatDate(payload.docDate),
-    payload.requesterName,
-    payload.requesterPosition,
-    payload.location,
-    payload.purpose,
-    formatDate(payload.startDate),
-    formatDate(payload.endDate),
-    JSON.stringify(payload.attendees || []),
-    payload.expenseOption,
-    JSON.stringify(payload.expenseItems || []),
-    Number(payload.totalExpense) || 0,
-    payload.vehicleOption,
-    payload.licensePlate,
-    payload.department,
-    payload.headName,
-    timestamp,
-    "draft",
-  ];
-  draftSheet.appendRow(rowData);
-
   try {
     saveDraftRequestToSupabase_(draftId, payload, timestamp);
+    savedToSupabase = true;
   } catch (error) {
     Logger.log(
       "saveDraftRequest fallback to Sheets only: " +
         (error && error.message ? error.message : error),
     );
+  }
+
+  if (draftSheet) {
+    ensureSheetColumns(draftSheet, [
+      "DraftId",
+      "Username",
+      "DocDate",
+      "RequesterName",
+      "RequesterPosition",
+      "Location",
+      "Purpose",
+      "StartDate",
+      "EndDate",
+      "Attendees",
+      "ExpenseOption",
+      "ExpenseItems",
+      "TotalExpense",
+      "VehicleOption",
+      "LicensePlate",
+      "Department",
+      "HeadName",
+      "Timestamp",
+      "Status",
+    ]);
+
+    const rowData = [
+      draftId,
+      payload.username,
+      formatDate(payload.docDate),
+      payload.requesterName,
+      payload.requesterPosition,
+      payload.location,
+      payload.purpose,
+      formatDate(payload.startDate),
+      formatDate(payload.endDate),
+      JSON.stringify(payload.attendees || []),
+      payload.expenseOption,
+      JSON.stringify(payload.expenseItems || []),
+      Number(payload.totalExpense) || 0,
+      payload.vehicleOption,
+      payload.licensePlate,
+      payload.department,
+      payload.headName,
+      timestamp,
+      "draft",
+    ];
+    draftSheet.appendRow(rowData);
+    savedToSheets = true;
+  }
+
+  if (!savedToSupabase && !savedToSheets) {
+    throw new Error("บันทึก draft ไม่สำเร็จ: ไม่พบทั้ง Supabase และชีต DraftRequests");
   }
 
   return {
