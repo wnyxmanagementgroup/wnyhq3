@@ -127,6 +127,199 @@ function testSupabaseConnection() {
   };
 }
 
+function supabaseSelectAll_(tableName, queryString, pageSize) {
+  const size = pageSize || 1000;
+  let from = 0;
+  let allRows = [];
+
+  while (true) {
+    const response = supabaseFetch_(
+      `/rest/v1/${tableName}?${queryString}`,
+      {
+        method: "get",
+        headers: {
+          Range: `${from}-${from + size - 1}`,
+          Prefer: "count=exact",
+        },
+      },
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(
+        `อ่านข้อมูล ${tableName} จาก Supabase ไม่สำเร็จ (${response.statusCode}): ` +
+          (response.bodyText || "Unknown error"),
+      );
+    }
+
+    const rows = Array.isArray(response.jsonBody) ? response.jsonBody : [];
+    allRows = allRows.concat(rows);
+    if (rows.length < size) break;
+    from += size;
+  }
+
+  return allRows;
+}
+
+function formatSupabaseDateValue_(value) {
+  if (!value) return "";
+  try {
+    return Utilities.formatDate(new Date(value), "Asia/Bangkok", "yyyy-MM-dd");
+  } catch (e) {
+    return String(value || "");
+  }
+}
+
+function mapSupabaseRequestRow_(row, attendeeCount, memoRow) {
+  return {
+    id: row.request_id || "",
+    username: row.created_by || "",
+    refNumber: row.ref_number || "",
+    docDate: formatSupabaseDateValue_(row.doc_date),
+    requesterName: row.requester_name || "",
+    requesterPosition: row.requester_position || "",
+    location: row.location || "",
+    purpose: row.purpose || "",
+    startDate: formatSupabaseDateValue_(row.start_date),
+    endDate: formatSupabaseDateValue_(row.end_date),
+    duration: row.duration || "",
+    expenseOption: row.expense_option || "",
+    expenseItems:
+      row.expense_items === null || row.expense_items === undefined
+        ? ""
+        : JSON.stringify(row.expense_items),
+    totalExpense: row.total_expense || 0,
+    vehicleOption: row.vehicle_option || "",
+    licensePlate: row.license_plate || "",
+    department: row.department || "",
+    headName: row.head_name || "",
+    pdfUrl: row.pdf_url || "",
+    timestamp: row.created_at_source || "",
+    status:
+      row.status ||
+      (memoRow && memoRow.status ? memoRow.status : "") ||
+      "กำลังดำเนินการ",
+    commandPdfUrl: row.command_pdf_url || "",
+    commandStatus: row.command_status || "",
+    commandPdfUrlSolo: row.command_pdf_url_solo || "",
+    commandPdfUrlGroupSmall: row.command_pdf_url_group_small || "",
+    commandPdfUrlGroupLarge: row.command_pdf_url_group_large || "",
+    dispatchBookPdfUrl: row.dispatch_book_pdf_url || "",
+    commandDocUrlSolo: row.command_doc_url_solo || "",
+    commandDocUrlGroupLarge: row.command_doc_url_group_large || "",
+    docUrl: row.doc_url || "",
+    commandDocUrlGroupSmall: row.command_doc_url_group_small || "",
+    province: row.province || "",
+    stayAt: row.stay_at || "",
+    dispatchVehicleType: row.dispatch_vehicle_type || "",
+    dispatchVehicleId: row.dispatch_vehicle_id || "",
+    completedMemoUrl:
+      row.completed_memo_url ||
+      (memoRow ? memoRow.completedMemoUrl || "" : ""),
+    completedCommandUrl:
+      row.completed_command_url ||
+      (memoRow ? memoRow.completedCommandUrl || "" : ""),
+    memoStatus: row.memo_status || "",
+    dispatchBookUrl:
+      row.dispatch_book_url || (memoRow ? memoRow.dispatchBookUrl || "" : ""),
+    adminMemoUrl: row.admin_memo_url || (memoRow ? memoRow.adminMemoUrl || "" : ""),
+    docStatus: row.doc_status || "",
+    wasRejected: row.was_rejected === true,
+    rejectionReason: row.rejection_reason || "",
+    commandTemplateType: row.command_template_type || "",
+    attendeeCount: attendeeCount,
+    totalPeople: attendeeCount + 1,
+  };
+}
+
+function mapSupabaseMemoRow_(row, requestRow) {
+  return {
+    id: row.memo_id || "",
+    submittedBy: row.submitted_by || "",
+    refNumber: row.ref_number || "",
+    status: row.status || "",
+    timestamp: row.created_at_source || "",
+    fileId: row.file_id || "",
+    fileURL: row.file_url || "",
+    completedMemoUrl: row.completed_memo_url || "",
+    completedCommandUrl: row.completed_command_url || "",
+    dispatchBookUrl:
+      row.dispatch_book_url ||
+      (requestRow ? requestRow.dispatchBookPdfUrl || requestRow.dispatchBookUrl || "" : ""),
+    adminMemoUrl: row.admin_memo_url || "",
+    memoPdfUrl: row.memo_pdf_url || "",
+    currentPdfUrl: row.current_pdf_url || "",
+    dispatchStatus: row.dispatch_status || "",
+    completedDispatchBookUrl: row.completed_dispatch_book_url || "",
+    docStatus: row.doc_status || "",
+    rejectedAt: row.rejected_at || "",
+    finalizedAt: row.finalized_at || "",
+    lastUpdatedSource: row.last_updated_source || "",
+  };
+}
+
+function getAllRequestsFromSupabase() {
+  const requestRows = supabaseSelectAll_(
+    "requests",
+    "select=*&order=request_id.asc",
+    1000,
+  );
+  const attendeeRows = supabaseSelectAll_(
+    "attendees",
+    "select=request_id&order=id.asc",
+    1000,
+  );
+  const memoRows = supabaseSelectAll_(
+    "memos",
+    "select=ref_number,status,completed_memo_url,completed_command_url,dispatch_book_url,admin_memo_url&order=memo_id.asc",
+    1000,
+  );
+
+  const attendeeCountMap = {};
+  attendeeRows.forEach((row) => {
+    const requestId = String(row.request_id || "").trim();
+    if (!requestId) return;
+    attendeeCountMap[requestId] = (attendeeCountMap[requestId] || 0) + 1;
+  });
+
+  const memoMap = {};
+  memoRows.forEach((row) => {
+    const key = String(row.ref_number || "").trim();
+    if (!key) return;
+    memoMap[key] = {
+      status: row.status || "",
+      completedMemoUrl: row.completed_memo_url || "",
+      completedCommandUrl: row.completed_command_url || "",
+      dispatchBookUrl: row.dispatch_book_url || "",
+      adminMemoUrl: row.admin_memo_url || "",
+    };
+  });
+
+  return requestRows.map((row) =>
+    mapSupabaseRequestRow_(
+      row,
+      attendeeCountMap[String(row.request_id || "").trim()] || 0,
+      memoMap[String(row.request_id || "").trim()] || null,
+    ),
+  );
+}
+
+function getAllMemosFromSupabase() {
+  const memoRows = supabaseSelectAll_(
+    "memos",
+    "select=*&order=created_at_source.asc",
+    1000,
+  );
+  const requests = getAllRequestsFromSupabase();
+  const requestMap = requests.reduce((map, req) => {
+    map[req.id] = req;
+    return map;
+  }, {});
+
+  return memoRows.map((row) =>
+    mapSupabaseMemoRow_(row, requestMap[String(row.ref_number || "").trim()] || null),
+  );
+}
+
 // ==================================================================
 // === MAIN HANDLERS ===
 // ==================================================================
@@ -156,6 +349,9 @@ function doGet(e) {
       case "getAllRequests":
         data = getAllRequests();
         break;
+      case "getAllRequestsFromSupabase":
+        data = getAllRequestsFromSupabase();
+        break;
       case "getMaxRequestSeq":
         data = getMaxRequestSeq(
           params.year ? parseInt(params.year) : new Date().getFullYear() + 543,
@@ -163,6 +359,9 @@ function doGet(e) {
         break;
       case "getAllMemos":
         data = getAllMemos();
+        break;
+      case "getAllMemosFromSupabase":
+        data = getAllMemosFromSupabase();
         break;
       case "getAttendeesForRequest":
         data = getAttendeesForRequest(params.requestId);

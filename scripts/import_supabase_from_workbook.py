@@ -382,6 +382,46 @@ def build_request_counters(requests_rows: List[Dict[str, Any]]) -> List[Dict[str
     ]
 
 
+def split_orphan_attendees(
+    attendees_rows: List[Dict[str, Any]],
+    requests_rows: List[Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    request_ids = {
+        str(row.get("request_id") or "").strip()
+        for row in requests_rows
+        if str(row.get("request_id") or "").strip()
+    }
+    valid_rows: List[Dict[str, Any]] = []
+    orphan_rows: List[Dict[str, Any]] = []
+    for row in attendees_rows:
+        request_id = str(row.get("request_id") or "").strip()
+        if request_id and request_id in request_ids:
+            valid_rows.append(row)
+        else:
+            orphan_rows.append(row)
+    return valid_rows, orphan_rows
+
+
+def split_orphan_memos(
+    memo_rows: List[Dict[str, Any]],
+    requests_rows: List[Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    request_ids = {
+        str(row.get("request_id") or "").strip()
+        for row in requests_rows
+        if str(row.get("request_id") or "").strip()
+    }
+    valid_rows: List[Dict[str, Any]] = []
+    orphan_rows: List[Dict[str, Any]] = []
+    for row in memo_rows:
+        ref_number = str(row.get("ref_number") or "").strip()
+        if not ref_number or ref_number in request_ids:
+            valid_rows.append(row)
+        else:
+            orphan_rows.append(row)
+    return valid_rows, orphan_rows
+
+
 def postgrest_upsert(
     *,
     base_url: str,
@@ -441,6 +481,8 @@ def main() -> int:
     memos = map_memos(sheet_records(workbook_path, "Memos"))
     trash_requests = map_trash(sheet_records(workbook_path, "Trash"))
     request_counters = build_request_counters(requests)
+    attendees, orphan_attendees = split_orphan_attendees(attendees, requests)
+    memos, orphan_memos = split_orphan_memos(memos, requests)
 
     summary = {
         "app_users": len(users),
@@ -454,6 +496,20 @@ def main() -> int:
     print("สรุปจำนวนข้อมูลที่จะนำเข้า")
     for table, count in summary.items():
         print(f"- {table}: {count}")
+    if orphan_attendees:
+        grouped: Dict[str, int] = defaultdict(int)
+        for row in orphan_attendees:
+            grouped[str(row.get("request_id") or "ไม่มีเลขคำขอ")] += 1
+        print("คำเตือน: พบ attendees ที่ไม่มี request หลัก จึงข้ามไว้ก่อน")
+        for request_id, count in sorted(grouped.items()):
+            print(f"- ข้าม attendees ของ {request_id}: {count} แถว")
+    if orphan_memos:
+        grouped: Dict[str, int] = defaultdict(int)
+        for row in orphan_memos:
+            grouped[str(row.get("ref_number") or "ไม่มีเลขคำขอ")] += 1
+        print("คำเตือน: พบ memos ที่ไม่มี request หลัก จึงข้ามไว้ก่อน")
+        for request_id, count in sorted(grouped.items()):
+            print(f"- ข้าม memos ของ {request_id}: {count} แถว")
 
     if args.dry_run:
         print("โหมด dry-run: ยังไม่ได้อัปโหลดข้อมูลจริง")

@@ -12,7 +12,7 @@ $$;
 
 create table if not exists public.app_users (
   username text primary key,
-  login_name text unique,
+  login_name text,
   full_name text,
   position text,
   department text,
@@ -31,6 +31,8 @@ create trigger set_app_users_updated_at
 before update on public.app_users
 for each row
 execute function public.set_updated_at();
+
+create index if not exists idx_app_users_login_name on public.app_users(login_name);
 
 create table if not exists public.requests (
   request_id text primary key,
