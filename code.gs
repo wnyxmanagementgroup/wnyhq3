@@ -127,6 +127,50 @@ function testSupabaseConnection() {
   };
 }
 
+function testDraftRequestFlow(requestId) {
+  const safeRequestId = String(requestId || "").trim();
+  if (!safeRequestId) {
+    throw new Error("กรุณาระบุ requestId");
+  }
+
+  const draft = getDraftRequest({ requestId: safeRequestId });
+  if (!draft) {
+    return {
+      ok: false,
+      requestId: safeRequestId,
+      found: false,
+      message: "ไม่พบ draft หรือ request ที่ระบุ",
+    };
+  }
+
+  const attendees = Array.isArray(draft.attendees) ? draft.attendees : [];
+  const expenseItems = Array.isArray(draft.expenseItems) ? draft.expenseItems : [];
+
+  return {
+    ok: true,
+    requestId: safeRequestId,
+    found: true,
+    draftId: draft.draftId || "",
+    username: draft.username || "",
+    requesterName: draft.requesterName || "",
+    requesterPosition: draft.requesterPosition || "",
+    location: draft.location || "",
+    province: draft.province || "",
+    purpose: draft.purpose || "",
+    startDate: draft.startDate || "",
+    endDate: draft.endDate || "",
+    attendeeCount: attendees.length,
+    firstAttendee: attendees.length ? attendees[0] : null,
+    expenseItemCount: expenseItems.length,
+    totalExpense: draft.totalExpense || 0,
+    vehicleOption: draft.vehicleOption || "",
+    licensePlate: draft.licensePlate || "",
+    dispatchBookUrl: draft.dispatchBookUrl || "",
+    commandTemplateType: draft.commandTemplateType || "",
+    message: "ทดสอบ getDraftRequest สำเร็จ",
+  };
+}
+
 function supabaseSelectAll_(tableName, queryString, pageSize) {
   const size = pageSize || 1000;
   let from = 0;
@@ -391,6 +435,9 @@ function doGet(e) {
         break;
       case "testSupabaseConnection":
         data = testSupabaseConnection();
+        break;
+      case "testDraftRequestFlow":
+        data = testDraftRequestFlow(params.requestId);
         break;
 
       // ★★★ เพิ่มส่วนนี้ (สำหรับดึงไฟล์ PDF จาก Google Drive เป็น Base64) ★★★
