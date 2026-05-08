@@ -38,6 +38,95 @@ function writeJsonCache_(key, value, ttlSec) {
   return value;
 }
 
+function getSupabaseConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  const url = String(props.getProperty("SUPABASE_URL") || "").trim().replace(/\/+$/, "");
+  const serviceRoleKey = String(props.getProperty("SUPABASE_SERVICE_ROLE_KEY") || "").trim();
+
+  if (!url) {
+    throw new Error("ยังไม่ได้ตั้งค่า Script Property: SUPABASE_URL");
+  }
+  if (!serviceRoleKey) {
+    throw new Error("ยังไม่ได้ตั้งค่า Script Property: SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  return {
+    url: url,
+    serviceRoleKey: serviceRoleKey,
+  };
+}
+
+function supabaseFetch_(path, options) {
+  const cfg = getSupabaseConfig_();
+  const requestOptions = options || {};
+  const headers = Object.assign(
+    {
+      apikey: cfg.serviceRoleKey,
+      Authorization: "Bearer " + cfg.serviceRoleKey,
+      Accept: "application/json",
+    },
+    requestOptions.headers || {},
+  );
+
+  const fetchOptions = Object.assign(
+    {
+      method: "get",
+      muteHttpExceptions: true,
+      headers: headers,
+    },
+    requestOptions,
+  );
+
+  delete fetchOptions.headers;
+  fetchOptions.headers = headers;
+
+  const response = UrlFetchApp.fetch(cfg.url + path, fetchOptions);
+  const statusCode = response.getResponseCode();
+  const bodyText = response.getContentText();
+
+  let jsonBody = null;
+  if (bodyText) {
+    try {
+      jsonBody = JSON.parse(bodyText);
+    } catch (e) {}
+  }
+
+  return {
+    statusCode: statusCode,
+    bodyText: bodyText,
+    jsonBody: jsonBody,
+  };
+}
+
+function testSupabaseConnection() {
+  const cfg = getSupabaseConfig_();
+  const projectRefMatch = cfg.url.match(/^https:\/\/([a-z0-9-]+)\.supabase\.co$/i);
+  const projectRef = projectRefMatch ? projectRefMatch[1] : "";
+  const response = supabaseFetch_("/rest/v1/", {
+    method: "get",
+    headers: {
+      Accept: "application/openapi+json",
+    },
+  });
+
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(
+      "เชื่อมต่อ Supabase ไม่สำเร็จ (" +
+        response.statusCode +
+        "): " +
+        (response.bodyText || "Unknown error"),
+    );
+  }
+
+  return {
+    ok: true,
+    projectRef: projectRef,
+    supabaseUrl: cfg.url,
+    statusCode: response.statusCode,
+    message: "เชื่อมต่อ Supabase สำเร็จ",
+  };
+}
+
 // ==================================================================
 // === MAIN HANDLERS ===
 // ==================================================================
@@ -100,6 +189,9 @@ function doGet(e) {
         break;
       case "getPublicWeeklySnapshot":
         data = getPublicWeeklySnapshot();
+        break;
+      case "testSupabaseConnection":
+        data = testSupabaseConnection();
         break;
 
       // ★★★ เพิ่มส่วนนี้ (สำหรับดึงไฟล์ PDF จาก Google Drive เป็น Base64) ★★★
