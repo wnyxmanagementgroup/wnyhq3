@@ -1096,8 +1096,7 @@ function getDraftRequest(payload) {
     }
   }
 
-  const requestSheet = ss.getSheetByName("Requests");
-  const requestData = sheetToObject(requestSheet);
+  const requestData = getAllRequests();
   const originalRequest = requestData.find(
     (r) => String(r.id) === String(requestId),
   );
@@ -1316,10 +1315,12 @@ function getMaxRequestSeq(yearBE) {
   return { status: "success", maxSeq };
 }
 
-function getAttendeesForRequest(requestId) {
+function getAttendeesForRequestFromSheets_(requestId) {
   const attendeesSheet =
     SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Attendees");
+  if (!attendeesSheet) return [];
   const data = attendeesSheet.getDataRange().getValues();
+  if (!data || data.length < 2) return [];
   const headers = data[0];
   const idCol = findColumnIndex(headers, "RequestId");
   const nameCol = findColumnIndex(headers, "FullName");
@@ -1332,6 +1333,35 @@ function getAttendeesForRequest(requestId) {
       name: row[nameCol],
       position: row[posCol],
     }));
+}
+
+function getAttendeesForRequestFromSupabase(requestId) {
+  const safeRequestId = encodeURIComponent(String(requestId || "").trim());
+  if (!safeRequestId) return [];
+
+  const attendeeRows = supabaseSelectAll_(
+    "attendees",
+    "select=request_id,full_name,position&request_id=eq." +
+      safeRequestId +
+      "&order=id.asc",
+    1000,
+  );
+
+  return attendeeRows.map((row) => ({
+    name: row.full_name || "",
+    position: row.position || "",
+  }));
+}
+
+function getAttendeesForRequest(requestId) {
+  try {
+    return getAttendeesForRequestFromSupabase(requestId);
+  } catch (error) {
+    Logger.log(
+      "getAttendeesForRequest fallback to Sheets: " + (error && error.message ? error.message : error),
+    );
+    return getAttendeesForRequestFromSheets_(requestId);
+  }
 }
 
 function deleteRequest(payload) {
