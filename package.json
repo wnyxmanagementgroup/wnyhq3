@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "smoke-check": "node scripts/smoke-check.js"
+  },
+  "dependencies": {
+    "playwright": "^1.59.1"
+  }
+}

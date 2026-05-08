@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WNY App — ระบบขออนุญาตไปราชการ โรงเรียนวังน้ำเย็นวิทยาคม</title>
+<link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/1/15/Wny-logo.png">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./assets/pwa/apple-touch-icon.png">
+<meta name="theme-color" content="#e0f2fe">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="WNY App">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./css/pwa.css?v=2">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+:root {
+  --soft-pink: #fff1f7;
+  --soft-pink-strong: #f9a8d4;
+  --soft-blue: #e0f2fe;
+  --soft-blue-strong: #38bdf8;
+  --soft-blue-deep: #075985;
+  --soft-border: #bae6fd;
+}
+body {
+  font-family: 'Sarabun', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, var(--soft-pink) 0%, #f8fbff 46%, var(--soft-blue) 100%);
+  color: #1e293b;
+}
+
+/* ── PAGE WRAPPER ── */
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  position: relative;
+}
+.page::before,
+.page::after {
+  content: '';
+  position: fixed;
+  pointer-events: none;
+  z-index: 0;
+}
+.page::before {
+  inset: 0;
+  background:
+    linear-gradient(115deg, rgba(255,241,247,.72) 0%, rgba(255,255,255,0) 42%),
+    linear-gradient(245deg, rgba(224,242,254,.82) 0%, rgba(255,255,255,0) 48%);
+}
+.page::after {
+  inset: auto 0 0 0;
+  height: 34%;
+  background: linear-gradient(0deg, rgba(224,242,254,.58), rgba(255,255,255,0));
+}
+
+/* ── TOP BAR ── glass */
+.topbar {
+  position: relative; z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 32px;
+  /* glassmorphism — เหมือน style.css ของแอปหลัก */
+  background: rgba(255,255,255,.72);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-bottom: 1px solid rgba(186,230,253,.72);
+  box-shadow: 0 10px 24px rgba(14,165,233,.08);
+}
+.topbar-brand {
+  display: flex; align-items: center; gap: 12px;
+  text-decoration: none;
+}
+.topbar-brand img {
+  width: 44px; height: 44px;
+  object-fit: contain;
+  background: transparent;
+}
+.topbar-name { line-height: 1.25; }
+.topbar-name-th  { font-size: 14px; font-weight: 700; color: #1e293b; }
+.topbar-name-en  { font-size: 11px; color: #94a3b8; font-weight: 400; }
+.topbar-login {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 52%, #f9a8d4 100%);
+  color: var(--soft-blue-deep);
+  padding: 9px 20px; border-radius: 10px;
+  font-size: 13.5px; font-weight: 700;
+  text-decoration: none; font-family: inherit;
+  box-shadow: 0 8px 18px rgba(14,165,233,.18);
+  transition: opacity .2s, transform .15s;
+}
+.topbar-login:hover { opacity: .88; transform: translateY(-1px); }
+
+/* ── HERO CENTER ── */
+.hero {
+  flex: 1;
+  position: relative; z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px 40px;
+}
+.hero-logo {
+  width: 100px; height: 100px;
+  object-fit: contain;
+  margin-bottom: 20px;
+  filter: drop-shadow(0 8px 20px rgba(14,165,233,.14));
+}
+.hero-school {
+  font-size: 13px; font-weight: 500;
+  color: #64748b; letter-spacing: .04em;
+  margin-bottom: 8px;
+}
+.hero h1 {
+  font-size: clamp(24px, 5vw, 40px);
+  font-weight: 800; color: #1e293b;
+  line-height: 1.3; margin-bottom: 12px;
+}
+.hero-desc {
+  font-size: clamp(14px, 2vw, 16px);
+  color: #64748b;
+  max-width: 400px; margin: 0 auto 40px;
+}
+
+/* ── CARDS ── glassmorphism */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  max-width: 640px; width: 100%;
+  margin: 0 auto 40px;
+}
+.card {
+  /* glass — เหมือนกับ .stat-card ในแอปหลัก */
+  background: rgba(255,255,255,.6);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255,255,255,.75);
+  box-shadow: 0 16px 34px rgba(14,165,233,.08), 0 1px 4px rgba(0,0,0,.04);
+  border-radius: 20px;
+  padding: 28px 24px 22px;
+  text-decoration: none; color: #1e293b;
+  transition: transform .25s, box-shadow .25s, border-color .25s;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 22px 48px rgba(14,165,233,.13), 0 2px 8px rgba(0,0,0,.05);
+  border-color: rgba(186,230,253,.95);
+}
+.card-emoji { font-size: 36px; line-height: 1; margin-bottom: 4px; }
+.card-title  { font-size: 16px; font-weight: 700; color: #1e293b; line-height: 1.3; }
+.card-desc   { font-size: 13px; color: #64748b; line-height: 1.65; flex: 1; }
+.card-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: #dcfce7; color: #15803d;
+  border-radius: 99px; padding: 3px 10px;
+  font-size: 11px; font-weight: 700; width: fit-content;
+}
+.card-tag-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.card-go {
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(241,245,249,.8);
+  border: 1px solid rgba(226,232,240,.6);
+  border-radius: 10px; padding: 10px 14px;
+  font-size: 13.5px; font-weight: 600; color: #334155;
+  margin-top: 4px; transition: background .2s;
+}
+.card:hover .card-go { background: rgba(226,232,240,.9); }
+.card.card-main .card-go {
+  background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 52%, #f9a8d4 100%);
+  border-color: transparent; color: var(--soft-blue-deep);
+  box-shadow: 0 8px 18px rgba(14,165,233,.18);
+}
+.card.card-main:hover .card-go { opacity: .9; }
+
+/* ── INFO ROW ── */
+.info-row {
+  display: flex; justify-content: center;
+  gap: 28px; flex-wrap: wrap;
+  margin-bottom: 40px; padding: 0 24px;
+}
+.info-item {
+  display: flex; align-items: center; gap: 7px;
+  /* glass pill */
+  background: rgba(255,255,255,.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,.7);
+  border-radius: 99px; padding: 7px 16px;
+  font-size: 13px; color: #475569;
+  box-shadow: 0 2px 8px rgba(14,165,233,.07);
+}
+.info-icon { font-size: 15px; }
+
+/* ── FOOTER ── glass */
+footer {
+  position: relative; z-index: 1;
+  background: rgba(255,255,255,.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(255,255,255,.6);
+  padding: 16px 32px;
+  display: flex; align-items: center;
+  justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+}
+.footer-left { display: flex; align-items: center; gap: 10px; }
+.footer-left img { width: 26px; height: 26px; object-fit: contain; opacity: .7; }
+.footer-left span { font-size: 12px; color: #64748b; font-weight: 500; }
+.footer-right { font-size: 12px; color: #94a3b8; }
+
+/* ── CREDIT ── */
+.credit {
+  text-align: center;
+  line-height: 1.9;
+  color: #94a3b8;
+  font-size: 12.5px;
+}
+.credit p:first-child { color: #64748b; font-weight: 500; }
+
+/* ── MOBILE ── */
+@media (max-width: 520px) {
+  .topbar { padding: 12px 18px; }
+  .cards { grid-template-columns: 1fr; max-width: 360px; }
+  .info-row { gap: 10px; }
+  footer { justify-content: center; text-align: center; }
+  .footer-left { justify-content: center; }
+}
+</style>
+</head>
+<body>
+
+<!-- Token redirect -->
+<script>
+(function(){
+  var sp = new URLSearchParams(window.location.search);
+  if (sp.has('sign')) { window.location.replace('./app/?' + sp.toString()); }
+})();
+</script>
+
+<div class="page">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <a href="#" class="topbar-brand">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/1/15/Wny-logo.png" alt="WNY Logo">
+      <div class="topbar-name">
+        <div class="topbar-name-th">โรงเรียนวังน้ำเย็นวิทยาคม</div>
+        <div class="topbar-name-en">Wangnamyen Wittayakhom School</div>
+      </div>
+    </a>
+    <a href="./app/" class="topbar-login">
+      เข้าสู่ระบบ →
+    </a>
+  </div>
+
+  <!-- HERO -->
+  <div class="hero">
+
+    <img
+      src="https://upload.wikimedia.org/wikipedia/commons/1/15/Wny-logo.png"
+      alt="โลโก้โรงเรียนวังน้ำเย็นวิทยาคม"
+      class="hero-logo"
+    >
+
+    <div class="hero-school">โรงเรียนวังน้ำเย็นวิทยาคม · สระแก้ว</div>
+    <h1>ระบบไปราชการออนไลน์<br></h1>
+    <p class="hero-desc">เว็บไซต์เดียวสำหรับยื่นคำขอไปราชการและค้นหาคลังข้อมูลย้อนหลัง<br>เลือกเข้าใช้งานได้ 2 ทางตามบทบาทของผู้ใช้งาน</p>
+
+    <!-- CARDS -->
+    <div class="cards">
+
+      <!-- ระบบไปราชการ (หลัก) -->
+      <a href="./app/" class="card card-main">
+        <div class="card-emoji">✈️</div>
+        <div class="card-tag"><span class="card-tag-dot"></span> ทางเข้าภายในระบบ</div>
+        <div class="card-title">ระบบไปราชการ</div>
+        <div class="card-desc">สำหรับบุคลากรที่ต้องเข้าสู่ระบบ<br>เพื่อยื่นคำขอ ติดตามสถานะ และจัดการเอกสาร</div>
+        <div class="card-go">
+          <span>เข้าสู่ระบบ</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+      </a>
+
+      <!-- คลังข้อมูล -->
+      <a href="./archive/" class="card">
+        <div class="card-emoji">📚</div>
+        <div class="card-tag"><span class="card-tag-dot"></span> ทางเข้าคลังข้อมูล</div>
+        <div class="card-title">คลังข้อมูลย้อนหลัง</div>
+        <div class="card-desc">สำหรับค้นหาและเปิดเอกสารย้อนหลัง<br>เข้าใช้งานได้ทันทีโดยไม่ต้อง Login</div>
+        <div class="card-go">
+          <span>เปิดคลัง</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+      </a>
+
+    </div>
+
+    <!-- INFO ROW -->
+    <div class="info-row">
+      <div class="info-item">
+        <span class="info-icon">🔒</span>
+        <span>ปลอดภัย · Login ด้วย Firebase</span>
+      </div>
+      <div class="info-item">
+        <span class="info-icon">📄</span>
+        <span>สร้าง PDF อัตโนมัติ</span>
+      </div>
+      <div class="info-item">
+        <span class="info-icon">📱</span>
+        <span>ใช้ได้ทุกอุปกรณ์</span>
+      </div>
+    </div>
+
+    <!-- เครดิต -->
+    <div class="credit">
+      <p>จัดทำโดยกลุ่มบริหารงานบุคคล โรงเรียนวังน้ำเย็นวิทยาคม</p>
+      <p>พัฒนาระบบโดย ครูกีรติ ประสพพรรังสี</p>
+    </div>
+
+  </div><!-- /hero -->
+
+  
+
+</div><!-- /page -->
+
+<script>
+const yearEl = document.getElementById('yr');
+if (yearEl) yearEl.textContent = new Date().getFullYear() + 543;
+</script>
+<script src="./js/pwa.js?v=2"></script>
+</body>
+</html>

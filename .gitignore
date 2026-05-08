@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment / local-only config
+.env
+.env.*
+
+# Playwright artifacts
+playwright-report/
+test-results/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+_not_for_github/
+
+# Editor / IDE
+.vscode/
+.idea/

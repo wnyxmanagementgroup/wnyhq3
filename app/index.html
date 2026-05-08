@@ -1,0 +1,2493 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WNY App ไปราชการ</title>
+    <link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/1/15/Wny-logo.png">
+    <link rel="manifest" href="../manifest.webmanifest">
+    <link rel="apple-touch-icon" href="../assets/pwa/apple-touch-icon.png">
+    <meta name="theme-color" content="#e0f2fe">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="WNY App">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="../css/style.css?v=6">
+    <link rel="stylesheet" href="../css/pwa.css?v=2">
+</head>
+<body class="p-4 sm:p-8 min-h-screen bg-gradient-to-br from-pink-100 to-blue-200 antialiased">
+
+    <!-- Saving Overlay — แสดงตลอดขณะ save ป้องกันปิดหน้า -->
+    <div id="saving-overlay" class="hidden fixed inset-0 z-[9999] flex items-center justify-center" style="background:rgba(0,0,0,0.55);backdrop-filter:blur(3px)">
+        <div class="bg-white rounded-2xl px-10 py-8 flex flex-col items-center gap-4 shadow-2xl max-w-xs w-full mx-4">
+            <div class="relative w-14 h-14">
+                <div class="absolute inset-0 rounded-full border-4 border-indigo-100"></div>
+                <div class="absolute inset-0 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin"></div>
+            </div>
+            <p id="saving-overlay-message" class="text-base font-semibold text-gray-700 text-center">กำลังบันทึกข้อมูล...</p>
+            <p class="text-xs text-gray-400 text-center">กรุณาอย่าปิดหน้าต่างนี้จนกว่าจะเสร็จสิ้น</p>
+	        </div>
+	    </div>
+
+    <div id="app" class="max-w-6xl mx-auto">
+        <div id="login-screen" class="max-w-6xl mx-auto mt-10 pb-20">
+            
+            <div class="max-w-md mx-auto mb-12">
+                <div class="p-8 rounded-2xl shadow-2xl main-container transform hover:scale-105 transition duration-300">
+                    <div class="text-center mb-6">
+                        <img src="https://img2.pic.in.th/pic/WNY-App-.png" alt="Logo" class="mx-auto h-28 mb-4 drop-shadow-md">
+                    </div>
+	                    <form id="login-form">
+                        <div class="mb-4">
+                            <label for="username" class="form-label text-gray-700">ชื่อผู้ใช้ (Username)</label>
+                            <input type="text" id="username" class="form-input" placeholder="ระบุชื่อผู้ใช้" required>
+                        </div>
+                        <div class="mb-6">
+                            <label for="password" class="form-label text-gray-700">รหัสผ่าน (Password)</label>
+                            <input type="password" id="password" class="form-input" placeholder="ระบุรหัสผ่าน" required>
+                        </div>
+                        <button type="submit" id="login-button" class="btn btn-primary w-full text-lg shadow-lg">
+                            <div id="login-loader" class="loader hidden"></div>
+                            <span id="login-button-text">เข้าสู่ระบบ</span>
+                        </button>
+	                        <p id="login-error" class="text-red-500 text-center mt-4 hidden bg-red-50 p-2 rounded"></p>
+	                    </form>
+	                    <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+	                        <a href="../archive/" class="btn btn-secondary text-center">
+	                            เปิดคลังข้อมูลย้อนหลัง
+	                        </a>
+	                        <a href="../" class="btn btn-secondary text-center">
+	                            กลับหน้าหลักเว็บไซต์
+	                        </a>
+	                    </div>
+	                    <p class="text-center mt-4">
+	                        <button type="button" id="show-forgot-password-modal" class="font-semibold text-indigo-600 hover:text-indigo-500 text-sm">Usernameใช้แบบเดียวกับระบบ School-mis</button>
+	                    </p>
+                </div>
+            </div>
+            <div id="reminder-modal" class="modal" style="display: none; z-index: 100;">
+    <div class="modal-content animate-bounce-in max-w-md mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div class="bg-gradient-to-r from-indigo-600 to-blue-500 p-4 text-center">
+            <div class="mx-auto bg-white w-16 h-16 rounded-full flex items-center justify-center mb-2 shadow-lg">
+                <span class="text-3xl">📢</span>
+            </div>
+            <h3 class="text-xl font-bold text-white">แจ้งเตือนสำคัญ</h3>
+        </div>
+        
+        <div class="p-6 text-center">
+            <h4 class="text-lg font-bold text-gray-800 mb-2">อย่าลืมส่งบันทึกข้อความ!</h4>
+            <p class="text-gray-600 mb-4 text-sm">
+                เมื่อท่านสร้างรายการในระบบแล้ว<br>
+                กรุณา <span class="text-red-500 font-bold underline">ปริ้นเอกสาร</span> และส่งงานสารบรรณ<br>
+                หรืออัปโหลดไฟล์ที่ลงนามแล้วเข้าระบบทุกครั้ง
+            </p>
+            
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800 mb-4">
+                "การส่งเอกสารเข้าระบบ ช่วยให้การออกคำสั่งรวดเร็วยิ่งขึ้น"
+            </div>
+
+            <button id="close-reminder-modal" class="btn btn-primary w-full py-3 text-lg shadow-lg transform transition hover:scale-105">
+                รับทราบ / เข้าใช้งานระบบ
+            </button>
+        </div>
+    </div>
+</div>
+            <div class="w-full mb-10">
+                <div class="p-6 rounded-2xl shadow-xl main-container bg-white/80 backdrop-blur-sm border border-white/50">
+                    <div class="flex flex-wrap justify-between items-end mb-4 border-b pb-4 border-gray-200 gap-4">
+                        <div>
+                            <h2 class="text-xl font-bold text-blue-800 flex items-center gap-2">
+                                <span class="bg-blue-100 p-2 rounded-lg">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                </span>
+                                รายการไปราชการประจำสัปดาห์
+                            </h2>
+                            <p class="text-sm text-gray-500 mt-2 ml-1">
+                                <span class="text-green-600 font-bold">ℹ️ หมายเหตุ:</span> 
+                                หากคำสั่งอนุมัติเรียบร้อยแล้ว จะมีปุ่ม <span class="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded border border-green-200">📄 ดูคำสั่ง</span> ปรากฏขึ้น
+                            </p>
+                        </div>
+                        <span class="text-sm font-medium text-indigo-600 bg-indigo-50 px-4 py-2 rounded-full shadow-inner border border-indigo-100" id="current-week-display">
+                            Loading...
+                        </span>
+                    </div>
+                    
+                    <div class="overflow-x-auto rounded-lg border border-gray-200">
+                        <table class="w-full text-sm text-left">
+                            <thead class="text-sm text-gray-700 uppercase bg-gradient-to-r from-blue-50 to-indigo-50 border-b">
+                                <tr>
+                                    <th scope="col" class="px-6 py-4 font-bold">วัน-เวลา</th>
+                                    <th scope="col" class="px-6 py-4 font-bold">ชื่อผู้ขอ</th>
+                                    <th scope="col" class="px-6 py-4 font-bold">เรื่อง / สถานที่</th>
+                                    <th scope="col" class="px-6 py-4 font-bold text-center">ไฟล์คำสั่ง</th>
+                                </tr>
+                            </thead>
+                            <tbody id="public-weekly-list" class="bg-white divide-y divide-gray-100">
+                                <tr>
+                                    <td colspan="4" class="text-center py-10">
+                                        <div class="loader mx-auto mb-3"></div>
+                                        <span class="text-gray-500">กำลังโหลดข้อมูล...</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="info-section">
+                    <h3 class="text-lg font-bold text-sky-700 mb-4">1. การขออนุญาตไปราชการ (เบิกค่าใช้จ่าย)</h3>
+                    <p class="font-medium mb-2">เอกสารที่ต้องเตรียม:</p>
+                    <ul class="list-disc pl-5 mb-2">
+                        <li>ร่างบันทึกข้อความ และกดส่งร่างข้อความในระบบ</li> 
+                        <p class="font-medium mb-2">(ปริ้นส่ง 1 ชุด)</p>
+                        <li>หนังสือราชการต้นเรื่อง</li>
+                        <li>บันทึกขออนุญาตวิชาการ (กรณีที่มีนักเรียนไปด้วย)</li>
+                    </ul>
+                    <div class="info-note">
+                        <p class="font-medium">กรณีที่นำนักเรียนไปพักค้างคืนส่งเอกสารเพิ่มเติม:</p> 
+                         <span class="font-bold">ปริ้นส่ง 1 ชุด</span>
+                        <ul class="list-disc pl-5 mt-1">
+                            <li>หนังสือกำหนดการการเดินทาง</li>
+                            <li>หนังสือขออนุญาตผู้ปกครอง</li>
+                            <li>แผนที่การเดินทาง (Google map)</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="info-section">
+                    <h3 class="text-lg font-bold text-sky-700 mb-4">2. การขออนุญาตไปราชการ (ไม่เบิกค่าใช้จ่าย)</h3>
+                    <p class="font-medium mb-2">เอกสารที่ต้องเตรียม:</p>
+                    <ul class="list-disc pl-5 mb-2">
+                        <li>ร่างบันทึกข้อความ กดส่งร่างข้อความในระบบ (อัพโหลดไฟล์ที่เซ็นเสร็จแล้ว)</li>
+                        <li>หนังสือราชการต้นเรื่อง</li>
+                        <li>บันทึกขออนุญาตวิชาการ (กรณีที่มีนักเรียนไปด้วย)</li>
+                    </ul>
+                    <div class="info-note">
+                        <p class="font-medium">กรณีที่นำนักเรียนไปพักค้างคืนส่งเอกสารเพิ่มเติม:</p> 
+                        <span class="font-bold">ปริ้นส่ง 1 ชุด</span>
+                        <ul class="list-disc pl-5 mt-1">
+                            <li>หนังสือกำหนดการการเดินทาง</li>
+                            <li>หนังสือขออนุญาตผู้ปกครอง</li>
+                            <li>แผนที่การเดินทาง (Google map)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+        
+        </div>
+
+        <div id="main-app" class="hidden">
+
+        <!-- ===== SIDEBAR ===== -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-brand">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/1/15/Wny-logo.png" alt="Logo" class="sidebar-logo">
+                <span class="sidebar-brand-text">WNY ไปราชการ</span>
+            </div>
+
+            <nav id="navigation" class="sidebar-nav">
+                <button data-target="dashboard-page" id="user-nav-dashboard" class="nav-button active">
+                    <span class="nav-icon">🏠</span>
+                    <span class="nav-label">แดชบอร์ด</span>
+                    <span id="user-completed-badge" class="nav-badge nav-badge--success hidden">0</span>
+                </button>
+
+                <button data-target="form-page" id="user-nav-form" class="nav-button">
+                    <span class="nav-icon">✏️</span>
+                    <span class="nav-label">ร่างคำขอไปราชการ</span>
+                </button>
+
+                <button onclick="switchPage('approval-page')" data-target="approval-page" id="nav-approval-inbox" class="nav-button" style="display: none;">
+                    <span class="nav-icon">📥</span>
+                    <span class="nav-label">เอกสารรอลงนาม</span>
+                    <span id="approval-badge" class="nav-badge hidden">0</span>
+                </button>
+
+                <button data-target="send-memo-page" id="nav-send-memo" class="nav-button">
+                    <span class="nav-icon">📤</span>
+                    <span class="nav-label">ส่งบันทึกข้อความ</span>
+                    <span id="send-memo-badge" class="nav-badge hidden">0</span>
+                </button>
+
+                <button data-target="stats-page" id="nav-stats" class="nav-button">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-label">สถิติข้อมูล</span>
+                </button>
+
+                <button data-target="profile-page" id="nav-profile" class="nav-button">
+                    <span class="nav-icon">👤</span>
+                    <span class="nav-label">ข้อมูลส่วนตัว</span>
+                </button>
+
+                <button data-target="edit-page" id="nav-edit" class="nav-button hidden">
+                    <span class="nav-icon">🔧</span>
+                    <span class="nav-label">แก้ไขคำขอ</span>
+                </button>
+
+                <div id="admin-section-label" class="sidebar-section-label hidden">ผู้ดูแลระบบ</div>
+
+                <button data-target="command-generation-page" id="admin-nav-command" class="nav-button hidden">
+                    <span class="nav-icon">📋</span>
+                    <span class="nav-label">จัดการบันทึก/คำสั่ง</span>
+                    <span id="admin-command-badge" class="nav-badge hidden">0</span>
+                </button>
+
+                <button id="admin-nav-users" data-target="admin-users-page" class="nav-button hidden">
+                    <span class="nav-icon">👥</span>
+                    <span class="nav-label">จัดการผู้ใช้</span>
+                </button>
+
+                <button id="admin-nav-approval-links" data-target="admin-approval-links-page"
+                    onclick="loadApprovalLinkManagement()"
+                    class="nav-button hidden">
+                    <span class="nav-icon">🔗</span>
+                    <span class="nav-label">จัดการลิงก์ลงนาม</span>
+                </button>
+
+                <button id="admin-nav-system-settings" data-target="admin-system-settings-page" class="nav-button hidden">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-label">ตั้งค่าระบบ</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-user">
+                    <div class="sidebar-avatar">👤</div>
+                    <div class="sidebar-user-info">
+                        <p id="user-fullname-sidebar" class="sidebar-username">...</p>
+                        <p id="user-position-sidebar" class="sidebar-position">...</p>
+                    </div>
+                </div>
+            </div>
+
+            <button id="sidebar-toggle-btn" class="sidebar-toggle-btn" onclick="toggleSidebar()">◀</button>
+        </aside>
+
+        <!-- ===== MAIN WRAPPER ===== -->
+        <div id="main-wrapper" class="main-wrapper">
+            <header class="topbar">
+                <button onclick="toggleSidebar()" class="hamburger-btn">☰</button>
+                <h1 id="page-title" class="topbar-title">แดชบอร์ด</h1>
+                <div class="topbar-right">
+                    <span id="user-fullname" class="topbar-username">...</span>
+                    <button id="logout-button" class="btn-logout">ออกจากระบบ</button>
+                </div>
+            </header>
+            <main id="page-content" class="page-content-area">
+               <div id="dashboard-page" class="page-view hidden">
+
+    <h2 class="text-2xl font-bold mb-4">รายการคำขอไปราชการของฉัน</h2>
+
+    <div class="flex flex-col sm:flex-row gap-2 mb-4">
+        <select id="user-year-select" class="form-input sm:w-1/3 cursor-pointer bg-blue-50 border-blue-200 text-blue-800 font-bold"></select>
+        <input type="text" id="search-requests" class="form-input w-full" placeholder="🔍 ค้นหา (เลขที่ / เรื่อง / สถานที่)...">
+    </div>
+
+    <div id="requests-loader" class="hidden text-center py-8">
+        <div class="loader mx-auto mb-2"></div>
+        <p class="text-gray-500">กำลังโหลดข้อมูล...</p>
+    </div>
+
+    <div id="no-requests-message" class="hidden text-center py-8 text-gray-500 bg-gray-50 rounded-lg border border-gray-200 mt-4">
+        <p>ยังไม่มีข้อมูลคำขอไปราชการในปีงบประมาณนี้</p>
+    </div>
+
+    <div id="requests-table-wrapper" class="table-wrapper hidden">
+        <table class="data-table">
+            <thead class="bg-blue-50">
+                <tr>
+                    <th class="text-blue-700">เลขที่คำขอ</th>
+                    <th class="text-blue-700">เรื่อง / วัตถุประสงค์</th>
+                    <th class="text-blue-700">สถานที่</th>
+                    <th class="text-blue-700">วันที่เดินทาง</th>
+                    <th class="text-blue-700">สถานะ</th>
+                    <th class="text-blue-700 text-center">ไฟล์ / ดำเนินการ</th>
+                </tr>
+            </thead>
+            <tbody id="user-requests-list"></tbody>
+        </table>
+    </div>
+
+</div>
+<div id="approval-page" class="page-view hidden fade-in">
+    <div class="flex justify-between items-end mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-800 tracking-tight">📥 เอกสารรอการลงนาม</h1>
+            <p class="text-gray-500 text-sm mt-1">รายการเอกสารที่รอให้คุณตรวจสอบและประทับลายเซ็น</p>
+        </div>
+        <button onclick="loadPendingApprovals()" class="btn bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 shadow-sm flex items-center gap-2">
+            <span>🔄</span> รีเฟรชข้อมูล
+        </button>
+    </div>
+
+    <div id="approval-list-container">
+        <div class="flex flex-col items-center justify-center py-12">
+            <div class="loader mb-4"></div>
+            <p class="text-gray-500">กำลังตรวจสอบเอกสารรอลงนาม...</p>
+        </div>
+    </div>
+</div>
+                <div id="form-page" class="page-view hidden">
+                     <form id="request-form">
+                          <input type="hidden" id="form-request-id">
+                            <fieldset class="border p-4 rounded-lg mb-6"><legend>ข้อมูลทั่วไป</legend>
+                                <div><label for="form-doc-date" class="form-label">วันที่</label><input type="date" id="form-doc-date" class="form-input" required></div>
+                          </fieldset>
+                         <fieldset class="border p-4 rounded-lg mb-6"><legend>1. รายละเอียดการไปราชการ</legend>
+                               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                   <div><label for="form-requester-name" class="form-label">ชื่อ-นามสกุลผู้ขอ</label><input type="text" id="form-requester-name" class="form-input" required></div>
+                                   <div><label for="form-requester-position" class="form-label">ตำแหน่ง</label><input type="text" id="form-requester-position" class="form-input" required></div>
+                              </div>
+                             <div class="mt-4"><label for="form-location" class="form-label">ขออนุญาตไปราชการ ณ สถานที่</label><input type="text" id="form-location" class="form-input" required></div>
+                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    <div>
+   <div class="mt-4">
+    <label for="form-province" class="form-label">จังหวัด</label>
+    <select id="form-province" class="form-input">
+        </select>
+    <input type="text" id="form-province-other" class="form-input mt-2 hidden" placeholder="ระบุชื่อจังหวัด">
+</div>
+
+<div id="form-stay-container" class="hidden mt-4 bg-yellow-50 p-4 border border-yellow-200 rounded-lg">
+    <label class="form-label font-bold text-yellow-800">🏠 สถานที่พักค้างคืน (สำหรับการเดินทาง 2 วันขึ้นไป นอก จ.สระแก้ว) ถ้าพานักเรียนไปแบบไม่ได้ค้างคืนใส่ (-)</label>
+    <input type="text" id="form-stay-at" class="form-input" placeholder="ระบุชื่อโรงแรม/รีสอร์ท">
+</div>
+<div id="form-dispatch-vehicle-container" class="hidden mt-4 bg-blue-50 p-4 border border-blue-200 rounded-lg transition-all duration-300">
+    <h4 class="text-sm font-bold text-blue-800 mb-3 flex items-center gap-2">
+        <span>🚍</span> ข้อมูลยานพาหนะ (สำหรับออกหนังสือส่ง)
+    </h4>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label class="form-label text-blue-700">ประเภทรถ (ระบุเอง)</label>
+            <input type="text" id="form-dispatch-vehicle-type" class="form-input" placeholder="เช่น รถบัสปรับอากาศ / รถตู้">
+        </div>
+        <div>
+            <label class="form-label text-blue-700">หมายเลขทะเบียน</label>
+            <input type="text" id="form-dispatch-vehicle-id" class="form-input" placeholder="เช่น 30-1234 กทม.">
+        </div>
+    </div>
+    <p class="text-xs text-blue-600 mt-2">* กรุณาระบุให้ชัดเจนเพื่อใช้ในการออกหนังสือส่งภายนอก</p>
+</div>
+</div>
+</div>
+ <div class="mt-4"><label for="form-purpose" class="form-label">เพื่อ</label><textarea id="form-purpose" rows="2" class="form-input" required></textarea></div>
+	                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+	                                   <div><label for="form-start-date" class="form-label">ตั้งแต่วันที่</label><input type="date" id="form-start-date" class="form-input" required></div><div><label>เวลาไป (น.)</label><input type="time" id="form-start-time" class="form-input" value="06:00"></div>
+	                                   <div><label for="form-end-date" class="form-label">ถึงวันที่</label><input type="date" id="form-end-date" class="form-input" required></div><div><label>เวลากลับ (น.)</label><input type="time" id="form-end-time" class="form-input" value="18:00"></div>
+	                              </div>
+                                  <div id="form-travel-schedule-section" class="hidden mt-5 bg-emerald-50 p-4 border border-emerald-200 rounded-lg">
+                                      <h4 class="text-sm font-bold text-emerald-800 mb-3">📅 กำหนดการเดินทางพานักเรียน</h4>
+                                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          <div>
+                                              <label for="form-ts-requester-tel" class="form-label text-emerald-700">เบอร์โทรครูผู้ควบคุม</label>
+                                              <input type="text" id="form-ts-requester-tel" class="form-input" placeholder="0xx-xxx-xxxx">
+                                          </div>
+                                          <div>
+                                              <label for="form-ts-driver-name" class="form-label text-emerald-700">ชื่อพนักงานขับรถ</label>
+                                              <input type="text" id="form-ts-driver-name" class="form-input" placeholder="ชื่อ-นามสกุล">
+                                          </div>
+                                      </div>
+                                      <div class="mt-4">
+                                          <div class="text-sm font-semibold text-gray-700 mb-2">กำหนดการเดินทาง (แต่ละวัน)</div>
+                                          <div id="form-ts-itinerary-rows" class="space-y-3"></div>
+                                      </div>
+                                  </div>
+	                         </fieldset>
+                            <fieldset class="border p-4 rounded-lg mb-6"><legend>ผู้ร่วมเดินทาง (ถ้ามี)</legend>
+                                <div id="form-attendees-list"></div>
+                                <div class="flex flex-wrap gap-2 mt-4">
+                                    <button type="button" id="form-add-attendee" class="btn btn-success w-full sm:w-auto"><span>+ เพิ่มผู้ร่วมเดินทาง</span></button>
+                                    <button type="button" id="form-import-excel" class="btn btn-primary w-full sm:w-auto">
+                                        <div id="import-excel-loader" class="loader hidden"></div>
+                                        <span>นำเข้าจาก Excel</span>
+                                    </button>
+                                    <button type="button" id="form-download-template" class="btn bg-gray-500 text-white hover:bg-gray-600 w-full sm:w-auto"><span>ดาวน์โหลดแม่แบบ</span></button>
+                                    <input type="file" id="excel-file-input" class="hidden" accept=".xlsx, .xls">
+                                </div>
+                          <fieldset class="border p-4 rounded-lg mb-6">
+    <legend>2. การเบิกค่าใช้จ่าย</legend>
+    <div class="space-y-3">
+        <div>
+            <input type="radio" id="expense_no" name="expense_option" value="no" checked class="h-4 w-4">
+            <label for="expense_no" class="ml-2">ไม่ขอเบิกค่าใช้จ่าย</label>
+        </div>
+        <div>
+            <input type="radio" id="expense_partial" name="expense_option" value="partial" class="h-4 w-4">
+            <label for="expense_partial" class="ml-2">ขอเบิกเฉพาะค่าใช้จ่าย</label>
+        </div>
+    </div>
+
+    <div id="partial-expense-options" class="pl-6 mt-3 hidden space-y-2">
+        <label class="block"><input type="checkbox" name="expense_item" value="ค่าเบี้ยเลี้ยง" data-item-name="ค่าเบี้ยเลี้ยง" class="rounded"> ค่าเบี้ยเลี้ยง</label>
+        <label class="block"><input type="checkbox" name="expense_item" value="ค่าอาหาร" data-item-name="ค่าอาหาร" class="rounded"> ค่าอาหาร</label>
+        <label class="block"><input type="checkbox" name="expense_item" value="ค่าที่พัก" data-item-name="ค่าที่พัก" class="rounded"> ค่าที่พัก</label>
+        <label class="block"><input type="checkbox" name="expense_item" value="ค่าพาหนะ" data-item-name="ค่าพาหนะ" class="rounded"> ค่าพาหนะ</label>
+        <label class="block"><input type="checkbox" name="expense_item" value="ค่าน้ำมัน" data-item-name="ค่าน้ำมัน" class="rounded"> ค่าน้ำมัน</label>
+        <div class="flex items-center gap-2">
+            <label><input type="checkbox" name="expense_item" id="expense_other_check" data-item-name="ค่าใช้จ่ายอื่นๆ" class="rounded"> ค่าใช้จ่ายอื่นๆ</label>
+            <input type="text" id="expense_other_text" class="form-input text-sm p-1 flex-grow" placeholder="ระบุ">
+        </div>
+    </div>
+
+    <div id="total-expense-container" class="mt-4 hidden">
+        <label for="form-total-expense" class="form-label">รวมเป็นจำนวนเงิน (บาท)</label>
+        <input type="number" id="form-total-expense" class="form-input w-full md:w-1/2" placeholder="0.00" step="0.01">
+    </div>
+</fieldset>
+                            <fieldset class="border p-4 rounded-lg mb-6">
+                                    <legend>3. การเดินทาง</legend><div class="space-y-2">
+                                    <label class="block">
+                                    <input type="checkbox" name="vehicle_option" value="gov" class="rounded">รถยนต์ราชการ (รถโรงเรียน)</label>
+                                    <label class="block">
+                                    <input type="checkbox" name="vehicle_option" value="private" class="rounded">รถยนต์ส่วนตัว</label>
+                                    <div id="private-vehicle-details" class="pl-6 mt-2 hidden">
+                                    <label for="form-license-plate" class="form-label">หมายเลขทะเบียน</label>
+                                    <input type="text" id="form-license-plate" class="form-input w-full md:w-1/2"></div>
+                                    <label class="block"><input type="checkbox" name="vehicle_option" value="public" class="rounded">พาหนะอื่นๆ</label>
+                                    <div id="public-vehicle-details" class="pl-6 mt-2 hidden">
+            <label for="public-vehicle-details-input" class="form-label">ระบุพาหนะอื่นๆ</label>
+            <input type="text" id="public-vehicle-details-input" class="form-input w-full md:w-1/2">
+        </div>
+                         </fieldset>
+                          <fieldset id="signer-fieldset" class="border p-4 rounded-lg mb-6"><legend>5. ข้อมูลผู้ลงนาม</legend>
+                                <div class="mb-4">
+                                    <label for="form-department" class="form-label">กลุ่มสาระฯ / งาน</label>
+                                    <select id="form-department" class="form-input" required>
+                                        <option value="">-- เลือกกลุ่มสาระ/งาน --</option>
+                                    </select>
+                                </div>
+                                <div><label for="form-head-name" class="form-label">ชื่อหัวหน้ากลุ่มสาระ / หัวหน้างาน</label><input type="text" id="form-head-name" class="form-input bg-gray-200" readonly></div>
+                                <div class="mt-5 border-t border-gray-200 pt-4">
+                                    <label class="form-label font-bold text-gray-700 flex items-center gap-2">
+                                        <span>✍️</span> ลงลายมือชื่อผู้ขอ (ไม่บังคับ)
+                                    </label>
+                                    <p class="text-xs text-gray-500 mb-2">เซ็นชื่อในกรอบด้านล่าง ระบบจะนำไปประทับบนเอกสารให้อัตโนมัติ</p>
+                                    <div class="signature-pad-shell">
+                                        <div class="signature-pad-frame">
+                                            <canvas id="form-sig-canvas"></canvas>
+                                        </div>
+                                    </div>
+                                    <button type="button" id="form-sig-clear-btn" class="mt-2 text-xs text-gray-500 hover:text-red-500 underline">ล้างลายเซ็น</button>
+                                </div>
+                         </fieldset>
+                         <div class="text-center mt-10 border-t pt-6 border-gray-200">
+                              <button type="submit" id="submit-request-button" class="btn btn-primary w-full sm:w-auto text-lg">
+                                <div id="submit-loader" class="loader hidden"></div>
+                                <span id="submit-button-text">บันทึกและสร้างเอกสาร</span>
+                             </button>
+                         </div>
+                    </form>
+                      <div id="form-result" class="hidden mt-6 p-6 bg-gray-50 rounded-xl border border-gray-200 shadow-inner">
+    <div class="text-center">
+        <div class="text-5xl mb-2">🎉</div>
+        <h3 id="form-result-title" class="font-bold text-xl text-green-700"></h3>
+        <p id="form-result-message" class="mt-2 text-gray-600"></p>
+    </div>
+
+    <!-- Embedded PDF viewer -->
+    <div id="result-pdf-preview" class="hidden mt-4 rounded-lg overflow-hidden border border-gray-300 bg-white" style="height:520px;">
+        <div class="flex items-center justify-between px-4 py-2 bg-gray-100 border-b border-gray-200">
+            <span class="text-sm font-medium text-gray-600">📄 ตัวอย่างเอกสาร</span>
+            <a id="btn-open-pdf-tab" href="#" target="_blank" rel="noopener"
+               class="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                ↗ เปิดในแท็บใหม่
+            </a>
+        </div>
+        <iframe id="result-pdf-viewer" src="" width="100%" style="height:475px;border:none;"
+                title="ตัวอย่างเอกสาร PDF"></iframe>
+    </div>
+
+    <!-- No-PDF fallback message -->
+    <div id="result-pdf-pending" class="hidden mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-center text-sm text-yellow-700">
+        ⚠️ ยังไม่มีไฟล์ PDF — ระบบจะอัปโหลดให้อัตโนมัติ กลับมาดูได้ในรายการคำขอ
+    </div>
+
+    <div class="flex justify-center flex-wrap gap-4 mt-5 border-t pt-5 border-gray-300">
+        <a id="btn-print-doc" href="#" target="_blank" rel="noopener"
+           class="hidden btn bg-gray-600 text-white hover:bg-gray-700 shadow-md flex items-center gap-2 px-5 py-2.5">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+            </svg>
+            ดาวน์โหลด / พิมพ์
+        </a>
+
+        <button type="button" id="btn-esign-doc"
+                class="btn bg-blue-600 text-white hover:bg-blue-700 shadow-lg flex items-center gap-2 px-5 py-2.5 transform transition hover:scale-105">
+            <span class="text-xl">✍️</span>
+            ลงลายมือชื่ออิเล็กทรอนิกส์
+        </button>
+
+        <button type="button" onclick="goToDashboardFromResult()"
+                class="btn bg-gray-200 text-gray-700 hover:bg-gray-300 flex items-center gap-2 px-5 py-2.5">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+            </svg>
+            กลับหน้าหลัก
+        </button>
+    </div>
+</div>
+                </div>
+
+<div id="send-memo-page" class="page-view hidden">
+    <h2 class="text-2xl font-bold mb-4 text-teal-800 flex items-center gap-2">
+        <span>📤</span> รายการรอดำเนินการส่งบันทึก
+    </h2>
+    
+    <div class="bg-teal-50 border border-teal-200 rounded-lg p-4 mb-6">
+        <p class="text-sm text-teal-800">
+            หน้านี้แสดงรายการที่ <strong>"ได้รับเลขที่แล้ว"</strong> แต่ยังไม่ได้ส่งบันทึกข้อความ หรือรายการที่ <strong>"ต้องแก้ไข"</strong><br>
+            กรุณากดปุ่ม <strong>"ส่งบันทึก/แนบไฟล์"</strong> เพื่อดำเนินการต่อ
+        </p>
+    </div>
+
+    <div id="pending-memos-loader" class="hidden text-center py-8">
+        <div class="loader mx-auto mb-2"></div>
+        <p class="text-gray-500">กำลังโหลดรายการค้างส่ง...</p>
+    </div>
+
+    <div id="pending-memos-list" class="space-y-4"></div>
+
+    <div id="no-pending-memos-message" class="hidden text-center py-10 bg-white rounded-xl shadow-sm border border-gray-200">
+        <div class="text-5xl mb-3">🎉</div>
+        <h3 class="text-lg font-bold text-gray-700">ไม่มีรายการค้างส่ง</h3>
+        <p class="text-gray-500">คุณดำเนินการครบถ้วนแล้ว</p>
+        <button onclick="switchPage('dashboard-page')" class="mt-4 btn bg-gray-100 text-gray-600 hover:bg-gray-200">กลับหน้าหลัก</button>
+    </div>
+</div>
+                <div id="edit-page" class="page-view hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold">แก้ไขคำขอไปราชการ</h2>
+                        <button id="back-to-dashboard" class="btn bg-gray-500 text-white">← กลับสู่แดชบอร์ด</button>
+                    </div>
+                    
+                    <form id="edit-request-form">
+                        <input type="hidden" id="edit-draft-id">
+                        <input type="hidden" id="edit-request-id">
+                        
+                        <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>ข้อมูลทั่วไป</legend>
+                            <div>
+                                <label for="edit-doc-date" class="form-label">วันที่</label>
+                                <input type="date" id="edit-doc-date" class="form-input" required>
+                            </div>
+                        </fieldset>
+                        
+                        <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>1. รายละเอียดการไปราชการ</legend>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label for="edit-requester-name" class="form-label">ชื่อ-นามสกุลผู้ขอ</label>
+                                    <input type="text" id="edit-requester-name" class="form-input" required>
+                                </div>
+                                <div>
+                                    <label for="edit-requester-position" class="form-label">ตำแหน่ง</label>
+                                    <input type="text" id="edit-requester-position" class="form-input" required>
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <label for="edit-location" class="form-label">ขออนุญาตไปราชการ ณ สถานที่</label>
+                                <input type="text" id="edit-location" class="form-input" required>
+                            </div>
+                            <div class="mt-4">
+                                <label for="edit-province" class="form-label">จังหวัด</label>
+                                <select id="edit-province" class="form-input"></select>
+                                <input type="text" id="edit-province-other" class="form-input mt-2 hidden" placeholder="ระบุชื่อจังหวัด">
+                            </div>
+                            <div class="mt-4">
+                                <label for="edit-purpose" class="form-label">เพื่อ</label>
+                                <textarea id="edit-purpose" rows="2" class="form-input" required></textarea>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                <div>
+                                    <label for="edit-start-date" class="form-label">ตั้งแต่วันที่</label>
+                                    <input type="date" id="edit-start-date" class="form-input" required>
+                                </div>
+                                <div>
+                                    <label for="edit-end-date" class="form-label">ถึงวันที่</label>
+                                    <input type="date" id="edit-end-date" class="form-input" required>
+                                </div>
+                            </div>
+                        </fieldset>
+                        
+                        <fieldset class="border p-4 rounded-lg mb-6">
+    <legend>ผู้ร่วมเดินทาง (ถ้ามี)</legend>
+    <div id="edit-attendees-list"></div>
+    <div class="flex flex-wrap gap-2 mt-4">
+        <button type="button" id="edit-add-attendee" class="btn btn-success w-full sm:w-auto">
+            <span>+ เพิ่มรายชื่อ</span>
+        </button>
+        
+        <button type="button" id="edit-import-excel" class="btn btn-primary w-full sm:w-auto">
+            <div class="loader hidden"></div>
+            <span>📂 นำเข้าจาก Excel/CSV</span>
+        </button>
+        <input type="file" id="edit-excel-file-input" class="hidden" accept=".xlsx, .xls, .csv">
+    </div>
+</fieldset>
+                        
+                        <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>2. การเบิกค่าใช้จ่าย</legend>
+                            <div class="space-y-3">
+                                <div><input type="radio" id="edit-expense_no" name="edit-expense_option" value="no" checked class="h-4 w-4"><label for="edit-expense_no" class="ml-2">ไม่ขอเบิกค่าใช้จ่าย</label></div>
+                                <div><input type="radio" id="edit-expense_partial" name="edit-expense_option" value="partial" class="h-4 w-4"><label for="edit-expense_partial" class="ml-2">ขอเบิกเฉพาะค่าใช้จ่าย</label></div>
+                            </div>
+                            <div id="edit-partial-expense-options" class="pl-6 mt-3 hidden space-y-2">
+                                <label class="block"><input type="checkbox" name="edit-expense_item" value="ค่าเบี้ยเลี้ยง" data-item-name="ค่าเบี้ยเลี้ยง" class="rounded"> ค่าเบี้ยเลี้ยง</label>
+                                <label class="block"><input type="checkbox" name="edit-expense_item" value="ค่าอาหาร" data-item-name="ค่าอาหาร" class="rounded"> ค่าอาหาร</label>
+                                <label class="block"><input type="checkbox" name="edit-expense_item" value="ค่าที่พัก" data-item-name="ค่าที่พัก" class="rounded"> ค่าที่พัก</label>
+                                <label class="block"><input type="checkbox" name="edit-expense_item" value="ค่าพาหนะ" data-item-name="ค่าพาหนะ" class="rounded"> ค่าพาหนะ</label>
+                                <label class="block"><input type="checkbox" name="edit-expense_item" value="ค่าน้ำมัน" data-item-name="ค่าน้ำมัน" class="rounded"> ค่าน้ำมัน</label>
+                                <div class="flex items-center gap-2"><label><input type="checkbox" name="edit-expense_item" id="edit-expense_other_check" data-item-name="ค่าใช้จ่ายอื่นๆ" class="rounded"> ค่าใช้จ่ายอื่นๆ</label><input type="text" id="edit-expense_other_text" class="form-input text-sm p-1 flex-grow" placeholder="ระบุ"></div>
+                            </div>
+                            <div id="edit-total-expense-container" class="mt-4 hidden"><label for="edit-total-expense" class="form-label">รวมเป็นจำนวนเงิน (บาท)</label><input type="number" id="edit-total-expense" class="form-input w-full md:w-1/2" placeholder="0.00" step="0.01"></div>
+                        
+    
+                       <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>3. การเดินทาง</legend>
+                            <div class="space-y-2">
+                                <label class="block">
+                                    <input type="checkbox" id="edit-vehicle_gov" name="edit-vehicle_option" value="gov" class="rounded">
+                                    รถยนต์ราชการ (รถโรงเรียน)
+                                </label>
+                                
+                                <label class="block">
+                                    <input type="checkbox" id="edit-vehicle_private" name="edit-vehicle_option" value="private" class="rounded">
+                                    รถยนต์ส่วนตัว
+                                </label>
+                                
+                                <div id="edit-private-vehicle-details" class="pl-6 mt-2 hidden">
+                                    <label for="edit-license-plate" class="form-label">หมายเลขทะเบียน</label>
+                                    <input type="text" id="edit-license-plate" class="form-input w-full md:w-1/2">
+                                </div>
+                                
+                                <label class="block">
+                                     <input type="checkbox" id="edit-vehicle_public" name="edit-vehicle_option" value="public" class="rounded"> พาหนะอื่นๆ</label>
+                                    <div id="edit-public-vehicle-details-container" class="pl-6 mt-2 hidden">
+                                    <label for="edit-public-vehicle-details" class="form-label">ระบุพาหนะอื่นๆ</label>
+                                    <input type="text" id="edit-public-vehicle-details" class="form-input w-full md:w-1/2">
+                                </div>
+                            </div>
+                        </fieldset>
+                        <fieldset class="border p-4 rounded-lg mb-6">
+                            <legend>5. ข้อมูลผู้ลงนาม</legend>
+                            <div class="mb-4">
+                                <label for="edit-department" class="form-label">กลุ่มสาระฯ / งาน</label>
+                                <select id="edit-department" class="form-input" required>
+                                    <option value="">-- เลือกกลุ่มสาระ/งาน --</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="edit-head-name" class="form-label">ชื่อหัวหน้ากลุ่มสาระ / หัวหน้างาน</label>
+                                <input type="text" id="edit-head-name" class="form-input bg-gray-200" readonly>
+                            </div>
+                        </fieldset>
+
+                        <!-- ลายเซ็นผู้ขอสำหรับการแก้ไข -->
+                        <div class="border border-gray-200 rounded-lg p-4 mb-4 mt-2">
+                            <p class="font-bold text-gray-700 mb-2 flex items-center gap-2"><span>✍️</span> ลงลายมือชื่อผู้ขอ</p>
+                            <div id="edit-existing-sig-preview" class="hidden mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-3">
+                                <span class="text-sm text-amber-700 whitespace-nowrap">ลายเซ็นเดิม:</span>
+                                <img id="edit-existing-sig-img" src="" class="h-8 border rounded bg-white">
+                                <span class="text-xs text-gray-500">(วาดใหม่เพื่อเปลี่ยน หรือปล่อยว่างเพื่อใช้ลายเซ็นเดิม)</span>
+                            </div>
+                            <div class="signature-pad-shell">
+                                <div class="signature-pad-frame">
+                                    <canvas id="edit-sig-canvas"></canvas>
+                                </div>
+                            </div>
+                            <button type="button" id="edit-sig-clear-btn" class="mt-2 text-xs text-gray-500 hover:text-red-500 underline">ล้างลายเซ็น</button>
+                        </div>
+
+                        <div class="flex justify-center gap-4 mt-10 border-t pt-6 border-gray-200">
+
+                            <button type="button" id="generate-document-button" class="btn btn-primary text-lg">
+                                <div id="generate-doc-loader" class="loader hidden"></div>
+                                <span id="generate-doc-button-text">บันทึกและสร้างเอกสาร</span>
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <div id="edit-result" class="hidden mt-6 p-6 text-center">
+                        <h3 id="edit-result-title" class="font-bold text-lg"></h3>
+                        <p id="edit-result-message" class="mt-2 text-gray-700"></p>
+                        <div class="flex justify-center flex-wrap gap-4 mt-4">
+                            <a id="edit-result-link" href="#" target="_blank" class="btn btn-success">เปิดไฟล์ PDF ที่แก้ไข</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="profile-page" class="page-view hidden">
+                    <h2 class="text-2xl font-bold mb-6">ข้อมูลส่วนตัว</h2>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div class="bg-gray-50 p-6 rounded-lg">
+                            <h3 class="text-xl font-bold mb-4">แก้ไขข้อมูลส่วนตัว</h3>
+                            <form id="profile-form">
+                                <div class="mb-4">
+                                    <label for="profile-username" class="form-label">ชื่อผู้ใช้</label>
+                                    <input type="text" id="profile-username" class="form-input bg-gray-200" readonly>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="profile-loginname" class="form-label">ชื่อสำหรับล็อกอิน (ID ใหม่)</label>
+                                    <input type="text" id="profile-loginname" class="form-input" required>
+                                </div>
+                                    <div class="mb-4">
+                                    <label for="profile-fullname" class="form-label">ชื่อ-นามสกุล</label>
+                                    <input type="text" id="profile-fullname" class="form-input" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="profile-position" class="form-label">ตำแหน่ง</label>
+                                    <input type="text" id="profile-position" class="form-input" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="profile-department" class="form-label">กลุ่มสาระ/งาน</label>
+                                    <input type="text" id="profile-department" class="form-input" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="profile-email" class="form-label">อีเมล (สำหรับการแจ้งเตือน)</label>
+                                    <input type="email" id="profile-email" class="form-input" required>
+                                </div>
+                                <button type="submit" id="profile-submit-button" class="btn btn-primary w-full">
+                                    <div id="profile-loader" class="loader hidden"></div>
+                                    <span>อัปเดตข้อมูล</span>
+                                </button>
+                                </form>
+                                </div>
+                        
+                        <div class="bg-gray-50 p-6 rounded-lg">
+                            <h3 class="text-xl font-bold mb-4">เปลี่ยนรหัสผ่าน</h3>
+                            <form id="password-form">
+                                <div class="mb-4">
+                                    <label for="current-password" class="form-label">รหัสผ่านปัจจุบัน</label>
+                                    <input type="password" id="current-password" class="form-input" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="new-password" class="form-label">รหัสผ่านใหม่</label>
+                                    <input type="password" id="new-password" class="form-input" required>
+                                </div>
+                                <div class="mb-4 flex items-center">
+                                    <input type="checkbox" id="show-password-toggle" class="h-4 w-4">
+                                    <label for="show-password-toggle" class="ml-2 text-sm">แสดงรหัสผ่าน</label>
+                                </div>
+                                <button type="submit" id="password-submit-button" class="btn btn-primary w-full">
+                                    <div id="password-loader" class="loader hidden"></div>
+                                    <span>เปลี่ยนรหัสผ่าน</span>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <div id="admin-command-page" class="page-view hidden">
+                    <h2 class="text-2xl font-bold mb-6">ออกคำสั่งไปราชการ</h2>
+                <div id="admin-command-info"></div>
+                <div class="flex gap-4 mt-6">
+                <button id="generate-command-solo" class="btn btn-primary">ออกคำสั่งเดี่ยว</button>
+                <button id="generate-command-group-small" class="btn btn-primary">ออกคำสั่งกลุ่มเล็ก</button>
+                <button id="generate-command-group-large" class="btn btn-primary">ออกคำสั่งกลุ่มใหญ่</button>
+                </div>
+                </div>
+                <div id="admin-generate-command-page" class="page-view hidden">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold">แก้ไขและออกคำสั่งไปราชการ</h2>
+        <button id="back-to-admin-command" class="btn bg-gray-500 text-white">← กลับสู่หน้าจัดการ</button>
+    </div>
+    
+    <form id="admin-command-form">
+        <input type="hidden" id="admin-command-request-id">
+        
+        <fieldset class="border p-4 rounded-lg mb-6 bg-white/50">
+            <legend>ข้อมูลทั่วไป (แก้ไขได้)</legend>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="form-label">รหัสคำขอ</label>
+                    <input type="text" id="admin-command-request-id-display" class="form-input bg-gray-100 text-gray-500" readonly>
+                </div>
+                <div>
+                    <label class="form-label">วันที่เอกสาร</label>
+                    <input type="date" id="admin-command-doc-date" class="form-input">
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="form-label">ชื่อผู้ขอ</label>
+                    <input type="text" id="admin-command-requester-name" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">ตำแหน่ง</label>
+                    <input type="text" id="admin-command-requester-position" class="form-input">
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="form-label">สถานที่ไปราชการ</label>
+                    <input type="text" id="admin-command-location" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">จังหวัด</label>
+                    <input type="text" id="admin-command-province" class="form-input" placeholder="เช่น สระแก้ว">
+                </div>
+            </div>
+            <div class="mb-4">
+                <label class="form-label">วัตถุประสงค์</label>
+                <textarea id="admin-command-purpose" rows="2" class="form-input"></textarea>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="form-label">วันที่เริ่มต้น</label>
+                    <input type="date" id="admin-command-start-date" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">วันที่สิ้นสุด</label>
+                    <input type="date" id="admin-command-end-date" class="form-input">
+                </div>
+            </div>
+        </fieldset>
+        
+        <fieldset class="border p-4 rounded-lg mb-6 bg-white/50">
+            <legend>ผู้ร่วมเดินทาง (แก้ไขได้)</legend>
+            <div id="admin-command-attendees-list"></div>
+            <button type="button" id="admin-add-attendee-btn" class="btn btn-sm btn-success mt-2">+ เพิ่มผู้ร่วมเดินทาง</button>
+        </fieldset>
+        
+        <fieldset class="border p-4 rounded-lg mb-6 bg-gray-100">
+            <legend class="text-gray-500 text-sm">ข้อมูลประกอบ (แก้ไขที่ต้นทาง)</legend>
+            <div id="admin-command-expense-info" class="text-sm text-gray-600 mb-2"></div>
+            <div id="admin-command-vehicle-info" class="text-sm text-gray-600"></div>
+            <input type="hidden" id="admin-expense-option">
+            <input type="hidden" id="admin-expense-items">
+            <input type="hidden" id="admin-total-expense">
+            <input type="hidden" id="admin-vehicle-option">
+            <input type="hidden" id="admin-license-plate">
+        </fieldset>
+        
+        <fieldset class="border p-4 rounded-lg mb-6 bg-blue-50 border-blue-200">
+            <legend>รูปแบบคำสั่ง</legend>
+            <div class="space-y-3">
+                <div>
+                    <input type="radio" id="admin-command-type-solo" name="admin-command-type" value="solo" class="h-4 w-4">
+                    <label for="admin-command-type-solo" class="ml-2">คำสั่งเดี่ยว (1 คน)</label>
+                </div>
+                <div>
+                    <input type="radio" id="admin-command-type-group-small" name="admin-command-type" value="groupSmall" class="h-4 w-4">
+                    <label for="admin-command-type-group-small" class="ml-2">คำสั่งกลุ่มเล็ก (2-5 คน)</label>
+                </div>
+                <div>
+                    <input type="radio" id="admin-command-type-group-large" name="admin-command-type" value="groupLarge" class="h-4 w-4">
+                    <label for="admin-command-type-group-large" class="ml-2">คำสั่งกลุ่มใหญ่ (6 คนขึ้นไป)</label>
+                </div>
+            </div>
+        </fieldset>
+        
+        <div class="flex justify-center gap-4 mt-10 border-t pt-6 border-gray-200">
+            <button type="button" id="admin-generate-command-button" class="btn btn-primary text-lg shadow-lg">
+                <div id="admin-generate-command-loader" class="loader hidden"></div>
+                <span id="admin-generate-command-button-text">บันทึกการแก้ไขและสร้างคำสั่ง</span>
+            </button>
+        </div>
+    </form>
+    
+    <div id="admin-command-result" class="hidden mt-6 p-6 text-center bg-green-50 rounded-xl border border-green-200">
+        <h3 id="admin-command-result-title" class="font-bold text-lg text-green-800"></h3>
+        <p id="admin-command-result-message" class="mt-2 text-gray-700"></p>
+        <div class="flex justify-center flex-wrap gap-4 mt-4">
+            <a id="admin-command-result-link" href="#" target="_blank" class="btn btn-success transform hover:scale-105 transition">เปิดไฟล์คำสั่ง</a>
+            <button onclick="switchPage('command-generation-page')" class="btn bg-gray-500 text-white">กลับหน้าจัดการ</button>
+        </div>
+    </div>
+</div>
+                <!-- ===== หน้าจัดการลิงก์ลงนาม (Admin Only) ===== -->
+                <div id="admin-approval-links-page" class="page-view hidden fade-in">
+                    <div class="flex justify-between items-end mb-6">
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800 tracking-tight">🔗 จัดการลิงก์ลงนาม</h1>
+                            <p class="text-gray-500 text-sm mt-1">สร้างลิงก์พิเศษให้ผู้ลงนามแต่ละขั้น โดยผู้รับไม่ต้องเข้าสู่ระบบ</p>
+                        </div>
+                        <button onclick="loadApprovalLinkManagement()"
+                            class="btn bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 shadow-sm flex items-center gap-2">
+                            <span>🔄</span> รีเฟรช
+                        </button>
+                    </div>
+
+                    <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 text-sm text-blue-800">
+                        <strong>📌 วิธีใช้:</strong>
+                        กดปุ่ม <span class="font-bold">"🔗 สร้างลิงก์"</span> สำหรับเอกสารที่ต้องการ
+                        แล้วคัดลอกส่งให้ผู้ลงนามผ่าน <strong>Line / Email</strong><br>
+                        ระบบจะเตรียม <strong>ข้อความพร้อมส่ง</strong> ให้ด้วย โดยใส่เลขบันทึก/เรื่อง/ชื่อผู้ขอให้อัตโนมัติ<br>
+                        ลิงก์ใช้ได้ <strong>ครั้งเดียวภายใน 7 วัน</strong> ผู้รับไม่ต้องเข้าสู่ระบบ
+                    </div>
+
+                    <div id="approval-links-container" class="space-y-4">
+                        <div class="flex justify-center py-10">
+                            <div class="loader"></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- ================================================= -->
+
+                <div id="admin-users-page" class="page-view hidden">
+                    <!-- Page Header -->
+                    <div class="mb-5">
+                        <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">👥 จัดการผู้ใช้</h2>
+                        <p class="text-gray-500 text-sm mt-1">เพิ่ม แก้ไข จัดการสิทธิ์ผู้ใช้ และตั้งค่าผู้ที่ต้องลงนามในเอกสาร</p>
+                    </div>
+
+                    <!-- Tab Strip -->
+                    <div class="flex border-b border-gray-200 mb-5 gap-0">
+                        <button id="users-tab-btn-users" onclick="switchUsersTab('users')"
+                            class="px-5 py-2.5 text-sm font-semibold border-b-2 border-blue-600 text-blue-700 bg-white transition-colors rounded-tl-lg">
+                            👥 รายชื่อผู้ใช้
+                        </button>
+                        <button id="users-tab-btn-heads" onclick="switchUsersTab('heads')"
+                            class="px-5 py-2.5 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 bg-white transition-colors">
+                            ⚙️ หัวหน้าส่วน (ผู้ลงนาม)
+                        </button>
+                    </div>
+
+                    <!-- ═══ Tab Panel: รายชื่อผู้ใช้ ═══ -->
+                    <div id="users-tab-panel-users">
+                        <!-- Action Buttons -->
+                        <div class="flex flex-wrap gap-2 mb-5">
+                            <button id="add-user-button" class="btn btn-primary flex items-center gap-1.5 text-sm shadow-sm">
+                                ➕ เพิ่มผู้ใช้
+                            </button>
+                            <button id="download-user-template-button" class="btn bg-emerald-500 hover:bg-emerald-600 text-white flex items-center gap-1.5 text-sm shadow-sm">
+                                ⬇️ แม่แบบ Excel
+                            </button>
+                            <button id="import-users-button" class="btn bg-indigo-500 hover:bg-indigo-600 text-white flex items-center gap-1.5 text-sm shadow-sm">
+                                📤 นำเข้าจาก Excel
+                            </button>
+                            <input type="file" id="user-excel-input" class="hidden" accept=".xlsx, .xls">
+                        </div>
+
+                        <!-- Users List Card -->
+                        <div id="users-list" class="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
+                            <div class="px-5 py-4 border-b bg-gray-50 flex flex-col sm:flex-row sm:items-center gap-3">
+                                <div class="flex-1 flex items-center gap-2">
+                                    <h3 class="font-bold text-gray-800">รายชื่อผู้ใช้ทั้งหมด</h3>
+                                    <span id="users-count-badge" class="bg-blue-100 text-blue-700 text-xs font-bold px-2.5 py-0.5 rounded-full"></span>
+                                </div>
+                                <div class="relative w-full sm:w-64">
+                                    <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                    </svg>
+                                    <input type="text" id="users-search-input" class="form-input pl-9 py-2 text-sm w-full" placeholder="🔍 ค้นหาชื่อ / ยูเซอร์เนม / Login...">
+                                </div>
+                            </div>
+                            <div id="users-content" class="p-0">
+                                <div class="text-center p-8">
+                                    <div class="loader mx-auto"></div>
+                                    <p class="mt-4">กำลังโหลดข้อมูลผู้ใช้...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ═══ Tab Panel: หัวหน้าส่วน (ผู้ลงนาม) ═══ -->
+                    <div id="users-tab-panel-heads" class="hidden">
+                        <div class="flex justify-between items-center mb-5">
+                            <p class="text-gray-500 text-sm">กำหนดชื่อและ Username ผู้ที่ต้องลงนามในแต่ละตำแหน่ง</p>
+                            <button onclick="saveHeadsConfig()" id="save-heads-btn" class="btn bg-green-600 text-white hover:bg-green-700 shadow-sm">💾 บันทึกการตั้งค่า</button>
+                        </div>
+                        <div class="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50 border-b">
+                                    <tr>
+                                        <th class="text-left p-3 font-bold text-gray-700 w-1/3">ตำแหน่ง / บทบาท</th>
+                                        <th class="text-left p-3 font-bold text-gray-700 w-1/3">ชื่อ-นามสกุล (แสดงในเอกสาร)</th>
+                                        <th class="text-left p-3 font-bold text-gray-700 w-1/3">Username ในระบบ (สิทธิ์เมนูลงนาม)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="heads-config-tbody" class="divide-y divide-gray-100">
+                                    <tr><td colspan="3" class="p-8 text-center text-gray-400">กำลังโหลด...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-3">* ชื่อ-นามสกุล ใช้แสดงในเอกสาร &nbsp;|&nbsp; Username ใช้กำหนดสิทธิ์การเห็นเมนู "เอกสารรอลงนาม" (ว่างได้ถ้าไม่ต้องการ)</p>
+                    </div>
+                </div>
+
+                <!-- admin-heads-page ถูกรวมเข้าไปใน admin-users-page แล้ว (tab หัวหน้าส่วน) -->
+                <div id="admin-heads-page" class="page-view hidden"></div>
+                <!-- ================================================= -->
+
+                <div id="command-generation-page" class="page-view hidden">
+                    <div class="flex justify-between items-center mb-5">
+                        <h2 class="text-2xl font-bold">จัดการบันทึกและคำสั่ง</h2>
+                    </div>
+
+                    <!-- ── แถบ Tab สีสัน ── -->
+                    <div class="admin-tab-strip">
+                        <button id="admin-view-dashboard-tab" class="admin-tab tab-inactive" style="background:linear-gradient(135deg,#f9a8d4,#7dd3fc);color:#075985;border-color:#bae6fd;">
+                            📊 ภาพรวม
+                        </button>
+                        <button id="admin-view-requests-tab" class="admin-tab tab-requests">
+                            📋 คำขอไปราชการ
+                        </button>
+                        <button id="admin-view-memos-tab" class="admin-tab tab-inactive">
+                            📝 บันทึกข้อความ
+                        </button>
+                        <button id="admin-view-announcement-tab" class="admin-tab tab-inactive">
+                            📢 จัดการประกาศ
+                        </button>
+                    </div>
+
+                    <!-- ── Tab: ภาพรวม (Dashboard) ── -->
+                    <div id="admin-dashboard-view" class="hidden">
+
+                        <!-- KPI Cards -->
+                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                            <div class="bg-white rounded-2xl shadow-sm border border-amber-100 p-4 flex flex-col gap-1 cursor-pointer hover:shadow-md hover:border-amber-300 transition select-none" onclick="filterAdminRequestsBy('pending_command')" title="คลิกเพื่อดูรายการรอออกคำสั่ง">
+                                <div class="text-2xl">⏳</div>
+                                <div id="kpi-pending-command" class="text-3xl font-extrabold text-amber-500">—</div>
+                                <div class="text-xs text-amber-600 font-semibold">รอออกคำสั่ง</div>
+                            </div>
+                            <div class="bg-white rounded-2xl shadow-sm border border-blue-100 p-4 flex flex-col gap-1 cursor-pointer hover:shadow-md hover:border-blue-300 transition select-none" onclick="filterAdminRequestsBy('waiting_saraban')" title="คลิกเพื่อดูรายการรอสารบรรณ">
+                                <div class="text-2xl">📬</div>
+                                <div id="kpi-waiting-saraban" class="text-3xl font-extrabold text-blue-500">—</div>
+                                <div class="text-xs text-blue-600 font-semibold">รอสารบรรณ</div>
+                            </div>
+                            <div class="bg-white rounded-2xl shadow-sm border border-purple-100 p-4 flex flex-col gap-1 cursor-pointer hover:shadow-md hover:border-purple-300 transition select-none" onclick="filterAdminRequestsBy('waiting_director')" title="คลิกเพื่อดูรายการรอผู้อำนวยการ">
+                                <div class="text-2xl">✍️</div>
+                                <div id="kpi-waiting-director" class="text-3xl font-extrabold text-purple-500">—</div>
+                                <div class="text-xs text-purple-600 font-semibold">รอผู้อำนวยการ</div>
+                            </div>
+                            <div class="bg-white rounded-2xl shadow-sm border border-green-100 p-4 flex flex-col gap-1 cursor-pointer hover:shadow-md hover:border-green-300 transition select-none" onclick="filterAdminRequestsBy('done_this_month')" title="คลิกเพื่อดูรายการเสร็จสิ้นเดือนนี้">
+                                <div class="text-2xl">✅</div>
+                                <div id="kpi-done" class="text-3xl font-extrabold text-green-500">—</div>
+                                <div class="text-xs text-green-600 font-semibold">เสร็จสิ้นเดือนนี้</div>
+                            </div>
+                        </div>
+
+                        <!-- Pipeline View -->
+                        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
+                            <h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2">🔄 สายการอนุมัติ <span class="text-xs text-gray-400 font-normal">(จำนวนเอกสารในแต่ละขั้นตอน)</span></h3>
+                            <div id="admin-pipeline" class="flex flex-wrap gap-2 items-center">
+                                <div class="text-gray-400 text-sm animate-pulse">กำลังโหลด...</div>
+                            </div>
+                        </div>
+
+                        <!-- สองคอลัมน์: ค้างนาน + กิจกรรมล่าสุด -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                            <!-- เอกสารค้างนาน -->
+                            <div class="bg-white rounded-2xl shadow-sm border border-red-100 p-5">
+                                <h3 class="font-bold text-red-600 mb-3 flex items-center gap-2">🚨 เอกสารค้างนานเกิน 3 วัน</h3>
+                                <div id="admin-overdue-list" class="space-y-2 text-sm">
+                                    <div class="text-gray-400 animate-pulse">กำลังโหลด...</div>
+                                </div>
+                            </div>
+
+                            <!-- กิจกรรมล่าสุด -->
+                            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                                <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">🕐 รายการล่าสุด</h3>
+                                <div id="admin-recent-list" class="space-y-2 text-sm">
+                                    <div class="text-gray-400 animate-pulse">กำลังโหลด...</div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <!-- ── Tab: คำขอไปราชการ ── -->
+                    <div id="admin-requests-view">
+                        <div class="flex flex-col sm:flex-row gap-2 mb-3">
+                            <select id="admin-year-select" class="form-input sm:w-1/3 cursor-pointer bg-purple-50 border-purple-200 text-purple-800 font-bold"></select>
+                            <input type="text" id="admin-search-requests" class="form-input w-full" placeholder="🔍 ค้นหาคำขอ (ชื่อ / เรื่อง / สถานที่)...">
+                        </div>
+
+                        <!-- Bulk Actions Toolbar (ซ่อนไว้ก่อน จนกว่าจะมีการเลือก) -->
+                        <div id="bulk-toolbar" class="hidden mb-3 p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex flex-wrap items-center gap-2">
+                            <span class="text-sm font-semibold text-indigo-700">
+                                เลือกแล้ว <span id="bulk-count">0</span> รายการ
+                            </span>
+                            <div class="flex-1"></div>
+                            <button onclick="bulkExportCSV()" class="btn btn-sm bg-green-500 hover:bg-green-600 text-white flex items-center gap-1">
+                                📥 Export CSV
+                            </button>
+                            <button onclick="bulkChangeStatus()" class="btn btn-sm bg-violet-500 hover:bg-violet-600 text-white flex items-center gap-1">
+                                ✏️ เปลี่ยนสถานะ
+                            </button>
+                            <button onclick="bulkGenerateCommand()" class="btn btn-sm bg-emerald-500 hover:bg-emerald-600 text-white flex items-center gap-1">
+                                ✅ ออกคำสั่ง (ทีละรายการ)
+                            </button>
+                            <button onclick="clearBulkSelection()" class="btn btn-sm bg-gray-200 hover:bg-gray-300 text-gray-600">
+                                ✕ ยกเลิก
+                            </button>
+                        </div>
+
+                        <!-- Bulk Status Modal -->
+                        <div id="bulk-status-modal" class="modal-overlay hidden" style="z-index:1000;">
+                            <div class="modal-box max-w-sm">
+                                <h3 class="font-bold text-lg mb-4">เปลี่ยนสถานะ (<span id="bulk-status-count">0</span> รายการ)</h3>
+                                <select id="bulk-status-select" class="form-input mb-4">
+                                    <option value="">-- เลือกสถานะ --</option>
+                                    <option value="กำลังดำเนินการ">กำลังดำเนินการ</option>
+                                    <option value="รอเอกสาร (เบิก)">รอเอกสาร (เบิก)</option>
+                                    <option value="เสร็จสิ้น">เสร็จสิ้น</option>
+                                    <option value="นำกลับไปแก้ไข">นำกลับไปแก้ไข</option>
+                                    <option value="ถูกตีกลับ">ถูกตีกลับ</option>
+                                </select>
+                                <div class="flex gap-2 justify-end">
+                                    <button onclick="document.getElementById('bulk-status-modal').style.display='none'" class="btn bg-gray-200 text-gray-700">ยกเลิก</button>
+                                    <button onclick="bulkChangeStatusConfirm()" class="btn btn-primary">ยืนยัน</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="admin-desktop-list">
+                            <div class="table-wrapper">
+                                <table class="data-table">
+                                    <thead class="bg-purple-50">
+                                        <tr>
+                                            <th class="text-purple-700 w-8">
+                                                <input type="checkbox" id="bulk-select-all-desktop" class="rounded" title="เลือกทั้งหมด" onchange="toggleSelectAll(this)">
+                                            </th>
+                                            <th class="text-purple-700">เลขที่คำขอ</th>
+                                            <th class="text-purple-700">ชื่อผู้ขอ</th>
+                                            <th class="text-purple-700">เรื่อง / สถานที่</th>
+                                            <th class="text-purple-700">วันที่เดินทาง</th>
+                                            <th class="text-purple-700 text-center">คน</th>
+                                            <th class="text-purple-700 text-center">งบ</th>
+                                            <th class="text-purple-700">สถานะ / ไฟล์</th>
+                                            <th class="text-purple-700 text-center">ดำเนินการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="admin-requests-table-list"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="admin-mobile-list admin-card-shell">
+                            <div class="admin-list-toolbar">
+                                <label class="admin-list-toolbar__check">
+                                    <input type="checkbox" id="bulk-select-all-mobile" class="rounded" title="เลือกทั้งหมด" onchange="toggleSelectAll(this)">
+                                    <span>เลือกทั้งหมด</span>
+                                </label>
+                                <p class="admin-list-toolbar__hint">การ์ดแต่ละใบจะแสดงผู้ขอ เรื่อง สถานที่ วันที่ สถานะ ไฟล์ และปุ่มจัดการครบในที่เดียว</p>
+                            </div>
+                            <div id="admin-requests-cards" class="admin-card-list"></div>
+                        </div>
+                    </div>
+
+                    <!-- ── Tab: บันทึกข้อความ ── -->
+                    <div id="admin-memos-view" class="hidden">
+                        <div class="flex flex-col sm:flex-row gap-2 mb-3">
+                            <div class="flex gap-2 flex-wrap">
+                                <button id="memo-filter-all" onclick="filterAdminMemos('all')"
+                                    class="tab-button active text-sm">📋 ทั้งหมด</button>
+                                <button id="memo-filter-no_command" onclick="filterAdminMemos('no_command')"
+                                    class="tab-button text-sm">⏳ รอออกคำสั่ง</button>
+                                <button id="memo-filter-pending" onclick="filterAdminMemos('pending')"
+                                    class="tab-button text-sm">🔔 รอจัดการ</button>
+                            </div>
+                            <input type="text" id="admin-search-memos" class="form-input flex-1"
+                                placeholder="🔍 ค้นหาบันทึก (ชื่อ / เรื่อง / เลขที่)...">
+                        </div>
+                        <div class="admin-desktop-list">
+                            <div class="table-wrapper">
+                                <table class="data-table">
+                                    <thead class="bg-orange-50">
+                                        <tr>
+                                            <th class="text-orange-700 text-center w-10">#</th>
+                                            <th class="text-orange-700">เลขที่บันทึก</th>
+                                            <th class="text-orange-700">ชื่อผู้ขอ</th>
+                                            <th class="text-orange-700">เรื่อง / สถานที่</th>
+                                            <th class="text-orange-700">วันที่</th>
+                                            <th class="text-orange-700">สถานะ</th>
+                                            <th class="text-orange-700">ไฟล์</th>
+                                            <th class="text-orange-700 text-center">ดำเนินการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="admin-memos-table-list">
+                                        <tr><td colspan="8" class="text-center py-8">
+                                            <div class="loader mx-auto mb-2"></div>
+                                            <p class="text-gray-400">กำลังโหลดข้อมูล...</p>
+                                        </td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="admin-mobile-list admin-card-shell admin-card-shell--memo">
+                            <div class="admin-list-toolbar">
+                                <p class="admin-list-toolbar__hint">แสดงเลขที่บันทึก ผู้ขอ เรื่อง สถานที่ วันที่ สถานะ ไฟล์ และปุ่มดำเนินการในรูปแบบการ์ดที่เลื่อนดูได้ง่ายบนทุกหน้าจอ</p>
+                            </div>
+                            <div id="admin-memos-cards" class="admin-card-list admin-card-list--memo">
+                                <div class="admin-card-loading">
+                                    <div class="loader mx-auto mb-2"></div>
+                                    <p class="text-gray-400">กำลังโหลดข้อมูล...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+	                </div>
+	                
+                    <div id="admin-system-settings-page" class="page-view hidden">
+                        <div class="mb-6">
+                            <h2 class="text-2xl font-bold text-gray-800">ตั้งค่าระบบ</h2>
+                            <p class="text-sm text-gray-500 mt-1">เครื่องมือดูแลฐานข้อมูล สำรองข้อมูล และทางลัดสำหรับผู้ดูแลระบบ</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            <div class="bg-white border border-violet-100 rounded-lg p-5 shadow-sm">
+                                <div class="text-sm font-semibold text-violet-700 mb-2">ฐานข้อมูล</div>
+                                <h3 class="text-lg font-bold text-gray-800 mb-2">Sync ข้อมูลสู่ Firebase</h3>
+                                <p class="text-sm text-gray-500 mb-4">ดึงข้อมูลจาก Google Sheets ไปอัปเดตใน Firebase เมื่อเริ่มระบบหรือข้อมูลไม่ตรงกัน</p>
+                                <button id="admin-sync-btn" class="btn-sync btn-sync--sky w-full hidden">🔄 Sync ข้อมูลสู่ Firebase</button>
+                            </div>
+
+                            <div class="bg-white border border-indigo-100 rounded-lg p-5 shadow-sm">
+                                <div class="text-sm font-semibold text-indigo-700 mb-2">สำรองข้อมูล</div>
+                                <h3 class="text-lg font-bold text-gray-800 mb-2">สำรองข้อมูลไปยัง Sheets</h3>
+                                <p class="text-sm text-gray-500 mb-4">สำรองข้อมูล Firestore ของปีที่เลือกกลับไปยัง Google Sheets</p>
+                                <button id="admin-backup-btn" onclick="adminBackupFirestoreToSheets()" class="btn-sync btn-sync--indigo w-full hidden">💾 สำรองข้อมูล → Sheets</button>
+                            </div>
+
+                            <div class="bg-white border border-cyan-100 rounded-lg p-5 shadow-sm">
+                                <div class="text-sm font-semibold text-cyan-700 mb-2">ส่งออก</div>
+                                <h3 class="text-lg font-bold text-gray-800 mb-2">ส่ง Email สำรอง</h3>
+                                <p class="text-sm text-gray-500 mb-4">ส่งอีเมลสำรองข้อมูลพร้อมลิงก์ดาวน์โหลดไฟล์ทั้งหมด</p>
+                                <button id="admin-email-backup-btn" onclick="adminSendYearlyBackupEmail()" class="btn-sync btn-sync--cyan w-full hidden" title="ส่ง Email สำรองข้อมูลพร้อม link ดาวน์โหลดทุกไฟล์">📧 ส่ง Email สำรอง</button>
+                            </div>
+
+	                            <div class="bg-white border border-emerald-100 rounded-lg p-5 shadow-sm">
+	                                <div class="text-sm font-semibold text-emerald-700 mb-2">คลังข้อมูล</div>
+	                                <h3 class="text-lg font-bold text-gray-800 mb-2">คลังข้อมูลย้อนหลัง</h3>
+	                                <p class="text-sm text-gray-500 mb-4">เปิดหน้า public archive เพื่อตรวจสอบเอกสารย้อนหลัง</p>
+	                                <a id="archive-link-btn" href="../archive/" target="_blank" class="btn-sync btn-sync--emerald w-full hidden text-center" style="display:none;">📚 เปิดคลังข้อมูล</a>
+	                            </div>
+
+	                            <div class="bg-white border border-pink-100 rounded-lg p-5 shadow-sm md:col-span-2 xl:col-span-3">
+	                                <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+	                                    <div>
+	                                        <div class="text-sm font-semibold text-pink-700 mb-2">Workflow การส่งบันทึก</div>
+	                                        <h3 class="text-lg font-bold text-gray-800 mb-2">เลือกเวอร์ชันการส่งบันทึกข้อความ</h3>
+	                                        <p class="text-sm text-gray-500 max-w-3xl">กำหนดได้ว่าจะใช้รูปแบบเดิมที่แยกเบิก/ไม่เบิก หรือบังคับให้ทุกคำขออัปโหลดไฟล์ในระบบเหมือนกันทั้งหมด เพื่อให้ผู้ใช้ทำงานตาม flow เดียว</p>
+	                                    </div>
+	                                    <span id="setting-force-memo-upload-status" class="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">ใช้โหมดเดิม</span>
+	                                </div>
+
+	                                <label class="mt-4 flex items-start gap-3 rounded-xl border border-sky-100 bg-sky-50/70 p-4 cursor-pointer">
+	                                    <input type="checkbox" id="setting-force-memo-upload" class="mt-1 h-4 w-4 rounded border-sky-300 text-sky-600 focus:ring-sky-400">
+	                                    <span class="block">
+	                                        <span class="block text-sm font-semibold text-sky-900">บังคับอัปโหลดไฟล์สำหรับทุกคำขอ</span>
+	                                        <span class="block text-xs text-sky-700 mt-1">เมื่อเปิดใช้งาน ระบบจะซ่อนตัวเลือก “ส่งเอกสารฉบับจริง” และใช้หน้าส่งบันทึกแบบแนบไฟล์/ส่งต่อในระบบทั้งกรณีเบิกและไม่เบิกค่าใช้จ่าย</span>
+	                                    </span>
+	                                </label>
+
+	                                <div class="mt-4 rounded-xl border border-rose-100 bg-rose-50/70 p-4">
+	                                    <div class="text-sm font-semibold text-rose-900 mb-3">เอกสารที่บังคับอัปโหลดในหน้า “ส่งบันทึกข้อความ”</div>
+	                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+	                                        <label class="flex items-start gap-3 rounded-lg border border-white/70 bg-white/80 px-3 py-3 cursor-pointer">
+	                                            <input type="checkbox" id="setting-required-file-ref-doc" class="mt-1 h-4 w-4 rounded border-rose-300 text-rose-500 focus:ring-rose-300">
+	                                            <span class="block">
+	                                                <span class="block text-sm font-medium text-gray-800">หนังสือต้นเรื่อง / หนังสือเชิญ</span>
+	                                                <span class="block text-xs text-gray-500 mt-1">เอกสารอ้างอิงหลักของคำขอ</span>
+	                                            </span>
+	                                        </label>
+
+	                                        <label class="flex items-start gap-3 rounded-lg border border-white/70 bg-white/80 px-3 py-3 cursor-pointer">
+	                                            <input type="checkbox" id="setting-required-file-exchange" class="mt-1 h-4 w-4 rounded border-rose-300 text-rose-500 focus:ring-rose-300">
+	                                            <span class="block">
+	                                                <span class="block text-sm font-medium text-gray-800">ไฟล์แลกคาบสอน</span>
+	                                                <span class="block text-xs text-gray-500 mt-1">ใช้เมื่อมีการแลกคาบหรือจำเป็นต้องแนบประกอบ</span>
+	                                            </span>
+	                                        </label>
+	                                    </div>
+	                                    <p id="setting-required-upload-summary" class="text-xs text-gray-500 mt-3">กำหนดได้ว่าในโหมดอัปโหลดไฟล์ ระบบจะเช็กบังคับเอกสารตัวไหนบ้างก่อนให้ส่งต่อ</p>
+	                                </div>
+
+	                                <p id="setting-force-memo-upload-hint" class="text-xs text-gray-500 mt-3">โหมดปัจจุบันยังคงแยกการส่งบันทึกระหว่างกรณีเบิกกับไม่เบิกค่าใช้จ่าย</p>
+
+	                                <div class="mt-4 flex flex-wrap gap-3">
+	                                    <button id="save-workflow-settings-btn" class="btn-sync btn-sync--pink">💾 บันทึกการตั้งค่า workflow</button>
+	                                </div>
+	                            </div>
+	                        </div>
+	                    </div>
+
+	                <div id="stats-page" class="page-view hidden">
+	                    <h2 class="text-2xl font-bold mb-6">สถิติข้อมูล</h2>
+                    
+                    <div class="mb-6 flex flex-wrap gap-4">
+                        <button id="refresh-stats" class="btn btn-primary">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            รีเฟรชข้อมูล
+                        </button>
+                        <button id="export-stats" class="btn bg-green-500 text-white">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            ส่งออกรายงาน
+                        </button>
+                    </div>
+
+                    <div id="stats-overview" class="space-y-6">
+                        <div class="text-center p-8">
+                            <div class="loader mx-auto"></div>
+                            <p class="mt-4">กำลังโหลดสถิติ...</p>
+                        </div>
+                    </div>
+
+                    <div id="stats-charts" class="mt-8 hidden">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            
+                            <div class="chart-container">
+                                <h3 class="text-lg font-bold mb-4 text-gray-800">คำขอรายเดือน (6 เดือนล่าสุด)</h3>
+                                <canvas id="requests-chart" width="400" height="200"></canvas>
+                            </div>
+                            
+                            <div class="chart-container">
+                                <h3 class="text-lg font-bold mb-4 text-gray-800">สรุปสถานะคำขอ</h3>
+                                <canvas id="status-chart" width="400" height="200"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div id="admin-announcement-view" class="hidden">
+        <div class="bg-white p-6 rounded-xl shadow border border-gray-200 max-w-2xl">
+            <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">ตั้งค่าหน้าต่างต้อนรับ (ประกาศข่าวสาร)</h3>
+            <form id="admin-announcement-form">
+                <div class="flex items-center mb-4 bg-gray-50 p-3 rounded border">
+                    <input type="checkbox" id="announcement-active" class="w-5 h-5 text-indigo-600 rounded cursor-pointer">
+                    <label for="announcement-active" class="ml-2 text-gray-700 font-bold cursor-pointer">เปิดใช้งานหน้าต่างประกาศ (แสดงหลัง Login)</label>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label">หัวข้อประกาศ</label>
+                    <input type="text" id="announcement-title-input" class="form-input" placeholder="เช่น แจ้งเพื่อทราบ, ยินดีต้อนรับ">
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label">ข้อความรายละเอียด</label>
+                    <textarea id="announcement-message-input" rows="5" class="form-input" placeholder="พิมพ์ข้อความที่ต้องการแจ้งผู้ใช้..."></textarea>
+                </div>
+
+                <div class="mb-6 bg-gray-50 p-4 rounded border">
+    <label class="form-label font-bold mb-2">รูปภาพประกอบ</label>
+    
+    <div class="mb-3">
+        <label class="text-xs text-gray-600 block mb-1">วิธีที่ 1: อัปโหลดไฟล์ใหม่</label>
+        <input type="file" id="announcement-image-input" class="form-input text-sm bg-white" accept="image/*">
+    </div>
+
+    <div class="text-center text-gray-400 text-xs my-2">- หรือ -</div>
+
+    <div class="mb-3">
+        <label class="text-xs text-gray-600 block mb-1">วิธีที่ 2: วางลิงก์รูปภาพ (URL)</label>
+        <input type="text" id="announcement-image-url-input" class="form-input text-sm" placeholder="https://drive.google.com/..." onchange="updateAnnouncementPreview(this.value)">
+        <p class="text-xs text-indigo-500 mt-1">*รองรับลิงก์ Google Drive (ต้องเปิดแชร์สาธารณะ)</p>
+    </div>
+
+    <div id="current-announcement-img-preview" class="mt-3 hidden text-center border p-2 bg-white rounded">
+    <p class="text-xs text-gray-400 mb-1 text-left">ตัวอย่างรูปภาพ:</p>
+    <img src="" class="h-40 mx-auto rounded shadow-sm object-cover" 
+         onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNjY2MiIHN0cm9rZS13aWR0aD0iMiI+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9IjE4IiBoZWlnaHQ9IjE4IiByeD0iMiIgcnk9IjIiPjwvcmVjdD48Y2lyY2xlIGN4PSI4LjUiIGN5PSI4LjUiIHI9IjEuNSI+PC9jaXJjbGU+PHBvbHlsaW5lIHBvaW50cz0iMjEgMTUgMTYgMTAgNSAyMSI+PC9wb2x5bGluZT48L3N2Zz4='">
+</div>
+</div>
+
+                <button type="submit" id="save-announcement-btn" class="btn btn-primary w-full py-2">
+                    <div class="loader hidden"></div>
+                    <span>บันทึกประกาศ</span>
+                </button>
+            </form>
+        </div>
+    </div>
+            </main>
+            
+            <footer class="app-shell-footer text-center text-sm text-gray-500 py-4 border-t border-gray-200 mt-auto">
+                <p>จัดทำโดยกลุ่มบริหารงานบุคคล โรงเรียนวังน้ำเย็นวิทยาคม </p>
+                <p>พัฒนาระบบโดย ครูกีรติ ประสพพรรังสี </p>
+            </footer>
+        </div><!-- /.main-wrapper -->
+
+        <div id="register-modal" class="modal">
+    <div class="modal-content">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">ลงทะเบียนผู้ใช้ใหม่</h3>
+            <button id="register-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+        </div>
+        <form id="register-form">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="reg-username" class="form-label">ชื่อผู้ใช้</label>
+                    <input type="text" id="reg-username" class="form-input" required>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="reg-password" class="form-label">รหัสผ่าน</label>
+                    <input type="password" id="reg-password" class="form-input" required>
+                </div>
+                <div>
+                    <label for="reg-confirm-password" class="form-label">ยืนยันรหัสผ่าน</label>
+                    <input type="password" id="reg-confirm-password" class="form-input" required>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label for="reg-name" class="form-label">ชื่อ-นามสกุล</label>
+                <input type="text" id="reg-name" class="form-input" required>
+            </div>
+            
+            <div class="mb-4">
+                <label for="reg-position" class="form-label">ตำแหน่ง</label>
+                <input type="text" id="reg-position" class="form-input" required>
+            </div>
+            
+            <div class="mb-4">
+                <label for="reg-department" class="form-label">กลุ่มสาระ/งาน</label>
+                <input type="text" id="reg-department" class="form-input" required>
+            </div>
+            
+            <div class="mb-4">
+                <label for="reg-email" class="form-label">อีเมล (สำหรับการแจ้งเตือน)</label>
+                <input type="email" id="reg-email" class="form-input" required>
+            </div>
+<div class="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-200">
+    <label for="reg-role" class="form-label font-bold text-blue-800">สิทธิ์การใช้งาน (Role)</label>
+    <select id="reg-role" class="form-input bg-white" required>
+        <option value="user">1. User (ครู/ผู้ใช้งานทั่วไป)</option>
+        <optgroup label="2. หัวหน้ากลุ่มสาระการเรียนรู้">
+            <option value="head_thai"> - หัวหน้ากลุ่มสาระฯ ภาษาไทย</option>
+            <option value="head_foreign"> - หัวหน้ากลุ่มสาระฯ ภาษาต่างประเทศ</option>
+            <option value="head_science"> - หัวหน้ากลุ่มสาระฯ วิทยาศาสตร์และเทคโนโลยี</option>
+            <option value="head_art"> - หัวหน้ากลุ่มสาระฯ ศิลปะ</option>
+            <option value="head_social"> - หัวหน้ากลุ่มสาระฯ สังคมศึกษาฯ</option>
+            <option value="head_health"> - หัวหน้ากลุ่มสาระฯ สุขศึกษาและพลศึกษา</option>
+            <option value="head_career"> - หัวหน้ากลุ่มสาระฯ การงานอาชีพ</option>
+            <option value="head_math"> - หัวหน้ากลุ่มสาระฯ คณิตศาสตร์</option>
+        </optgroup>
+        <option value="deputy_acad">3. รองผู้อำนวยการกลุ่มบริหารวิชาการ</option>
+        <option value="deputy_personnel">4. รองผู้อำนวยการกลุ่มบริหารงานบุคคล</option>
+        <option value="saraban">5. สารบรรณโรงเรียน</option>
+        <option value="director">6. ผู้อำนวยการโรงเรียน</option>
+        <option value="admin">7. Admin (ผู้ดูแลระบบ)</option>
+    </select>
+    <p class="text-xs text-blue-600 mt-2">* ระบบจะแสดงเมนู "เอกสารรอลงนาม" ตามสิทธิ์ที่เลือกที่นี่โดยอัตโนมัติ</p>
+</div>
+            <div class="flex justify-end gap-4">
+                <button type="button" id="register-modal-close-button2" class="btn bg-gray-500 text-white">ยกเลิก</button>
+                <button type="submit" id="register-submit-button" class="btn btn-primary">
+                    <div id="register-loader" class="loader hidden"></div>
+                    <span>ลงทะเบียน</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+<div id="edit-user-modal" class="modal fixed inset-0 bg-black bg-opacity-50 z-[60] hidden flex items-center justify-center">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden transform transition-all">
+        <div class="bg-gradient-to-r from-yellow-500 to-orange-500 p-4 flex justify-between items-center">
+            <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                <span>✏️</span> แก้ไขข้อมูลผู้ใช้
+            </h3>
+            <button type="button" id="edit-user-modal-close" class="text-white hover:text-gray-200 focus:outline-none">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <!-- Username display bar -->
+        <div class="bg-amber-50 border-b border-amber-200 px-5 py-2 flex items-center gap-2 text-sm text-amber-800">
+            <svg class="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+            <span class="text-amber-700">กำลังแก้ไขบัญชี:</span>
+            <span id="edit-user-username-label" class="font-mono font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300"></span>
+        </div>
+        <div class="p-6">
+            <form id="edit-user-form" class="space-y-4">
+                <input type="hidden" id="edit-uid">
+                
+                <div>
+                    <label class="form-label font-bold text-gray-700">ชื่อ-นามสกุล</label>
+                    <input type="text" id="edit-name" class="form-input" required>
+                </div>
+
+                <!-- Login Name -->
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <label class="form-label font-bold text-blue-800 flex items-center gap-1.5 mb-1">
+                        🔐 ชื่อที่ใช้ล็อกอิน (Login Name)
+                    </label>
+                    <input type="text" id="edit-user-loginname" class="form-input bg-white font-mono" placeholder="เช่น kong, t513 (เว้นว่างถ้าใช้รหัสประจำตัวเป็น Username)">
+                    <p class="text-xs text-blue-600 mt-1.5">💡 ผู้ใช้สามารถล็อกอินด้วยชื่อนี้แทนรหัส <span class="font-mono font-bold" id="edit-user-uid-hint"></span> ได้ — หากเว้นว่างจะใช้รหัสประจำตัวเป็นค่าเริ่มต้น</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="form-label font-bold text-gray-700">ตำแหน่ง</label>
+                        <input type="text" id="edit-position" class="form-input" required>
+                    </div>
+                    <div>
+                        <label class="form-label font-bold text-gray-700">กลุ่มสาระฯ/ฝ่าย</label>
+                        <input type="text" id="edit-user-dept" class="form-input" required>
+                    </div>
+                </div>
+                
+                <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+    <label class="form-label font-bold text-blue-800">สิทธิ์การใช้งาน (Role)</label>
+    <select id="edit-role" class="form-input bg-white" required>
+        <option value="user">1. User (ครู/ผู้ใช้งานทั่วไป)</option>
+        <optgroup label="2. หัวหน้ากลุ่มสาระการเรียนรู้">
+            <option value="head_thai"> - หัวหน้ากลุ่มสาระฯ ภาษาไทย</option>
+            <option value="head_foreign"> - หัวหน้ากลุ่มสาระฯ ภาษาต่างประเทศ</option>
+            <option value="head_science"> - หัวหน้ากลุ่มสาระฯ วิทยาศาสตร์และเทคโนโลยี</option>
+            <option value="head_art"> - หัวหน้ากลุ่มสาระฯ ศิลปะ</option>
+            <option value="head_social"> - หัวหน้ากลุ่มสาระฯ สังคมศึกษาฯ</option>
+            <option value="head_health"> - หัวหน้ากลุ่มสาระฯ สุขศึกษาและพลศึกษา</option>
+            <option value="head_career"> - หัวหน้ากลุ่มสาระฯ การงานอาชีพ</option>
+            <option value="head_math"> - หัวหน้ากลุ่มสาระฯ คณิตศาสตร์</option>
+        </optgroup>
+        <option value="deputy_acad">3. รองผู้อำนวยการกลุ่มบริหารวิชาการ</option>
+        <option value="deputy_personnel">4. รองผู้อำนวยการกลุ่มบริหารงานบุคคล</option>
+        <option value="saraban">5. สารบรรณโรงเรียน</option>
+        <option value="director">6. ผู้อำนวยการโรงเรียน</option>
+        <option value="admin">7. Admin (ผู้ดูแลระบบ)</option>
+    </select>
+</div>
+                
+                <div class="flex justify-end gap-4 mt-6">
+                    <button type="button" id="edit-user-cancel" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium">ยกเลิก</button>
+                    <button type="submit" id="edit-user-submit" class="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors font-medium shadow-md flex items-center justify-center min-w-[120px]">
+                        <span id="edit-user-btn-text">บันทึกข้อมูล</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<!-- ★ Admin Routing Modal — เลือกส่งต่อเอกสารได้อิสระ ★ -->
+<div id="admin-route-modal" class="modal fixed inset-0 bg-black bg-opacity-50 z-[65] hidden flex items-center justify-center">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-blue-600 to-indigo-700 px-5 py-4 flex items-center justify-between">
+            <div>
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">📤 เลือกส่งต่อเอกสาร</h3>
+                <p class="text-blue-200 text-xs mt-0.5">เอกสาร: <span id="route-doc-id-display" class="font-mono font-bold text-white"></span></p>
+            </div>
+            <button onclick="closeAdminRouteModal()" class="text-blue-200 hover:text-white transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <!-- Info: ลงนามแล้ว -->
+        <div id="route-signed-summary" class="hidden bg-green-50 border-b border-green-200 px-5 py-2.5 text-sm text-green-700">
+            <span class="font-bold">✅ ลงนามแล้ว:</span>
+            <span id="route-signed-list" class="ml-1 text-green-800"></span>
+        </div>
+        <!-- Body: routing options -->
+        <div class="px-5 pt-4 pb-2">
+            <p class="text-xs text-gray-400 mb-3">เลือกตำแหน่งที่ต้องการส่งต่อ — สามารถข้ามลำดับได้ตามดุลยพินิจ ตำแหน่งที่ ✅ ลงนามแล้วยังสามารถส่งซ้ำได้</p>
+            <div id="route-options-list" class="space-y-1.5 max-h-[50vh] overflow-y-auto pr-0.5">
+                <!-- Dynamically populated by adminRouteDocument() -->
+            </div>
+        </div>
+        <!-- Footer -->
+        <div class="px-5 py-4 bg-gray-50 border-t border-gray-100 flex gap-3">
+            <button onclick="closeAdminRouteModal()"
+                class="flex-1 py-2 bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 rounded-xl text-sm font-medium transition-colors">
+                ยกเลิก
+            </button>
+            <button onclick="confirmAdminRoute()" id="admin-route-confirm-btn"
+                class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow transition-colors flex items-center justify-center gap-1.5">
+                <span id="admin-route-btn-text">📤 ส่งต่อเลย</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ★ Admin Custom Status Modal — เปลี่ยนสถานะเอกสารได้อิสระ ★ -->
+<div id="admin-custom-status-modal" class="modal fixed inset-0 bg-black bg-opacity-50 z-[65] hidden flex items-center justify-center">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-indigo-600 to-blue-500 px-5 py-4 flex items-center justify-between">
+            <div>
+                <h3 class="text-white font-bold text-lg">✏️ เปลี่ยนสถานะเอกสาร</h3>
+                <p class="text-violet-200 text-xs mt-0.5">รหัส: <span id="cstatus-doc-id" class="font-mono font-bold text-white"></span></p>
+            </div>
+            <button onclick="closeCustomStatusModal()" class="text-white/80 hover:text-white text-2xl leading-none">✕</button>
+        </div>
+
+        <div class="px-5 py-4 space-y-4">
+            <!-- สถานะปัจจุบัน -->
+            <div class="bg-gray-50 rounded-lg p-3 text-sm">
+                <p class="text-gray-500 text-xs mb-1">สถานะปัจจุบัน</p>
+                <div class="flex flex-wrap gap-2">
+                    <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                        สถานะหลัก: <span id="cstatus-current-status" class="font-bold">—</span>
+                    </span>
+                    <span class="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-medium">
+                        สถานะเอกสาร: <span id="cstatus-current-docstatus" class="font-bold">—</span>
+                    </span>
+                </div>
+            </div>
+
+            <!-- ช่องพิมพ์ -->
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1.5">
+                    📝 สถานะใหม่ <span class="text-red-500">*</span>
+                </label>
+                <input type="text" id="cstatus-new-input" list="cstatus-suggestions"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none"
+                    placeholder="พิมพ์สถานะที่ต้องการ...">
+                <datalist id="cstatus-suggestions">
+                    <option value="อนุมัติ">
+                    <option value="เสร็จสิ้น">
+                    <option value="กำลังดำเนินการ">
+                    <option value="รอตรวจสอบ">
+                    <option value="นำกลับไปแก้ไข">
+                    <option value="ไม่อนุมัติ">
+                    <option value="Submitted">
+                    <option value="Pending">
+                    <option value="waiting_admin_review">
+                    <option value="waiting_saraban">
+                    <option value="waiting_director">
+                    <option value="สิ้นสุดกระบวนการ">
+                </datalist>
+            </div>
+
+            <!-- Quick-pick chips -->
+            <div>
+                <p class="text-xs text-gray-500 mb-2 font-medium">⚡ เลือกด่วน</p>
+                <div class="flex flex-wrap gap-1.5">
+                    <button onclick="document.getElementById('cstatus-new-input').value='อนุมัติ'"
+                        class="px-2.5 py-1 bg-green-100 hover:bg-green-200 text-green-700 text-xs font-bold rounded-full border border-green-200 transition-colors">✅ อนุมัติ</button>
+                    <button onclick="document.getElementById('cstatus-new-input').value='เสร็จสิ้น'"
+                        class="px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 text-xs font-bold rounded-full border border-emerald-200 transition-colors">🏁 เสร็จสิ้น</button>
+                    <button onclick="document.getElementById('cstatus-new-input').value='กำลังดำเนินการ'"
+                        class="px-2.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs font-bold rounded-full border border-blue-200 transition-colors">🔄 กำลังดำเนินการ</button>
+                    <button onclick="document.getElementById('cstatus-new-input').value='รอตรวจสอบ'"
+                        class="px-2.5 py-1 bg-yellow-100 hover:bg-yellow-200 text-yellow-700 text-xs font-bold rounded-full border border-yellow-200 transition-colors">⏳ รอตรวจสอบ</button>
+                    <button onclick="document.getElementById('cstatus-new-input').value='นำกลับไปแก้ไข'"
+                        class="px-2.5 py-1 bg-orange-100 hover:bg-orange-200 text-orange-700 text-xs font-bold rounded-full border border-orange-200 transition-colors">↩️ นำกลับแก้ไข</button>
+                    <button onclick="document.getElementById('cstatus-new-input').value='ไม่อนุมัติ'"
+                        class="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-bold rounded-full border border-red-200 transition-colors">❌ ไม่อนุมัติ</button>
+                </div>
+                <div class="flex flex-wrap gap-1.5 mt-1.5">
+                    <button onclick="document.getElementById('cstatus-new-input').value='waiting_admin_review'"
+                        class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-medium rounded-full border border-gray-200 transition-colors font-mono">waiting_admin_review</button>
+                    <button onclick="document.getElementById('cstatus-new-input').value='waiting_saraban'"
+                        class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-medium rounded-full border border-gray-200 transition-colors font-mono">waiting_saraban</button>
+                    <button onclick="document.getElementById('cstatus-new-input').value='waiting_director'"
+                        class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-medium rounded-full border border-gray-200 transition-colors font-mono">waiting_director</button>
+                </div>
+            </div>
+
+            <!-- ตัวเลือกอัปเดตฟิลด์ -->
+            <div class="bg-violet-50 border border-violet-200 rounded-lg p-3">
+                <p class="text-xs font-bold text-violet-700 mb-2">🎯 อัปเดตฟิลด์</p>
+                <div class="flex flex-wrap gap-3 text-xs">
+                    <label class="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" id="cstatus-update-status" checked class="accent-violet-600">
+                        <span class="text-gray-700">สถานะหลัก <code class="bg-gray-100 px-1 rounded">status</code></span>
+                    </label>
+                    <label class="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" id="cstatus-update-docstatus" checked class="accent-violet-600">
+                        <span class="text-gray-700">สถานะเอกสาร <code class="bg-gray-100 px-1 rounded">docStatus</code></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-5 py-4 bg-gray-50 border-t flex gap-3">
+            <button onclick="closeCustomStatusModal()"
+                class="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-100 transition-colors">
+                ยกเลิก
+            </button>
+            <button onclick="confirmCustomStatus()"
+                class="flex-1 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors shadow-sm">
+                💾 บันทึกสถานะ
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="requester-stamper-modal" class="modal fixed inset-0 bg-black bg-opacity-80 z-[70] hidden flex flex-col items-center justify-center">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 flex flex-col overflow-hidden" style="height: 90vh;">
+        <div class="p-4 bg-indigo-600 flex justify-between items-center">
+            <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                <span>👆</span> กรุณาแตะตรงจุดที่ต้องการวางลายเซ็นบนเอกสาร
+            </h3>
+            <button type="button" onclick="if(typeof window.cancelSignaturePlacement==='function') window.cancelSignaturePlacement();" class="text-white hover:text-red-300 focus:outline-none" title="ยกเลิก">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div class="p-2 bg-yellow-100 text-yellow-800 text-sm font-medium flex items-center justify-between gap-3 shadow-sm flex-wrap">
+            <span>เลื่อนดูเอกสาร และ <b>คลิก/แตะ</b> บนหน้ากระดาษตรงจุดที่คุณต้องการประทับลายมือชื่อ</span>
+            <div class="flex gap-2 flex-shrink-0">
+                <button type="button" onclick="if(typeof window.skipSignaturePlacement==='function') window.skipSignaturePlacement();"
+                    class="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-300 transition whitespace-nowrap">
+                    ข้าม (ไม่วางลายเซ็น)
+                </button>
+                <button type="button" onclick="if(typeof window.cancelSignaturePlacement==='function') window.cancelSignaturePlacement();"
+                    class="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-200 transition whitespace-nowrap">
+                    ❌ ยกเลิก
+                </button>
+            </div>
+        </div>
+        <div class="flex-1 overflow-auto bg-gray-100 p-3">
+            <div id="requester-pdf-pages" class="flex flex-col items-center gap-3"></div>
+        </div>
+    </div>
+</div>
+<div id="requester-draw-sig-modal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[80]">
+    <div class="bg-white p-6 rounded-xl shadow-2xl text-center w-[95%] max-w-[560px]">
+        <h3 class="text-lg font-bold mb-2 text-gray-800 flex items-center justify-center gap-2"><span>✍️</span> กรุณาเซ็นชื่อของคุณ</h3>
+        <p class="text-sm text-gray-500 mb-4">ใช้นิ้ว ปากกา หรือเมาส์ เซ็นลงในกรอบด้านล่าง (กรอบนี้แสดงสัดส่วนเท่ากับลายเซ็นในเอกสาร)</p>
+        <div class="signature-pad-shell mb-4">
+            <div class="signature-pad-frame">
+                <canvas id="requester-draw-canvas"></canvas>
+            </div>
+        </div>
+        <div class="flex justify-between gap-2">
+            <button type="button" id="req-sig-clear-btn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium">ล้างใหม่</button>
+            <button type="button" id="req-sig-confirm-btn" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-md">ตกลงและประทับตรา</button>
+        </div>
+    </div>
+</div>
+        <div id="alert-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="alert-modal-title" class="text-xl font-bold">แจ้งเตือน</h3>
+                    <button id="alert-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <p id="alert-modal-message" class="mb-6"></p>
+                <div class="flex justify-end">
+                    <button id="alert-modal-ok-button" class="btn btn-primary">ตกลง</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="confirm-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="confirm-modal-title" class="text-xl font-bold">ยืนยันการดำเนินการ</h3>
+                    <button id="confirm-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <p id="confirm-modal-message" class="mb-6"></p>
+                <div class="flex justify-end gap-4">
+                    <button id="confirm-modal-no-button" class="btn bg-gray-500 text-white">ไม่</button>
+                    <button id="confirm-modal-yes-button" class="btn btn-primary">ใช่</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="send-memo-modal" class="modal">
+    <div class="modal-content">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">ส่งบันทึกข้อความ</h3>
+            <button id="send-memo-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+        </div>
+        <form id="send-memo-form">
+    <input type="hidden" id="memo-modal-request-id">
+    <input type="hidden" id="pre-signed-memo-url">
+    <div id="pre-signed-memo-display" class="hidden mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+        <p class="text-sm font-bold text-green-700 flex items-center gap-2">✅ ระบบดึงบันทึกข้อความให้อัตโนมัติแล้ว</p>
+        <a id="pre-signed-memo-link" href="#" target="_blank" class="text-xs text-blue-600 underline mt-1 block">📄 ดูเอกสารบันทึกข้อความ</a>
+        <p class="text-xs text-gray-500 mt-1">ระบบจะรวมบันทึกนี้กับไฟล์แนบที่คุณเพิ่มโดยอัตโนมัติ</p>
+    </div>
+
+    <div id="memo-source-mode-container" class="mb-4 bg-white border border-sky-100 rounded-lg p-3 hidden">
+        <label class="form-label font-bold text-gray-800 flex items-center gap-2"><span>📄</span> แหล่งบันทึกข้อความ</label>
+        <div class="flex flex-wrap gap-2 mt-2">
+            <button type="button" id="memo-source-auto-btn" class="btn bg-emerald-100 text-emerald-700 border border-emerald-200 hover:bg-emerald-200">
+                ✅ ใช้บันทึกจากระบบ
+            </button>
+            <button type="button" id="memo-source-manual-btn" class="btn bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200">
+                ⬆️ อัปโหลดบันทึกเอง
+            </button>
+        </div>
+        <p class="text-xs text-gray-500 mt-2">ค่าเริ่มต้นคือดึงบันทึกข้อความจากระบบอัตโนมัติ แต่หากยังไม่ได้เซ็นออนไลน์สามารถอัปโหลดไฟล์เองแทนได้</p>
+    </div>
+
+    <div id="memo-manual-upload-container" class="hidden mb-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <label for="file-signed-memo" class="form-label text-sm font-bold text-amber-800">อัปโหลดบันทึกข้อความด้วยตัวเอง (PDF)</label>
+        <input type="file" id="file-signed-memo" class="form-input text-sm bg-white" accept=".pdf">
+        <p class="text-xs text-amber-700 mt-2">ระบบจะใช้ไฟล์นี้แทนบันทึกที่ดึงอัตโนมัติ และยังสามารถรวมกับเอกสารแนบอื่นได้ตามปกติ</p>
+    </div>
+
+    <div id="memo-workflow-mode-banner" class="hidden mb-4 p-3 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-sm font-semibold"></div>
+
+    <div id="modal-memo-type-container" class="mb-4 bg-gray-50 p-3 rounded border">
+        <label class="form-label font-bold text-gray-700">ประเภทการดำเนินการ</label>
+        <div class="space-y-2 mt-2">
+            <div class="flex items-center">
+                <input type="radio" id="memo_type_reimburse" name="modal_memo_type" value="reimburse" class="h-4 w-4 text-indigo-600">
+                <label for="memo_type_reimburse" class="ml-2">1. เบิกค่าใช้จ่าย (ส่งเอกสารฉบับจริงที่ครูกีรติงานบุคคล)</label>
+            </div>
+            <div class="flex items-center">
+                <input type="radio" id="memo_type_non_reimburse" name="modal_memo_type" value="non_reimburse" class="h-4 w-4 text-indigo-600" checked>
+                <label for="memo_type_non_reimburse" class="ml-2 font-bold text-indigo-700">2. ไม่เบิกค่าใช้จ่าย (แนบไฟล์ในระบบ)</label>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-forward-to-container" class="mb-4 bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+        <label class="form-label font-bold text-gray-800 flex items-center gap-2"><span>➡️</span> ส่งต่อให้หัวหน้ากลุ่มสาระฯ / ผู้ตรวจสอบ</label>
+        <select id="modal-forward-to" class="form-input mt-1 bg-white" required>
+            <option value="">-- เลือกผู้รับเรื่องต่อ --</option>
+            <option value="waiting_head_thai">หัวหน้ากลุ่มสาระฯ ภาษาไทย</option>
+            <option value="waiting_head_foreign">หัวหน้ากลุ่มสาระฯ ภาษาต่างประเทศ</option>
+            <option value="waiting_head_science">หัวหน้ากลุ่มสาระฯ วิทยาศาสตร์และเทคโนโลยี</option>
+            <option value="waiting_head_art">หัวหน้ากลุ่มสาระฯ ศิลปะ</option>
+            <option value="waiting_head_social">หัวหน้ากลุ่มสาระฯ สังคมศึกษาฯ</option>
+            <option value="waiting_head_health">หัวหน้ากลุ่มสาระฯ สุขศึกษาและพลศึกษา</option>
+            <option value="waiting_head_career">หัวหน้ากลุ่มสาระฯ การงานอาชีพ</option>
+            <option value="waiting_head_math">หัวหน้ากลุ่มสาระฯ คณิตศาสตร์</option>
+            <option value="waiting_head_guidance">หัวหน้างานแนะแนว</option>
+            <option value="waiting_head_acad">หัวหน้ากลุ่มบริหารวิชาการ</option>
+            <option value="waiting_head_personnel">หัวหน้ากลุ่มบริหารงานบุคคล</option>
+            <option value="waiting_head_budget">หัวหน้ากลุ่มบริหารงบประมาณ</option>
+            <option value="waiting_head_general">หัวหน้ากลุ่มบริหารทั่วไป</option>
+            <option value="waiting_deputy_acad">รองผู้อำนวยการกลุ่มบริหารวิชาการ</option>
+            <option value="waiting_deputy_personnel">รองผู้อำนวยการกลุ่มบริหารงานบุคคล</option>
+            <option value="waiting_deputy_general">รองผู้อำนวยการกลุ่มบริหารทั่วไป</option>
+            <option value="waiting_deputy_budget">รองผู้อำนวยการกลุ่มบริหารงบประมาณ</option>
+            <option value="waiting_director">ผู้อำนวยการโรงเรียน</option>
+        </select>
+    </div>
+    <div id="modal-non-reimburse-files" class="mb-4 space-y-4 border-t pt-4 hidden">
+        <div class="bg-blue-50 p-3 rounded border border-blue-200 mb-2">
+            <p class="text-sm text-blue-800 font-bold mb-1">คำแนะนำ:</p>
+            <p class="text-xs text-blue-600">ระบบจะดึงบันทึกข้อความจากระบบให้อัตโนมัติ กรุณาแนบเฉพาะเอกสารเพิ่มเติมด้านล่าง</p>
+        </div>
+
+        <div>
+            <label id="file-exchange-label" class="form-label text-sm text-gray-600">1. ไฟล์แลกคาบสอน (PDF) <span class="text-gray-400 font-normal">(ถ้ามี)</span></label>
+            <input type="file" id="file-exchange" class="form-input text-sm" accept=".pdf,.jpg,.png,.jpeg">
+        </div>
+
+        <div>
+            <label id="file-ref-doc-label" class="form-label text-sm text-red-600 font-bold">* 2. หนังสือต้นเรื่อง/หนังสือเชิญ (PDF)</label>
+            <input type="file" id="file-ref-doc" class="form-input text-sm" accept=".pdf,.jpg,.png,.jpeg">
+        </div>
+        <p id="memo-upload-requirements-summary" class="text-xs text-gray-500 mt-1"></p>
+    </div>
+    
+    <div class="flex justify-end gap-4 mt-6">
+        <button type="button" id="send-memo-cancel-button" class="btn bg-gray-500 text-white hover:bg-gray-600">ยกเลิก</button>
+        <button type="submit" id="send-memo-submit-button" class="btn bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg flex items-center gap-2">
+            <div id="send-memo-loader" class="loader hidden w-4 h-4 border-white"></div>
+            <span>ส่งต่อบันทึก</span>
+        </button>
+    </div>
+</form>
+    </div>
+</div>
+
+        <div id="command-approval-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold">อนุมัติคำสั่งไปราชการ</h3>
+                    <button id="command-approval-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <form id="command-approval-form">
+                    <input type="hidden" id="command-request-id">
+                    <div class="mb-4">
+                        <label class="form-label">เลือกรูปแบบคำสั่ง</label>
+                        <div class="space-y-2">
+                            <div>
+                                <input type="radio" id="command_type_solo" name="command_type" value="solo" class="h-4 w-4">
+                                <label for="command_type_solo" class="ml-2">คำสั่งเดี่ยว (1 คน)</label>
+                            </div>
+                            <div>
+                                <input type="radio" id="command_type_group_small" name="command_type" value="groupSmall" class="h-4 w-4">
+                                <label for="command_type_group_small" class="ml-2">คำสั่งกลุ่มเล็ก (2-5 คน)</label>
+                            </div>
+                            <div>
+                                <input type="radio" id="command_type_group_large" name="command_type" value="groupLarge" class="h-4 w-4">
+                                <label for="command_type_group_large" class="ml-2">คำสั่งกลุ่มใหญ่ (6 คนขึ้นไป)</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-4">
+                        <button type="button" id="command-approval-cancel-button" class="btn bg-gray-500 text-white">ยกเลิก</button>
+                        <button type="submit" id="command-approval-submit-button" class="btn btn-primary">
+                            <div id="command-approval-loader" class="loader hidden"></div>
+                            <span>อนุมัติคำสั่ง</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="dispatch-modal" class="modal fixed inset-0 bg-gray-900 bg-opacity-60 overflow-y-auto h-full w-full z-50 hidden flex items-center justify-center backdrop-blur-sm">
+    <div class="modal-content bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 overflow-hidden">
+        
+        <div class="bg-gradient-to-r from-blue-600 to-blue-800 p-4 flex justify-between items-center text-white">
+            <div class="flex items-center gap-2">
+                <span class="text-2xl">📦</span>
+                <h3 class="text-xl font-bold">ออกหนังสือส่งราชการ</h3>
+            </div>
+            <button id="dispatch-modal-close-button" class="text-white hover:text-gray-200 text-3xl font-light leading-none">&times;</button>
+        </div>
+
+        <form id="dispatch-form" class="p-6 max-h-[85vh] overflow-y-auto">
+            <input type="hidden" id="dispatch-request-id">
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                <div class="lg:col-span-8 space-y-6">
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h4 class="font-bold text-gray-700 mb-3 border-b pb-2">1. ข้อมูลส่วนหัว</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-sm text-gray-600 block mb-1">เดือน</label>
+                                <select id="dispatch-month" class="w-full form-input bg-white"></select>
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-600 block mb-1">ปี พ.ศ.</label>
+                                <input type="number" id="dispatch-year" class="w-full form-input">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-600 block mb-1">จำนวนครู</label>
+                                <input type="number" id="teacher-count" class="w-full form-input font-bold text-blue-600 bg-blue-50">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-600 block mb-1">จำนวนนักเรียน</label>
+                                <input type="number" id="student-count" class="w-full form-input font-bold text-green-600 bg-green-50">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h4 class="font-bold text-gray-700 mb-3 border-b pb-2">2. รายละเอียดการเดินทาง</h4>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="text-sm text-gray-600">เรื่อง/วัตถุประสงค์</label>
+                                <input type="text" id="dispatch-purpose" class="w-full form-input">
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-sm text-gray-600">สถานที่ไป</label>
+                                    <input type="text" id="dispatch-location" class="w-full form-input">
+                                </div>
+                                <div>
+                                    <label class="text-sm text-gray-600">จังหวัด</label>
+                                    <input type="text" id="dispatch-province" class="w-full form-input" placeholder="เช่น สระแก้ว">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-sm text-gray-600 font-bold text-red-600">พักค้างคืนที่ (จำเป็นถ้าต่างจังหวัด)</label>
+                                    <input type="text" id="dispatch-stay-at" class="w-full form-input border-red-200 focus:border-red-500" placeholder="-">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                <div><label class="text-xs">วันไป</label><input type="date" id="dispatch-date-start" class="w-full form-input text-sm"></div>
+                                <div><label class="text-xs">เวลาไป</label><input type="time" id="dispatch-time-start" class="w-full form-input text-sm"></div>
+                                <div><label class="text-xs">วันกลับ</label><input type="date" id="dispatch-date-end" class="w-full form-input text-sm"></div>
+                                <div><label class="text-xs">เวลากลับ</label><input type="time" id="dispatch-time-end" class="w-full form-input text-sm"></div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-sm text-gray-600">พาหนะ</label>
+                                    <input type="text" id="dispatch-vehicle-type" class="w-full form-input">
+                                </div>
+                                <div>
+                                    <label class="text-sm text-gray-600">ทะเบียนรถ</label>
+                                    <input type="text" id="dispatch-vehicle-id" class="w-full form-input">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-4 bg-yellow-50 p-4 rounded-lg border border-yellow-200 h-fit">
+                    <h4 class="font-bold text-yellow-800 mb-3 border-b border-yellow-200 pb-2">📎 สิ่งที่ส่งมาด้วย (จำนวนชุด)</h4>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between items-center">
+                            <label>1. หนังสือเชิญ</label>
+                            <input type="text" id="qty1" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>2. คำสั่งโรงเรียน</label>
+                            <input type="text" id="qty2" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>3. รายชื่อนักเรียน</label>
+                            <input type="text" id="qty3" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>4. แผนที่เดินทาง</label>
+                            <input type="text" id="qty4" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>5. หนังสือขออนุญาต</label>
+                            <input type="text" id="qty5" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>6. กรมธรรม์</label>
+                            <input type="text" id="qty6" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label>7. กำหนดการ</label>
+                            <input type="text" id="qty7" class="w-16 form-input text-center h-8" value="๑">
+                        </div>
+                    </div>
+                    <div class="mt-4 text-xs text-yellow-700">
+                        * ระบุเป็นเลขไทยหรืออารบิกก็ได้ ระบบจะแปลงเป็นเลขไทยให้อัตโนมัติ
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="flex justify-end gap-3 mt-6 pt-4 border-t">
+                <button type="button" id="dispatch-cancel-button" class="px-6 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100">ยกเลิก</button>
+                <button type="submit" id="dispatch-submit-button" class="px-6 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 shadow-lg flex items-center gap-2">
+                    <div id="dispatch-loader" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>สร้างเอกสารและบันทึก</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+<div id="announcement-modal" class="modal" style="z-index: 200;">
+    <div class="modal-content w-[95%] md:w-[60%] mx-auto p-0 overflow-hidden rounded-2xl shadow-2xl animate-bounce-in">
+        <div id="announcement-header" class="bg-indigo-600 p-4 text-white flex justify-between items-center">
+            <h3 id="announcement-title" class="text-xl font-bold">ประกาศสำคัญ</h3>
+            <button onclick="closeAnnouncement()" class="text-white hover:text-gray-200 text-2xl">&times;</button>
+        </div>
+        <div class="p-6">
+            <img id="announcement-image" src="" class="w-full h-auto rounded-lg mb-4 hidden shadow-sm object-cover max-h-60">
+            <div id="announcement-message" class="text-gray-700 text-lg leading-relaxed whitespace-pre-line"></div>
+            
+            <div class="mt-6 text-center">
+                <button onclick="closeAnnouncement()" class="btn btn-primary w-full py-2 text-lg shadow-lg">รับทราบ</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+        <div id="admin-memo-action-modal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold">จัดการบันทึกข้อความ</h3>
+                    <button id="admin-memo-action-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+                <form id="admin-memo-action-form">
+                    <input type="hidden" id="admin-memo-id">
+                    <input type="hidden" id="admin-memo-refnumber">
+                    <div class="mb-4">
+                        <label for="admin-memo-status" class="form-label">สถานะ</label>
+                        <select id="admin-memo-status" class="form-input" required>
+                            <option value="กำลังดำเนินการ">กำลังดำเนินการ</option>
+                            <option value="รอเอกสาร (เบิก)">รอเอกสาร (เบิก)</option>
+                            <option value="เสร็จสิ้นรอออกคำสั่งไปราชการ">เสร็จสิ้นรอออกคำสั่งไปราชการ</option>
+                            <option value="นำกลับไปแก้ไข">นำกลับไปแก้ไข</option>
+                            <option value="เสร็จสิ้น/รับไฟล์ไปใช้งาน">เสร็จสิ้น/รับไฟล์ไปใช้งาน</option>
+                            <option value="ยกเลิก" class="text-red-600">❌ ยกเลิกและลบออกจากระบบ</option>
+                        </select>
+                    </div>
+
+                    <!-- ช่องเหตุผลตีกลับ: แสดงเฉพาะเมื่อเลือก "นำกลับไปแก้ไข" -->
+                    <div id="admin-rejection-reason-container" class="mb-4 hidden">
+                        <label class="form-label text-red-600 font-bold">เหตุผลที่ตีกลับ</label>
+                        <textarea id="admin-rejection-reason" class="form-input" rows="2"
+                            placeholder="ระบุเหตุผลที่ส่งกลับไปแก้ไข..."></textarea>
+                    </div>
+
+                    <!-- ช่องเหตุผลยกเลิก: แสดงเฉพาะเมื่อเลือก "ยกเลิก" -->
+                    <div id="admin-cancel-reason-container" class="mb-4 hidden">
+                        <label class="form-label text-red-700 font-bold">⚠️ เหตุผลที่ยกเลิก (จะลบบันทึกออกจากระบบทั้งหมด)</label>
+                        <textarea id="admin-cancel-reason" class="form-input border-red-400" rows="2"
+                            placeholder="ระบุเหตุผลที่ยกเลิก..."></textarea>
+                    </div>
+
+                    <div id="admin-file-uploads" class="space-y-4 hidden">
+                        <div>
+                            <label class="form-label">ไฟล์บันทึกข้อความที่สมบูรณ์</label>
+                            <input type="file" id="admin-completed-memo-file" class="form-input" accept=".pdf,.doc,.docx">
+                        </div>
+                        <div>
+                            <label class="form-label">ไฟล์คำสั่งที่สมบูรณ์</label>
+                            <input type="file" id="admin-completed-command-file" class="form-input" accept=".pdf,.doc,.docx">
+                        </div>
+                        <div>
+                            <label class="form-label">ไฟล์หนังสือส่ง</label>
+                            <input type="file" id="admin-dispatch-book-file" class="form-input" accept=".pdf,.doc,.docx">
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-end gap-4">
+                        <button type="button" id="admin-memo-cancel-button" class="btn bg-gray-500 text-white">ยกเลิก</button>
+                        <button type="submit" id="admin-memo-submit-button" class="btn btn-primary">
+                            <div id="admin-memo-loader" class="loader hidden"></div>
+                            <span>อัปเดตสถานะ</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div id="forgot-password-modal" class="modal">
+    <div class="modal-content">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">ลืมรหัสผ่าน</h3>
+            <button id="forgot-password-modal-close-button" class="text-gray-500 hover:text-gray-700">&times;</button>
+        </div>
+        <form id="forgot-password-form">
+            <div class="mb-4">
+                <label for="forgot-password-email" class="form-label">อีเมลที่ลงทะเบียนไว้</label>
+                <input type="text" id="forgot-password-email" class="form-input" required>
+            </div>
+            <div class="flex justify-end gap-4">
+                <button type="button" id="forgot-password-cancel-button" class="btn bg-gray-500 text-white">ยกเลิก</button>
+                <button type="submit" id="forgot-password-submit-button" class="btn btn-primary">
+                    <div id="forgot-password-loader" class="loader hidden"></div>
+                    <span>ส่งลิงก์รีเซ็ตรหัสผ่าน</span>
+                </button>
+            </div>
+        </form>
+    </div>
+            <div id="public-attendee-modal" class="modal">
+    <div class="modal-content">
+        <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <h3 class="text-xl font-bold text-indigo-700">รายละเอียดการเดินทาง</h3>
+            <button id="public-attendee-modal-close-button" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+        </div>
+        
+        <div class="space-y-4">
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                <p><strong>เรื่อง/วัตถุประสงค์:</strong> <span id="public-modal-purpose" class="text-gray-700"></span></p>
+                <p class="mt-1"><strong>สถานที่:</strong> <span id="public-modal-location" class="text-gray-700"></span></p>
+                <p class="mt-1"><strong>วันที่:</strong> <span id="public-modal-date" class="text-blue-600 font-bold"></span></p>
+            </div>
+
+            <div>
+                <h4 class="font-bold text-gray-800 mb-2 border-l-4 border-green-500 pl-2">รายชื่อผู้เดินทาง</h4>
+                <div class="overflow-y-auto max-h-60 border rounded-lg">
+                    <table class="w-full text-sm text-left">
+                        <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                            <tr>
+                                <th class="px-4 py-2">ลำดับ</th>
+                                <th class="px-4 py-2">ชื่อ-นามสกุล</th>
+                                <th class="px-4 py-2">ตำแหน่ง</th>
+                            </tr>
+                        </thead>
+                        <tbody id="public-modal-attendee-list" class="bg-white">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex justify-end mt-6">
+            <button type="button" id="public-attendee-modal-close-btn2" class="btn bg-gray-500 text-white">ปิดหน้าต่าง</button>
+        </div>
+    </div>
+</div>
+</div>
+</div>
+<!-- ══════════════════════════════════════════════════
+     SARABAN MODAL — 2 โหมด
+     command : ออกเลขที่+วันที่ (ลาก overlay บน PDF)
+     memo    : ตรวจสอบแล้วส่งผู้อำนวยการ
+══════════════════════════════════════════════════ -->
+<div id="saraban-stamper-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[600]">
+    <div class="bg-white w-11/12 max-w-4xl h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
+
+        <div class="bg-indigo-700 text-white px-6 py-3 flex justify-between items-center flex-shrink-0">
+            <h2 id="saraban-modal-title" class="text-lg font-bold">📝 งานสารบรรณ</h2>
+            <button onclick="closeSarabanModal()" class="text-white hover:text-red-300 font-bold text-2xl">&times;</button>
+        </div>
+
+        <!-- โหมดคำสั่ง: กรอกเลขที่+วันที่ -->
+        <div id="saraban-command-panel" class="bg-gray-100 p-3 border-b flex-shrink-0">
+            <div class="flex flex-wrap gap-3 items-end justify-center mb-2">
+                <div>
+                    <label id="saraban-doc-num-label" class="block text-xs font-bold text-gray-600 mb-1">เลขที่หนังสือ/คำสั่ง:</label>
+                    <input type="text" id="saraban-doc-num" placeholder="เช่น 123"
+                        class="input-field w-36 text-center text-lg font-bold">
+                </div>
+                <div>
+                    <label id="saraban-doc-date-label" class="block text-xs font-bold text-gray-600 mb-1">วันที่ออกเอกสาร:</label>
+                    <input type="text" id="saraban-doc-date" placeholder="เช่น 26 มีนาคม 2568"
+                        class="input-field w-52 text-center text-lg font-bold">
+                </div>
+            </div>
+            <div class="bg-yellow-50 text-yellow-800 px-3 py-2 rounded-lg border border-yellow-200 text-xs font-bold text-center">
+                <span id="saraban-instruction">👉 พิมพ์เลขที่และวันที่ด้านบน — ข้อความจะปรากฏบน PDF ให้ลากวางตำแหน่งที่ต้องการ</span>
+            </div>
+        </div>
+
+        <!-- โหมดบันทึก: แค่ตรวจสอบ -->
+        <div id="saraban-memo-panel" class="hidden bg-green-50 p-3 border-b flex-shrink-0">
+            <p id="saraban-memo-panel-text" class="text-green-800 font-bold text-center text-sm">📄 บันทึกข้อความ — ตรวจสอบเอกสารแล้วกดยืนยันส่งผู้อำนวยการ</p>
+        </div>
+
+        <!-- พื้นที่ PDF -->
+        <div id="saraban-pdf-container"
+            class="flex-1 overflow-auto bg-gray-300 p-4 text-center relative flex justify-center items-start">
+            <canvas id="saraban-pdf-canvas" class="shadow-md bg-white self-start"></canvas>
+            <!-- Draggable text overlays (.saraban-overlay) injected by JS -->
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-gray-50 px-4 py-3 border-t flex-shrink-0">
+
+            <!-- โหมดแก้ไข: ปุ่มรีเซ็ต + ปุ่มดูตัวอย่าง -->
+            <div id="saraban-edit-footer" class="flex justify-between items-center">
+                <div id="saraban-cmd-buttons">
+                    <button onclick="resetSarabanOverlays()"
+                        class="btn bg-gray-500 hover:bg-gray-600 text-white text-sm">🔄 รีเซ็ต</button>
+                </div>
+                <div id="saraban-memo-buttons" class="hidden">
+                    <a id="saraban-memo-view-link" href="#" target="_blank"
+                        class="btn bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm mr-2">📄 ดู PDF</a>
+                </div>
+                <button id="btn-saraban-confirm" onclick="applySarabanAction()"
+                    class="btn bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-8">
+                    💾 ยืนยัน
+                </button>
+            </div>
+
+            <!-- Preview Confirmation Bar (แสดงหลังดูตัวอย่าง) -->
+            <div id="saraban-preview-bar" class="hidden flex items-center gap-3">
+                <div class="flex-1 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 text-xs font-bold">
+                    👁️ นี่คือผลลัพธ์จริงใน PDF — ตรวจสอบตำแหน่งเลขที่และวันที่ให้ถูกต้องก่อนส่ง
+                </div>
+                <div class="flex gap-2 flex-shrink-0">
+                    <button onclick="_cancelSarabanPreview()"
+                        class="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium whitespace-nowrap">
+                        ✏️ แก้ไขตำแหน่ง
+                    </button>
+                    <button id="btn-saraban-confirm-send" onclick="_confirmSarabanUpload()"
+                        class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold whitespace-nowrap">
+                        ✅ ยืนยัน ส่งผู้อำนวยการ
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SIGNATURE MODAL — Drag-Drop System
+     วาด → ลากวางบน PDF → คัดลอกหลายจุด → ยืนยัน
+══════════════════════════════════════════════════ -->
+<div id="signature-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 z-[600] flex flex-col">
+
+    <div class="bg-blue-800 text-white px-4 py-3 flex justify-between items-center flex-shrink-0">
+        <h2 id="signature-modal-title" class="font-bold text-lg">✍️ ระบบลงนามอิเล็กทรอนิกส์</h2>
+        <button onclick="closeSignatureModal()"
+            class="text-white hover:text-red-300 font-bold text-2xl leading-none">&times;</button>
+    </div>
+
+    <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
+
+        <!-- ซ้าย: PDF Viewer -->
+        <div id="signature-pdf-container"
+            class="flex-1 overflow-auto bg-gray-300 p-4 relative flex flex-col items-center gap-2">
+            <canvas id="signature-pdf-canvas" class="shadow-md bg-white"></canvas>
+            <!-- .sig-placement elements injected by JS -->
+        </div>
+
+        <!-- ขวา: แผงวาดลายเซ็น -->
+        <div class="w-full md:w-72 bg-white border-t md:border-t-0 md:border-l flex flex-col p-4 gap-3 flex-shrink-0 overflow-y-auto">
+
+            <p class="text-sm font-bold text-gray-700">✍️ วาดลายเซ็น แล้วกด "วางบน PDF"</p>
+
+            <!-- กระดานวาด -->
+            <div class="w-full">
+                <div style="position:relative;padding-top:55%;border:2px dashed #d1d5db;border-radius:8px;background:#f9fafb;overflow:hidden;">
+                    <canvas id="signature-pad-canvas"
+                        style="position:absolute;top:0;left:0;width:100%;height:100%;touch-action:none;cursor:crosshair;display:block;">
+                    </canvas>
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <button onclick="clearSignaturePad()"
+                    class="flex-1 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium">
+                    🗑️ ล้าง
+                </button>
+                <button onclick="placeSignatureOnPdf()"
+                    class="flex-1 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold">
+                    📌 วางบน PDF
+                </button>
+            </div>
+
+            <button id="btn-dup-sig" onclick="duplicateLastSignature()"
+                class="hidden w-full py-2 text-sm bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg font-medium">
+                📋 คัดลอกไปวางจุดใหม่
+            </button>
+
+            <p class="text-xs text-gray-400 text-center">ลากลายเซ็นบน PDF เพื่อปรับตำแหน่ง • กด ✕ เพื่อลบ</p>
+
+            <button onclick="clearAllSignaturePlacements()"
+                class="w-full py-2 text-sm bg-red-100 hover:bg-red-200 text-red-600 rounded-lg font-medium">
+                🔄 เคลียร์ลายเซ็นทั้งหมด
+            </button>
+
+            <div class="mt-auto pt-3 border-t">
+                <button id="btn-confirm-signature" onclick="applySignatureToPdf()"
+                    class="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl text-base shadow-md">
+                    ✅ ยืนยันและส่งต่อ
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+    <script src="https://unpkg.com/pizzip@3.1.4/dist/pizzip.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/docxtemplater/3.50.0/docxtemplater.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+    <script src="https://unpkg.com/@pdf-lib/fontkit@0.0.4/dist/fontkit.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';</script>
+   <script src="../js/config.js?v=3"></script>          <script src="../js/utils.js?v=3"></script>
+<script src="../js/firebaseService.js?v=3"></script>  <script src="../js/auth.js?v=3"></script>
+<script src="../js/requests.js?v=4"></script>
+<script src="../js/admin.js?v=5"></script>
+<script src="../js/stats.js?v=3"></script>
+<script src="../js/tokenSign.js?v=4"></script>
+<script src="../js/main.js?v=6"></script>
+<script src="../js/sarabun.js?v=3"></script>
+<script src="../js/signature.js?v=3"></script>
+<script src="../js/pwa.js?v=2"></script>
+
+<!-- ====== Token Sign Overlay (ลงนามผ่านลิงก์ ไม่ต้อง Login) ====== -->
+<div id="token-sign-overlay"
+     class="hidden fixed inset-0 bg-gradient-to-br from-pink-100 to-blue-200 flex items-center justify-center z-[500] p-4">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8">
+
+    <!-- Logo & Header -->
+    <div class="text-center mb-6">
+      <img src="https://img2.pic.in.th/pic/WNY-App-.png" alt="Logo" class="mx-auto h-20 mb-3 drop-shadow-md">
+      <h1 class="text-2xl font-bold text-gray-800">ลงนามเอกสาร</h1>
+      <p class="text-sm text-gray-500 mt-1">ระบบบันทึกข้อความไปราชการ WNY</p>
+    </div>
+
+    <!-- Loading State -->
+    <div id="token-loading" class="text-center py-6">
+      <div class="loader mx-auto mb-3"></div>
+      <p class="text-gray-500">กำลังโหลดข้อมูลเอกสาร...</p>
+    </div>
+
+    <!-- Document Info -->
+    <div id="token-info" class="hidden bg-gray-50 rounded-xl p-4 mb-5 border border-gray-200">
+      <div class="space-y-2 text-sm">
+        <div class="flex gap-3">
+          <span class="text-gray-400 w-20 flex-shrink-0">เรื่อง:</span>
+          <span id="token-doc-title" class="font-semibold text-gray-800"></span>
+        </div>
+        <div class="flex gap-3">
+          <span class="text-gray-400 w-20 flex-shrink-0">ผู้ขอ:</span>
+          <span id="token-doc-requester" class="text-gray-700"></span>
+        </div>
+        <div class="flex gap-3">
+          <span class="text-gray-400 w-20 flex-shrink-0">วันที่:</span>
+          <span id="token-doc-date" class="text-gray-700"></span>
+        </div>
+        <div class="flex gap-3">
+          <span class="text-gray-400 w-20 flex-shrink-0">ขั้นตอน:</span>
+          <span id="token-doc-step" class="font-bold text-blue-700"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action / Result Area -->
+    <div id="token-content" class="hidden"></div>
+
+    <!-- Error State -->
+    <div id="token-error"
+         class="hidden text-center py-5 px-4 bg-red-50 rounded-xl border border-red-200 text-red-700 font-medium">
+    </div>
+
+  </div>
+</div>
+<!-- ====================================================== -->
+
+<!-- ===== TRAVEL SCHEDULE MODAL ===== -->
+<div id="travel-schedule-modal" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.55); display:none; align-items:center; justify-content:center; padding:16px;">
+  <div style="background:#fff; border-radius:16px; width:100%; max-width:600px; max-height:92vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,0.25); padding:28px 28px 24px;">
+
+	    <!-- Header -->
+	    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+	      <h2 style="font-size:1.15rem; font-weight:700; color:#065f46; margin:0;">📅 สร้างกำหนดการเดินทางพานักเรียน</h2>
+	      <button onclick="closeTravelScheduleModal()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#6b7280;line-height:1;">✕</button>
+	    </div>
+        <div id="ts-file-status" style="display:none; margin:-6px 0 14px; padding:10px 12px; border-radius:10px; background:#ecfdf5; border:1px solid #bbf7d0; color:#047857; font-size:0.85rem; font-weight:600;"></div>
+
+    <!-- Info grid (read-only) -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; background:#f0fdf4; border-radius:10px; padding:14px; margin-bottom:18px; font-size:0.85rem;">
+      <div><span style="color:#6b7280;">ครูผู้ควบคุม</span><br><strong id="ts-requester-name">—</strong></div>
+      <div><span style="color:#6b7280;">ตำแหน่ง</span><br><strong id="ts-requester-position">—</strong></div>
+      <div><span style="color:#6b7280;">จำนวนผู้โดยสาร</span><br><strong id="ts-total-count">—</strong></div>
+      <div><span style="color:#6b7280;">ยานพาหนะ</span><br><strong id="ts-vehicle">—</strong></div>
+      <div><span style="color:#6b7280;">หมายเลขทะเบียน</span><br><strong id="ts-license-plate">—</strong></div>
+      <div><span style="color:#6b7280;">วันเดินทาง</span><br><strong id="ts-date-range">—</strong></div>
+      <div style="grid-column:1/-1;"><span style="color:#6b7280;">สถานที่</span><br><strong id="ts-location">—</strong></div>
+      <div style="grid-column:1/-1;"><span style="color:#6b7280;">วัตถุประสงค์</span><br><strong id="ts-purpose">—</strong></div>
+    </div>
+
+    <!-- Editable fields -->
+    <div style="margin-bottom:12px;">
+      <label style="font-size:0.85rem; font-weight:600; color:#374151; display:block; margin-bottom:4px;">เบอร์โทรครูผู้ควบคุม <span style="color:#ef4444;">*</span></label>
+      <input id="ts-requester-tel" type="text" placeholder="0xx-xxx-xxxx"
+        style="width:100%; border:1px solid #d1d5db; border-radius:8px; padding:8px 12px; font-size:0.9rem; box-sizing:border-box;">
+    </div>
+	    <div style="margin-bottom:18px;">
+	      <label style="font-size:0.85rem; font-weight:600; color:#374151; display:block; margin-bottom:4px;">ชื่อพนักงานขับรถ <span style="color:#ef4444;">*</span></label>
+	      <input id="ts-driver-name" type="text" placeholder="ชื่อ-นามสกุล"
+	        style="width:100%; border:1px solid #d1d5db; border-radius:8px; padding:8px 12px; font-size:0.9rem; box-sizing:border-box;">
+	    </div>
+
+        <div style="margin-bottom:18px; border:1px solid #d1fae5; background:#f0fdf4; border-radius:12px; padding:14px;">
+          <div style="font-size:0.9rem; font-weight:700; color:#065f46; margin-bottom:8px;">✍️ ลายเซ็นครูผู้ควบคุม / ผู้ขอ</div>
+          <div class="signature-pad-shell" style="width:min(100%, 420px);">
+            <div class="signature-pad-frame" style="background:#fff; border-color:#a7f3d0;">
+              <canvas id="ts-signature-canvas"></canvas>
+            </div>
+          </div>
+          <button type="button" onclick="clearTravelScheduleSignature()" style="display:block; margin:8px auto 0; background:none; border:none; color:#6b7280; font-size:0.78rem; text-decoration:underline; cursor:pointer;">ล้างลายเซ็น</button>
+        </div>
+
+	    <!-- Dynamic itinerary rows -->
+    <div style="border-top:1px solid #e5e7eb; padding-top:16px; margin-bottom:20px;">
+      <h3 style="font-size:0.95rem; font-weight:700; color:#374151; margin:0 0 12px;">กำหนดการเดินทาง (แต่ละวัน)</h3>
+      <div id="ts-itinerary-rows"></div>
+    </div>
+
+	    <!-- Action buttons -->
+	    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button onclick="saveTravelScheduleDraft()" id="ts-save-btn"
+            style="flex:1; min-width:140px; background:#e0f2fe; color:#0369a1; border:none; border-radius:10px; padding:11px 0; font-size:0.9rem; font-weight:700; cursor:pointer;">
+            💾 บันทึกข้อมูล
+          </button>
+		      <button onclick="generateTravelSchedulePDF()" id="ts-generate-btn"
+		        style="flex:1; min-width:140px; background:linear-gradient(135deg,#7dd3fc,#f9a8d4); color:#7c2d92; border:none; border-radius:10px; padding:11px 0; font-size:0.9rem; font-weight:700; cursor:pointer;">
+	        📄 สร้าง PDF
+	      </button>
+	      <button onclick="closeTravelScheduleModal()"
+        style="padding:11px 20px; background:#f3f4f6; color:#374151; border:none; border-radius:10px; font-size:0.9rem; font-weight:600; cursor:pointer;">
+        ยกเลิก
+      </button>
+    </div>
+  </div>
+</div>
+<!-- ===== /TRAVEL SCHEDULE MODAL ===== -->
+
+
+</body>
+</html>

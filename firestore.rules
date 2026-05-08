@@ -1,0 +1,184 @@
+rules_version = '2';
+
+// ===================================================================
+// Firestore Security Rules — ระบบไปราชการ WNY HQ
+// อัปเดต: 2026-04-25
+//
+// แนวคิดชุดนี้:
+// - ลดปัญหา permission-denied จาก query ภายในระบบ
+// - คุม "การเขียน" ให้เข้มกว่าการอ่าน
+// - ผู้ใช้ที่ login ผ่านแอปและมี user profile แล้ว ถือเป็น app user
+// ===================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ----------------------------------------------------------------
+    // Helpers
+    // ----------------------------------------------------------------
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userDocExists() {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function myUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAppUser() {
+      return isAuthenticated() && userDocExists();
+    }
+
+    function myRole() {
+      return isAppUser() ? myUserDoc().role : 'none';
+    }
+
+    function myUsername() {
+      return isAppUser() ? myUserDoc().username : '';
+    }
+
+    function isAdmin() {
+      return isAppUser() && myRole() == 'admin';
+    }
+
+    function isApprover() {
+      return isAppUser() && myRole() in [
+        'director', 'saraban',
+        'head_science', 'head_math', 'head_thai', 'head_foreign',
+        'head_social', 'head_health', 'head_art', 'head_career',
+        'head_guidance', 'head_general', 'head_personnel',
+        'head_budget', 'head_acad',
+        'deputy_general', 'deputy_budget', 'deputy_acad', 'deputy_personnel'
+      ];
+    }
+
+    function isRequestOwner() {
+      return isAppUser() && resource.data.username == myUsername();
+    }
+
+    function isMemoOwner() {
+      return isAppUser() && (
+        resource.data.username == myUsername()
+        || resource.data.submittedBy == myUsername()
+      );
+    }
+
+    function isCreatingOwnRequest() {
+      return isAppUser() && request.resource.data.username == myUsername();
+    }
+
+    function isCreatingOwnMemo() {
+      return isAppUser() && (
+        request.resource.data.username == myUsername()
+        || request.resource.data.submittedBy == myUsername()
+      );
+    }
+
+    // ----------------------------------------------------------------
+    // requests
+    // ----------------------------------------------------------------
+    match /requests/{requestId} {
+      // อ่านได้สำหรับผู้ใช้ในระบบทั้งหมด
+      // เหตุผล: หน้า admin / approval / dashboard หลายจุดต้อง query collection
+      allow read: if isAppUser();
+
+      // สร้าง: เจ้าของคำขอเอง, admin, approver
+      allow create: if isCreatingOwnRequest() || isAdmin() || isApprover();
+
+      // แก้ไข: admin, approver, หรือเจ้าของคำขอ
+      allow update: if isAppUser() && (isAdmin() || isApprover() || isRequestOwner());
+
+      // ลบ: admin หรือเจ้าของคำขอ
+      allow delete: if isAppUser() && (isAdmin() || isRequestOwner());
+    }
+
+    // ----------------------------------------------------------------
+    // users
+    // ----------------------------------------------------------------
+    match /users/{userId} {
+      // อ่านได้สำหรับผู้ใช้ในระบบทุกคน
+      // รองรับ query หาผู้ใช้ด้วย username / รายชื่อ approver / หน้า admin users
+      allow read: if isAppUser();
+
+      // สร้าง: admin หรือสร้าง doc ของตัวเองตอน login
+      allow create: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+
+      // แก้ไข:
+      // - admin แก้ได้ทุก field
+      // - เจ้าของ doc แก้ได้ แต่ห้ามเปลี่ยน role เอง
+      allow update: if isAuthenticated() && (
+        isAdmin()
+        || (
+          request.auth.uid == userId
+          && !('role' in request.resource.data.diff(resource.data).affectedKeys())
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ----------------------------------------------------------------
+    // approvalLinks
+    // ----------------------------------------------------------------
+    match /approvalLinks/{linkId} {
+      allow read: if true;
+
+      allow create: if isAppUser() && (isAdmin() || isApprover());
+
+      // ใช้ mark token เป็น used=true เท่านั้น
+      allow update: if
+        request.resource.data.used == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used'])
+        && resource.data.used == false;
+
+      allow delete: if isAdmin();
+    }
+
+    // ----------------------------------------------------------------
+    // counters
+    // ----------------------------------------------------------------
+    match /counters/{counterId} {
+      allow read, write: if isAppUser();
+    }
+
+    // ----------------------------------------------------------------
+    // systemConfig
+    // ----------------------------------------------------------------
+    match /systemConfig/{docId} {
+      allow read: if isAppUser();
+      allow write: if isAdmin();
+    }
+
+    // ----------------------------------------------------------------
+    // settings
+    // ----------------------------------------------------------------
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ----------------------------------------------------------------
+    // memos
+    // ----------------------------------------------------------------
+    match /memos/{memoId} {
+      allow read: if isAppUser();
+
+      allow create: if isCreatingOwnMemo() || isAdmin() || isApprover();
+
+      allow update: if isAppUser() && (isAdmin() || isApprover() || isMemoOwner());
+
+      allow delete: if isAppUser() && (isAdmin() || isMemoOwner());
+    }
+
+    // ----------------------------------------------------------------
+    // default deny
+    // ----------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
