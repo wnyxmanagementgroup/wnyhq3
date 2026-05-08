@@ -202,6 +202,61 @@ legend {
 .tab-button { padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 600; transition: all 0.2s; }
 .tab-button.active { background-color: var(--theme-primary-strong); color: white; }
 .tab-button:not(.active) { background-color: rgba(224, 242, 254, 0.75); color: var(--theme-primary-deep); }
+.admin-subfilter {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    border: 1px solid rgba(186, 230, 253, 0.9);
+    box-shadow: 0 4px 14px rgba(148, 163, 184, 0.08);
+}
+.admin-subfilter__count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.9rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 9999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.2;
+    background: rgba(255, 255, 255, 0.65);
+}
+.admin-subfilter--requests.active {
+    background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+    color: #ffffff;
+    border-color: #38bdf8;
+}
+.admin-subfilter--requests.active .admin-subfilter__count {
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+}
+.admin-subfilter--requests:not(.active) {
+    background: #eff6ff;
+    color: #0369a1;
+    border-color: #bae6fd;
+}
+.admin-subfilter--requests:not(.active) .admin-subfilter__count {
+    background: #dbeafe;
+    color: #075985;
+}
+.admin-subfilter--memos.active {
+    background: linear-gradient(135deg, #f9a8d4, #ec4899);
+    color: #ffffff;
+    border-color: #f472b6;
+}
+.admin-subfilter--memos.active .admin-subfilter__count {
+    background: rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+}
+.admin-subfilter--memos:not(.active) {
+    background: #fdf2f8;
+    color: #9d174d;
+    border-color: #fbcfe8;
+}
+.admin-subfilter--memos:not(.active) .admin-subfilter__count {
+    background: #fce7f3;
+    color: #9d174d;
+}
 
 /* ── Admin Tab Strip ─────────────────────────────────────────── */
 .admin-tab-strip { display: flex; border-radius: 0.875rem; overflow: hidden; border: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 1.5rem; }

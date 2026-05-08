@@ -444,6 +444,32 @@ function isAdminMemoCompleted(memo) {
         || status.includes('อนุมัติ');
 }
 
+function updateAdminRequestFilterCounts() {
+    const cache = (typeof allRequestsCache !== 'undefined') ? allRequestsCache : [];
+    const counts = {
+        all: cache.length,
+        pending: cache.filter(r => !isAdminRequestCompleted(r)).length,
+        completed: cache.filter(r => isAdminRequestCompleted(r)).length,
+    };
+    Object.entries(counts).forEach(([key, value]) => {
+        const el = document.getElementById(`request-filter-${key}-count`);
+        if (el) el.textContent = String(value);
+    });
+}
+
+function updateAdminMemoFilterCounts() {
+    const cache = (typeof allMemosCache !== 'undefined') ? allMemosCache : [];
+    const counts = {
+        all: cache.length,
+        pending: cache.filter(m => !isAdminMemoCompleted(m)).length,
+        completed: cache.filter(m => isAdminMemoCompleted(m)).length,
+    };
+    Object.entries(counts).forEach(([key, value]) => {
+        const el = document.getElementById(`memo-filter-${key}-count`);
+        if (el) el.textContent = String(value);
+    });
+}
+
 function filterAdminRequests(filter) {
     _currentAdminRequestFilter = filter;
 
@@ -460,6 +486,8 @@ function _applyRequestFilterAndSearch() {
     const cache = (typeof allRequestsCache !== 'undefined') ? allRequestsCache : [];
     const query = (document.getElementById('admin-search-requests')?.value || '').toLowerCase().trim();
     let filtered = cache;
+
+    updateAdminRequestFilterCounts();
 
     if (_currentAdminRequestFilter === 'pending') {
         filtered = filtered.filter(r => !isAdminRequestCompleted(r));
@@ -1534,6 +1562,8 @@ function _applyMemoFilterAndSearch() {
     const cache  = (typeof allMemosCache !== 'undefined') ? allMemosCache : [];
     const query  = (document.getElementById('admin-search-memos')?.value || '').toLowerCase();
     let filtered = cache;
+
+    updateAdminMemoFilterCounts();
 
     // 1. กรองตาม filter category
     if (_currentMemoFilter === 'pending') {
