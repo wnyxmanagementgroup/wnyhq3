@@ -1241,18 +1241,7 @@ document.getElementById('edit-user-cancel')?.addEventListener('click', () => { d
 
     // ── ผูก search requests กับ filter ──
     document.getElementById('admin-search-requests')?.addEventListener('input', () => {
-        const term = (document.getElementById('admin-search-requests')?.value || '').toLowerCase().trim();
-        if (typeof allRequestsCache === 'undefined' || !allRequestsCache) return;
-        const filtered = term
-            ? allRequestsCache.filter(r =>
-                (r.id            || '').toLowerCase().includes(term) ||
-                (r.requesterName || '').toLowerCase().includes(term) ||
-                (r.purpose       || '').toLowerCase().includes(term) ||
-                (r.location      || '').toLowerCase().includes(term) ||
-                (r.status        || '').toLowerCase().includes(term) ||
-                (r.docStatus     || '').toLowerCase().includes(term))
-            : allRequestsCache;
-        if (typeof renderAdminRequestsList === 'function') renderAdminRequestsList(filtered);
+        if (typeof _applyRequestFilterAndSearch === 'function') _applyRequestFilterAndSearch();
     });
 
     // ── ผูก search memo กับ filter ──

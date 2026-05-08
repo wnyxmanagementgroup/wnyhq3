@@ -148,7 +148,7 @@ async function fetchAllRequestsForCommand() {
 
         // 9. อัปเดต Cache และแสดงผล
         allRequestsCache = requests; 
-        renderAdminRequestsList(requests);
+        _applyRequestFilterAndSearch();
 
     } catch (error) { 
         console.error("❌ fetchAllRequestsForCommand Error:", error);
@@ -427,6 +427,58 @@ function formatThaiDate(dateString) {
 // --- 1. ฟังก์ชันแสดงรายการคำขอ (ตาราง) ---
 function isCompactAdminCardView() {
     return typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
+}
+
+let _currentAdminRequestFilter = 'all';
+
+function isAdminRequestCompleted(request) {
+    const status = String(request?.status || '').toLowerCase();
+    return status.includes('เสร็จสิ้น') || status.includes('รับไฟล์');
+}
+
+function isAdminMemoCompleted(memo) {
+    const status = String(memo?.status || memo?.docStatus || '').toLowerCase();
+    return !!(memo?.completedCommandUrl || memo?.commandPdfUrl)
+        || status.includes('เสร็จสิ้น')
+        || status.includes('รับไฟล์')
+        || status.includes('อนุมัติ');
+}
+
+function filterAdminRequests(filter) {
+    _currentAdminRequestFilter = filter;
+
+    ['all', 'pending', 'completed'].forEach(f => {
+        const btn = document.getElementById(`request-filter-${f}`);
+        if (!btn) return;
+        btn.classList.toggle('active', f === filter);
+    });
+
+    _applyRequestFilterAndSearch();
+}
+
+function _applyRequestFilterAndSearch() {
+    const cache = (typeof allRequestsCache !== 'undefined') ? allRequestsCache : [];
+    const query = (document.getElementById('admin-search-requests')?.value || '').toLowerCase().trim();
+    let filtered = cache;
+
+    if (_currentAdminRequestFilter === 'pending') {
+        filtered = filtered.filter(r => !isAdminRequestCompleted(r));
+    } else if (_currentAdminRequestFilter === 'completed') {
+        filtered = filtered.filter(r => isAdminRequestCompleted(r));
+    }
+
+    if (query) {
+        filtered = filtered.filter(r =>
+            (r.id            || '').toLowerCase().includes(query) ||
+            (r.requesterName || '').toLowerCase().includes(query) ||
+            (r.purpose       || '').toLowerCase().includes(query) ||
+            (r.location      || '').toLowerCase().includes(query) ||
+            (r.status        || '').toLowerCase().includes(query) ||
+            (r.docStatus     || '').toLowerCase().includes(query)
+        );
+    }
+
+    renderAdminRequestsList(filtered);
 }
 
 function renderAdminRequestsList(requests) {
@@ -1462,14 +1514,14 @@ function renderUsersList(users) {
     }
 }
 
-// ── ฟังก์ชันกรองบันทึกข้อความ 3 ประเภท ──────────────────────
+// ── ฟังก์ชันกรองบันทึกข้อความ ──────────────────────
 let _currentMemoFilter = 'all';
 
 function filterAdminMemos(filter) {
     _currentMemoFilter = filter;
 
     // อัปเดต active state ของปุ่ม
-    ['all', 'no_command', 'pending'].forEach(f => {
+    ['all', 'pending', 'completed'].forEach(f => {
         const btn = document.getElementById(`memo-filter-${f}`);
         if (!btn) return;
         btn.classList.toggle('active', f === filter);
@@ -1484,16 +1536,10 @@ function _applyMemoFilterAndSearch() {
     let filtered = cache;
 
     // 1. กรองตาม filter category
-    if (_currentMemoFilter === 'no_command') {
-        filtered = filtered.filter(m => !m.completedCommandUrl && !m.commandPdfUrl);
-    } else if (_currentMemoFilter === 'pending') {
-        filtered = filtered.filter(m => {
-            const s = (m.status || m.docStatus || '').toLowerCase();
-            return s === 'submitted'
-                || s === 'pending approval'
-                || s === 'waiting_admin_review'
-                || s === 'pending';
-        });
+    if (_currentMemoFilter === 'pending') {
+        filtered = filtered.filter(m => !isAdminMemoCompleted(m));
+    } else if (_currentMemoFilter === 'completed') {
+        filtered = filtered.filter(m => isAdminMemoCompleted(m));
     }
 
     // 2. กรองตาม search query
@@ -3049,23 +3095,29 @@ function filterAdminRequestsBy(mode) {
     if (!allRequestsCache) return;
     const now = new Date();
     const filters = {
-        'pending_command':  r => !r.commandPdfUrl && r.status !== 'เสร็จสิ้น',
+        'pending_command':  r => !r.commandPdfUrl && !isAdminRequestCompleted(r),
         'waiting_saraban':  r => (r.docStatus || '').includes('saraban'),
         'waiting_director': r => (r.docStatus || '').includes('director'),
         'waiting_head':     r => (r.docStatus || '').startsWith('waiting_head'),
         'waiting_deputy':   r => (r.docStatus || '').startsWith('waiting_dep'),
         'done_this_month':  r => {
-            if (r.status !== 'เสร็จสิ้น') return false;
+            if (!isAdminRequestCompleted(r)) return false;
             const d = new Date(r.lastUpdated || r.timestamp || 0);
             return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
         },
-        'completed':        r => r.status === 'เสร็จสิ้น',
+        'completed':        r => isAdminRequestCompleted(r),
     };
     const filterFn = filters[mode];
     const filtered = filterFn ? allRequestsCache.filter(filterFn) : allRequestsCache;
 
     // สลับไป tab คำขอแล้ว render ทันที
     if (typeof switchAdminTab === 'function') switchAdminTab('requests');
+    _currentAdminRequestFilter = 'all';
+    ['all', 'pending', 'completed'].forEach(f => {
+        const btn = document.getElementById(`request-filter-${f}`);
+        if (!btn) return;
+        btn.classList.toggle('active', f === 'all');
+    });
     renderAdminRequestsList(filtered);
 
     // ล้าง search input

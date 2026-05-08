@@ -1106,6 +1106,14 @@
                     <!-- ── Tab: คำขอไปราชการ ── -->
                     <div id="admin-requests-view">
                         <div class="flex flex-col sm:flex-row gap-2 mb-3">
+                            <div class="flex gap-2 flex-wrap">
+                                <button id="request-filter-all" onclick="filterAdminRequests('all')"
+                                    class="tab-button active text-sm">📋 ทั้งหมด</button>
+                                <button id="request-filter-pending" onclick="filterAdminRequests('pending')"
+                                    class="tab-button text-sm">⏳ รอดำเนินการ</button>
+                                <button id="request-filter-completed" onclick="filterAdminRequests('completed')"
+                                    class="tab-button text-sm">✅ ดำเนินการเรียบร้อยแล้ว</button>
+                            </div>
                             <select id="admin-year-select" class="form-input sm:w-1/3 cursor-pointer bg-purple-50 border-purple-200 text-purple-800 font-bold"></select>
                             <input type="text" id="admin-search-requests" class="form-input w-full" placeholder="🔍 ค้นหาคำขอ (ชื่อ / เรื่อง / สถานที่)...">
                         </div>
@@ -1190,10 +1198,10 @@
                             <div class="flex gap-2 flex-wrap">
                                 <button id="memo-filter-all" onclick="filterAdminMemos('all')"
                                     class="tab-button active text-sm">📋 ทั้งหมด</button>
-                                <button id="memo-filter-no_command" onclick="filterAdminMemos('no_command')"
-                                    class="tab-button text-sm">⏳ รอออกคำสั่ง</button>
                                 <button id="memo-filter-pending" onclick="filterAdminMemos('pending')"
-                                    class="tab-button text-sm">🔔 รอจัดการ</button>
+                                    class="tab-button text-sm">⏳ รอดำเนินการ</button>
+                                <button id="memo-filter-completed" onclick="filterAdminMemos('completed')"
+                                    class="tab-button text-sm">✅ ดำเนินการเรียบร้อยแล้ว</button>
                             </div>
                             <input type="text" id="admin-search-memos" class="form-input flex-1"
                                 placeholder="🔍 ค้นหาบันทึก (ชื่อ / เรื่อง / เลขที่)...">
