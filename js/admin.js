@@ -169,52 +169,93 @@ async function fetchAllMemos() {
         if (!checkAdminAccess()) return;
         if (typeof ensureFirebaseAuth === 'function') await ensureFirebaseAuth();
 
-        const result = await apiCall('GET', 'getAllMemos');
-        let fbSnapshot = null;
+        const buildLookupKeys = (...values) => {
+            const keys = new Set();
+            values.forEach(value => {
+                const raw = String(value || '').trim();
+                if (!raw) return;
+                keys.add(raw);
+                keys.add(raw.replace(/[\/\\:\.]/g, '-'));
+            });
+            return Array.from(keys);
+        };
+
+        const tasks = [
+            apiCall('GET', 'getAllMemos'),
+            apiCall('GET', 'getAllRequests')
+        ];
         if (typeof db !== 'undefined') {
-            try {
-                fbSnapshot = await db.collection('requests').get();
-            } catch (firestoreError) {
-                const message = String(firestoreError?.message || firestoreError || '');
+            tasks.push(db.collection('requests').get());
+        }
+
+        const [memoResult, requestResult, firestoreResult] = await Promise.allSettled(tasks);
+        const result = memoResult.status === 'fulfilled' ? memoResult.value : null;
+        if (!result) {
+            throw memoResult.reason || new Error('โหลดข้อมูลบันทึกข้อความไม่สำเร็จ');
+        }
+
+        let requestsResult = null;
+        if (requestResult.status === 'fulfilled') {
+            requestsResult = requestResult.value;
+        } else {
+            console.warn('⚠️ getAllRequests fallback unavailable for memos:', requestResult.reason);
+        }
+
+        let fbSnapshot = null;
+        if (firestoreResult) {
+            if (firestoreResult.status === 'fulfilled') {
+                fbSnapshot = firestoreResult.value;
+            } else {
+                const message = String(firestoreResult.reason?.message || firestoreResult.reason || '');
                 const isPermissionError = /Missing or insufficient permissions/i.test(message);
-                if (!isPermissionError) throw firestoreError;
+                if (!isPermissionError) throw firestoreResult.reason;
                 console.warn('⚠️ Firestore memos query blocked, fallback to GAS only:', message);
             }
         }
 
         if (result.status === 'success') {
             let memos = result.data || [];
+            const requestMap = {};
+            const gasRequests = requestsResult?.status === 'success' ? (requestsResult.data || []) : [];
+
+            gasRequests.forEach(req => {
+                buildLookupKeys(req.id, req.requestId).forEach(key => {
+                    requestMap[key] = req;
+                });
+            });
 
             // สร้าง lookup map จาก Firestore: safeId → data
-            // (refNumber ของ memo เช่น "บค071/2569" ตรงกับ doc.id ใน Firestore)
             const fbMap = {};
             if (fbSnapshot) {
                 fbSnapshot.forEach(doc => {
                     const data = doc.data();
-                    fbMap[doc.id] = data;                       // key: safeId  (บค071-2569)
-                    if (data.id) fbMap[data.id] = data;        // key: original (บค071/2569)
+                    buildLookupKeys(doc.id, data.id, data.requestId).forEach(key => {
+                        fbMap[key] = data;
+                    });
                 });
             }
 
-            // Merge ข้อมูลจาก Firestore เข้าไปใน memo แต่ละรายการ
+            // Merge ข้อมูลจาก Requests/Firestore เข้า memo
             memos = memos.map(memo => {
-                const refRaw  = memo.refNumber || memo.requestId || '';
-                const refSafe = refRaw.replace(/[\/\\:\.]/g, '-');
-                const fb      = fbMap[refSafe] || fbMap[refRaw] || {};
+                const lookupKeys = buildLookupKeys(memo.refNumber, memo.requestId);
+                const req = lookupKeys.map(key => requestMap[key]).find(Boolean) || {};
+                const fb = lookupKeys.map(key => fbMap[key]).find(Boolean) || {};
 
                 return {
                     ...memo,
-                    // ฟิลด์ที่ API อาจไม่ส่งมา → เอาจาก Firestore แทน
-                    purpose:          memo.purpose          || fb.purpose          || fb.subject       || '',
-                    requesterName:    memo.requesterName    || fb.requesterName    || memo.submittedBy || '',
-                    location:         memo.location         || fb.location         || '',
-                    province:         memo.province         || fb.province         || '',
-                    docDate:          memo.docDate          || fb.docDate          || '',
-                    startDate:        memo.startDate        || fb.startDate        || '',
-                    endDate:          memo.endDate          || fb.endDate          || '',
-                    attendees:        memo.attendees        || fb.attendees        || [],
-                    commandPdfUrl:    memo.commandPdfUrl    || fb.commandPdfUrl    || '',
-                    docStatus:        memo.docStatus        || fb.docStatus        || '',
+                    requestId:        memo.requestId        || req.id              || req.requestId     || memo.refNumber || '',
+                    purpose:          memo.purpose          || req.purpose         || req.subject       || fb.purpose     || fb.subject || '',
+                    subject:          memo.subject          || req.subject         || req.purpose       || fb.subject     || fb.purpose || '',
+                    requesterName:    memo.requesterName    || req.requesterName   || fb.requesterName || req.username  || fb.username || memo.submittedBy || '',
+                    location:         memo.location         || req.location        || fb.location       || '',
+                    province:         memo.province         || req.province        || fb.province       || '',
+                    docDate:          memo.docDate          || req.docDate         || fb.docDate        || '',
+                    startDate:        memo.startDate        || req.startDate       || fb.startDate      || '',
+                    endDate:          memo.endDate          || req.endDate         || fb.endDate        || '',
+                    attendees:        memo.attendees        || req.attendees       || fb.attendees      || [],
+                    commandPdfUrl:    memo.commandPdfUrl    || req.commandPdfUrl   || req.completedCommandUrl || fb.commandPdfUrl || fb.completedCommandUrl || '',
+                    docStatus:        memo.docStatus        || req.docStatus       || fb.docStatus      || '',
+                    dispatchBookUrl:  memo.dispatchBookUrl  || req.dispatchBookUrl || req.dispatchBookPdfUrl || fb.dispatchBookUrl || '',
                     // ★ ไฟล์ URL — ดึงจาก Firestore ก่อน (real-time) แล้วค่อย fallback ไป Sheet
                     completedMemoUrl: fb.completedMemoUrl   || memo.completedMemoUrl || '',  // ไฟล์ที่ผู้ใช้ส่งมา (ต้นทาง)
                     adminMemoUrl:     fb.adminMemoUrl        || memo.adminMemoUrl     || '',  // ★ ไฟล์ที่แอดมินอัพโหลด (บันทึก)
