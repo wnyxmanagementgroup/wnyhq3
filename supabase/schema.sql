@@ -111,6 +111,7 @@ execute function public.set_updated_at();
 create table if not exists public.attendees (
   id bigserial primary key,
   request_id text not null references public.requests(request_id) on delete cascade,
+  source_row_key text unique,
   full_name text not null,
   position text,
   source_date_text text,
@@ -163,6 +164,7 @@ execute function public.set_updated_at();
 
 create table if not exists public.trash_requests (
   trash_id uuid primary key default gen_random_uuid(),
+  source_row_key text unique,
   request_id text,
   created_by text,
   ref_number text,
