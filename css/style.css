@@ -1323,10 +1323,12 @@ div#admin-requests-cards > div:hover {
 }
 
 #admin-requests-view .data-table {
+    width: 100%;
     min-width: 1120px;
 }
 
 #admin-memos-view .data-table {
+    width: 100%;
     min-width: 920px;
 }
 
