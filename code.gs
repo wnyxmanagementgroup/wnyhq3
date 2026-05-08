@@ -289,6 +289,134 @@ function syncRequestByIdToSupabase_(requestId, options) {
   supabaseUpsert_("attendees", attendeeRecords, "source_row_key");
 }
 
+function buildSupabaseDraftRecordFromPayload_(draftId, payload, timestamp) {
+  const expenseItems = parseJsonSafely_(payload.expenseItems, []);
+  const attendees = parseJsonSafely_(payload.attendees, []);
+
+  return {
+    draft_id: draftId,
+    username: payload.username || "",
+    doc_date: payload.docDate || null,
+    requester_name: payload.requesterName || "",
+    requester_position: payload.requesterPosition || "",
+    location: payload.location || "",
+    province: payload.province || "",
+    purpose: payload.purpose || "",
+    start_date: payload.startDate || null,
+    end_date: payload.endDate || null,
+    attendees: Array.isArray(attendees) ? attendees : [],
+    expense_option: payload.expenseOption || "",
+    expense_items: Array.isArray(expenseItems) ? expenseItems : [],
+    total_expense: toSupabaseNumericOrNull_(payload.totalExpense),
+    vehicle_option: payload.vehicleOption || "",
+    license_plate: payload.licensePlate || "",
+    department: payload.department || "",
+    head_name: payload.headName || "",
+    status: "draft",
+    timestamp_source: timestamp || null,
+    extra: {
+      startTime: payload.startTime || "",
+      endTime: payload.endTime || "",
+      stayAt: payload.stayAt || "",
+      dispatchVehicleType: payload.dispatchVehicleType || "",
+      dispatchVehicleId: payload.dispatchVehicleId || "",
+      dispatchMonth: payload.dispatchMonth || "",
+      dispatchYear: payload.dispatchYear || "",
+      studentCount: payload.studentCount || "",
+      teacherCount: payload.teacherCount || "",
+      qty1: payload.qty1 || "",
+      qty2: payload.qty2 || "",
+      qty3: payload.qty3 || "",
+      qty4: payload.qty4 || "",
+      qty5: payload.qty5 || "",
+      qty6: payload.qty6 || "",
+      qty7: payload.qty7 || "",
+      dispatchBookUrl: payload.dispatchBookUrl || "",
+      dispatchBookPdfUrl: payload.dispatchBookPdfUrl || "",
+      commandTemplateType: payload.commandTemplateType || "",
+    },
+  };
+}
+
+function mapSupabaseDraftRow_(row) {
+  const extra = row.extra || {};
+  return {
+    draftId: row.draft_id || "",
+    username: row.username || "",
+    docDate: formatSupabaseDateValue_(row.doc_date),
+    requesterName: row.requester_name || "",
+    requesterPosition: row.requester_position || "",
+    location: row.location || "",
+    province: row.province || "",
+    purpose: row.purpose || "",
+    startDate: formatSupabaseDateValue_(row.start_date),
+    endDate: formatSupabaseDateValue_(row.end_date),
+    attendees: Array.isArray(row.attendees) ? row.attendees : [],
+    expenseOption: row.expense_option || "",
+    expenseItems: Array.isArray(row.expense_items) ? row.expense_items : [],
+    totalExpense: row.total_expense || 0,
+    vehicleOption: row.vehicle_option || "",
+    licensePlate: row.license_plate || "",
+    department: row.department || "",
+    headName: row.head_name || "",
+    timestamp: row.timestamp_source || "",
+    status: row.status || "draft",
+    startTime: extra.startTime || "",
+    endTime: extra.endTime || "",
+    stayAt: extra.stayAt || "",
+    dispatchVehicleType: extra.dispatchVehicleType || "",
+    dispatchVehicleId: extra.dispatchVehicleId || "",
+    dispatchMonth: extra.dispatchMonth || "",
+    dispatchYear: extra.dispatchYear || "",
+    studentCount: extra.studentCount || "",
+    teacherCount: extra.teacherCount || "",
+    qty1: extra.qty1 || "",
+    qty2: extra.qty2 || "",
+    qty3: extra.qty3 || "",
+    qty4: extra.qty4 || "",
+    qty5: extra.qty5 || "",
+    qty6: extra.qty6 || "",
+    qty7: extra.qty7 || "",
+    dispatchBookUrl: extra.dispatchBookUrl || "",
+    dispatchBookPdfUrl: extra.dispatchBookPdfUrl || "",
+    commandTemplateType: extra.commandTemplateType || "",
+  };
+}
+
+function saveDraftRequestToSupabase_(draftId, payload, timestamp) {
+  supabaseUpsert_(
+    "draft_requests",
+    buildSupabaseDraftRecordFromPayload_(draftId, payload, timestamp),
+    "draft_id",
+  );
+}
+
+function getDraftRequestFromSupabase_(draftId) {
+  const rows = supabaseSelectAll_(
+    "draft_requests",
+    "select=*&draft_id=eq." + encodeURIComponent(String(draftId || "").trim()),
+    10,
+  );
+  if (!rows.length) return null;
+  return mapSupabaseDraftRow_(rows[0]);
+}
+
+function getAllDraftRequestsFromSupabase() {
+  const rows = supabaseSelectAll_(
+    "draft_requests",
+    "select=*&order=timestamp_source.desc",
+    1000,
+  );
+  return rows.map(mapSupabaseDraftRow_);
+}
+
+function deleteDraftByIdFromSupabase_(draftId) {
+  supabaseDeleteWhere_(
+    "draft_requests",
+    "draft_id=eq." + encodeURIComponent(String(draftId || "").trim()),
+  );
+}
+
 function testSupabaseConnection() {
   const cfg = getSupabaseConfig_();
   const projectRefMatch = cfg.url.match(/^https:\/\/([a-z0-9-]+)\.supabase\.co$/i);
@@ -1301,6 +1429,16 @@ function saveDraftRequest(payload) {
     "draft",
   ];
   draftSheet.appendRow(rowData);
+
+  try {
+    saveDraftRequestToSupabase_(draftId, payload, timestamp);
+  } catch (error) {
+    Logger.log(
+      "saveDraftRequest fallback to Sheets only: " +
+        (error && error.message ? error.message : error),
+    );
+  }
+
   return {
     status: "success",
     data: { draftId: draftId },
@@ -1310,6 +1448,16 @@ function saveDraftRequest(payload) {
 
 function getDraftRequest(payload) {
   const { requestId } = payload;
+  try {
+    const supabaseDraft = getDraftRequestFromSupabase_(requestId);
+    if (supabaseDraft) return supabaseDraft;
+  } catch (error) {
+    Logger.log(
+      "getDraftRequest fallback to Sheets draft: " +
+        (error && error.message ? error.message : error),
+    );
+  }
+
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const draftSheet = ss.getSheetByName("DraftRequests");
   if (draftSheet) {
@@ -1405,9 +1553,17 @@ function normalizeProvinceLabel_(provinceValue) {
 }
 
 function getAllDraftRequests() {
-  const draftSheet =
-    SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("DraftRequests");
-  return draftSheet ? sheetToObject(draftSheet) : [];
+  try {
+    return getAllDraftRequestsFromSupabase();
+  } catch (error) {
+    Logger.log(
+      "getAllDraftRequests fallback to Sheets: " +
+        (error && error.message ? error.message : error),
+    );
+    const draftSheet =
+      SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("DraftRequests");
+    return draftSheet ? sheetToObject(draftSheet) : [];
+  }
 }
 
 function generateDocumentFromDraft(payload) {
@@ -1424,13 +1580,24 @@ function generateDocumentFromDraft(payload) {
 function deleteDraftById(draftId) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const draftSheet = ss.getSheetByName("DraftRequests");
-  const data = draftSheet.getDataRange().getValues();
-  const headers = data[0];
-  const draftIdCol = findColumnIndex(headers, "DraftId");
+  if (draftSheet) {
+    const data = draftSheet.getDataRange().getValues();
+    const headers = data[0];
+    const draftIdCol = findColumnIndex(headers, "DraftId");
 
-  if (draftIdCol > -1) {
-    const rowIndex = data.findIndex((row) => row[draftIdCol] === draftId);
-    if (rowIndex > 0) draftSheet.deleteRow(rowIndex + 1);
+    if (draftIdCol > -1) {
+      const rowIndex = data.findIndex((row) => row[draftIdCol] === draftId);
+      if (rowIndex > 0) draftSheet.deleteRow(rowIndex + 1);
+    }
+  }
+
+  try {
+    deleteDraftByIdFromSupabase_(draftId);
+  } catch (error) {
+    Logger.log(
+      "deleteDraftById fallback to Sheets only: " +
+        (error && error.message ? error.message : error),
+    );
   }
 }
 

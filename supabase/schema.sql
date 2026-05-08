@@ -34,6 +34,41 @@ execute function public.set_updated_at();
 
 create index if not exists idx_app_users_login_name on public.app_users(login_name);
 
+create table if not exists public.draft_requests (
+  draft_id text primary key,
+  username text references public.app_users(username) on delete set null,
+  doc_date date,
+  requester_name text,
+  requester_position text,
+  location text,
+  province text,
+  purpose text,
+  start_date date,
+  end_date date,
+  attendees jsonb not null default '[]'::jsonb,
+  expense_option text,
+  expense_items jsonb not null default '[]'::jsonb,
+  total_expense numeric(14,2),
+  vehicle_option text,
+  license_plate text,
+  department text,
+  head_name text,
+  status text,
+  timestamp_source timestamptz,
+  extra jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_draft_requests_username on public.draft_requests(username);
+create index if not exists idx_draft_requests_doc_date on public.draft_requests(doc_date);
+create index if not exists idx_draft_requests_timestamp_source on public.draft_requests(timestamp_source desc);
+
+create trigger set_draft_requests_updated_at
+before update on public.draft_requests
+for each row
+execute function public.set_updated_at();
+
 create table if not exists public.requests (
   request_id text primary key,
   created_by text references public.app_users(username) on delete set null,
