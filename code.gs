@@ -989,6 +989,7 @@ function mapSupabaseMemoRow_(row, requestRow) {
     id: row.memo_id || "",
     submittedBy: row.submitted_by || "",
     refNumber: row.ref_number || "",
+    requestId: row.ref_number || "",
     status: row.status || "",
     timestamp: row.created_at_source || "",
     fileId: row.file_id || "",
@@ -1007,6 +1008,20 @@ function mapSupabaseMemoRow_(row, requestRow) {
     rejectedAt: row.rejected_at || "",
     finalizedAt: row.finalized_at || "",
     lastUpdatedSource: row.last_updated_source || "",
+    requesterName: requestRow ? requestRow.requesterName || requestRow.username || "" : "",
+    requesterPosition: requestRow ? requestRow.requesterPosition || "" : "",
+    purpose: requestRow ? requestRow.purpose || "" : "",
+    location: requestRow ? requestRow.location || "" : "",
+    province: requestRow ? requestRow.province || "" : "",
+    startDate: requestRow ? requestRow.startDate || "" : "",
+    endDate: requestRow ? requestRow.endDate || "" : "",
+    docDate: requestRow ? requestRow.docDate || "" : "",
+    department: requestRow ? requestRow.department || "" : "",
+    headName: requestRow ? requestRow.headName || "" : "",
+    vehicleOption: requestRow ? requestRow.vehicleOption || "" : "",
+    licensePlate: requestRow ? requestRow.licensePlate || "" : "",
+    attendeeCount: requestRow ? requestRow.attendeeCount || 0 : 0,
+    totalPeople: requestRow ? requestRow.totalPeople || 0 : 0,
   };
 }
 
