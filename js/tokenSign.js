@@ -254,11 +254,15 @@ async function _fetchApprovalRequestData(tokenData) {
         } catch (e) {
             console.warn('fetchApprovalRequestData draft fallback error:', e);
         }
-    }
 
-    const requestsResult = await apiCall('GET', 'getAllRequests').catch(() => ({ status: 'error', data: [] }));
-    const requestList = Array.isArray(requestsResult?.data) ? requestsResult.data : [];
-    return requestList.find(item => String(item.id || item.requestId || '') === String(tokenData.requestId || '')) || null;
+        try {
+            const result = await apiCall('GET', 'getRequestById', { requestId: tokenData.requestId });
+            if (result?.status === 'success' && result?.data) return result.data;
+        } catch (e) {
+            console.warn('fetchApprovalRequestData requestById fallback error:', e);
+        }
+    }
+    return null;
 }
 
 // --- 5. แสดงผลสำเร็จบน Token Page พร้อมลิงก์ขั้นถัดไป ---
@@ -701,18 +705,19 @@ function _renderApprovalLinkManagementDocs(container, allDocs, sourceLabel = '')
 }
 
 async function _loadApprovalDocsFromGasFallback() {
-    const statuses = new Set(_getApprovalStatusOrder());
-    const [requestsResult, memosResult] = await Promise.all([
-        apiCall('GET', 'getAllRequests').catch(() => ({ status: 'error', data: [] })),
-        apiCall('GET', 'getAllMemos').catch(() => ({ status: 'error', data: [] })),
-    ]);
+    const statuses = _getApprovalStatusOrder();
+    const approvalResults = await Promise.all(
+        statuses.map(status =>
+            apiCall('GET', 'getApprovalRequests', { docStatus: status }).catch(() => ({ status: 'error', data: [] }))
+        )
+    );
 
     const docs = [];
     const seen = new Set();
 
     const pushDoc = (raw, sourceType) => {
         const docStatus = raw.docStatus || raw.statusFlow || '';
-        if (!statuses.has(docStatus)) return;
+        if (!statuses.includes(docStatus)) return;
         const originalId = raw.id || raw.requestId || raw.refNumber || '';
         const safeId = String(originalId).replace(/[\/\\:\.]/g, '-');
         const key = `${sourceType}:${safeId || originalId}`;
@@ -731,8 +736,9 @@ async function _loadApprovalDocsFromGasFallback() {
         });
     };
 
-    (requestsResult.data || []).forEach(item => pushDoc(item, 'request'));
-    (memosResult.data || []).forEach(item => pushDoc(item, 'memo'));
+    approvalResults.forEach(result => {
+        (result?.data || []).forEach(item => pushDoc(item, 'request'));
+    });
     return docs;
 }
 
@@ -745,8 +751,19 @@ async function loadApprovalLinkManagement() {
     container.innerHTML = '<div class="flex justify-center py-10"><div class="loader"></div></div>';
 
     try {
+        const result = await apiCall('GET', 'getApprovalManagementDocs').catch(() => ({ status: 'error', data: null, message: '' }));
+        if (result.status === 'success' && Array.isArray(result.data)) {
+            _renderApprovalLinkManagementDocs(container, result.data);
+            return;
+        }
+
+        const message = String(result?.message || '');
+        if (message && !message.includes('Invalid GET action specified')) {
+            throw new Error(message);
+        }
+
         const docs = await _loadApprovalDocsFromGasFallback();
-        _renderApprovalLinkManagementDocs(container, docs, 'Supabase / GAS');
+        _renderApprovalLinkManagementDocs(container, docs, 'GAS เฉพาะสถานะอนุมัติ');
     } catch (e) {
         console.error("loadApprovalLinkManagement error:", e);
         const errP = document.createElement('p');

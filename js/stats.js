@@ -1,6 +1,7 @@
 // --- STATS FUNCTIONS (REVISED) ---
 
 let lastStatsLoadTime = 0;
+let cachedStatsSummary = null;
 const STATS_CACHE_DURATION = 5 * 60 * 1000; // Cache 5 นาที
 
 // 1. ฟังก์ชันโหลดข้อมูลหลัก
@@ -28,13 +29,10 @@ async function loadStatsData(forceRefresh = false) {
         
         // เช็ค Cache (ถ้าไม่กด Refresh และเวลาไม่เกิน 5 นาที ให้ใช้ข้อมูลเดิม)
         const now = Date.now();
-        const canUseFullCache = window.allRequestsCacheScope === 'all' && window.allMemosCacheScope === 'all';
-        if (!forceRefresh && canUseFullCache && (now - lastStatsLoadTime < STATS_CACHE_DURATION) && allRequestsCache.length > 0) {
-             console.log("⚡ Using cached stats data");
-             const userRequests = user.role === 'admin' ? allRequestsCache : allRequestsCache.filter(req => req.username === user.username);
-             const userMemos = user.role === 'admin' ? allMemosCache : userMemosCache; 
-             renderStatsOverview(userRequests, userMemos, allUsersCache, user);
-             return;
+        if (!forceRefresh && cachedStatsSummary && (now - lastStatsLoadTime < STATS_CACHE_DURATION)) {
+            console.log("⚡ Using cached stats summary");
+            renderStatsOverview(cachedStatsSummary, user);
+            return;
         }
 
         // แสดง Loader
@@ -45,36 +43,14 @@ async function loadStatsData(forceRefresh = false) {
             </div>`;
         document.getElementById('stats-charts')?.classList.add('hidden');
 
-        // ดึงข้อมูลพร้อมกัน 3 ส่วน
-        const [requestsResult, memosResult, usersResult] = await Promise.all([
-            apiCall('GET', 'getAllRequests').catch(() => ({ status: 'error', data: [] })),
-            apiCall('GET', 'getAllMemos').catch(() => ({ status: 'error', data: [] })),
-            apiCall('GET', 'getAllUsers').catch(() => ({ status: 'error', data: [] }))
-        ]);
+        const summaryResult = await apiCall('GET', 'getStatsSummary').catch(() => ({ status: 'error', data: null }));
+        if (summaryResult.status !== 'success' || !summaryResult.data) {
+            throw new Error('ไม่สามารถโหลดข้อมูลสรุปสถิติได้');
+        }
 
-        // อัปเดต Cache
-        if(requestsResult.status === 'success') {
-            allRequestsCache = requestsResult.data || [];
-            window.allRequestsCacheScope = 'all';
-        }
-        if(memosResult.status === 'success') {
-            allMemosCache = memosResult.data || [];
-            window.allMemosCacheScope = 'all';
-        }
-        if(usersResult.status === 'success') allUsersCache = usersResult.data || [];
-        
+        cachedStatsSummary = summaryResult.data;
         lastStatsLoadTime = Date.now();
-
-        // กรองข้อมูลตามสิทธิ์ (User/Admin)
-        const requests = allRequestsCache;
-        const memos = allMemosCache;
-        const users = allUsersCache;
-
-        const userRequests = user.role === 'admin' ? requests : requests.filter(req => req.username === user.username);
-        const userMemos = user.role === 'admin' ? memos : memos.filter(memo => memo.submittedBy === user.username);
-
-        // ส่งไปแสดงผล
-        renderStatsOverview(userRequests, userMemos, users, user);
+        renderStatsOverview(cachedStatsSummary, user);
 
     } catch (error) {
         console.error('❌ Error loading stats:', error);
@@ -88,9 +64,9 @@ async function loadStatsData(forceRefresh = false) {
 }
 
 // 2. ฟังก์ชันแสดงผลหน้าจอ (Layout & UI)
-function renderStatsOverview(requests, memos, users, currentUser) {
-    const stats = calculateStats(requests, memos, users, currentUser);
+function renderStatsOverview(stats, currentUser) {
     const container = document.getElementById('stats-overview');
+    const recentRequests = Array.isArray(stats.recentRequests) ? stats.recentRequests : [];
     
     // สร้าง Layout HTML
     container.innerHTML = `
@@ -138,7 +114,7 @@ function renderStatsOverview(requests, memos, users, currentUser) {
                         </tr>
                     </thead>
                     <tbody>
-                        ${requests.slice(0, 5).map(req => `
+                        ${recentRequests.map(req => `
                             <tr class="border-b hover:bg-gray-50 transition">
                                 <td class="px-4 py-3 whitespace-nowrap font-medium text-gray-900">${formatDisplayDate(req.startDate)}</td>
                                 <td class="px-4 py-3 truncate max-w-xs">${escapeHtml(req.purpose)}</td>
@@ -352,20 +328,12 @@ async function exportStatsReport() {
     try {
         const user = getCurrentUser(); if (!user) return;
         toggleLoader('export-stats', true);
-        
-        // Re-fetch เพื่อความชัวร์
-        const [requestsResult, memosResult, usersResult] = await Promise.all([
-            apiCall('GET', 'getAllRequests'), 
-            apiCall('GET', 'getAllMemos'), 
-            apiCall('GET', 'getAllUsers')
-        ]);
-        
-        const requests = requestsResult.data || [];
-        const memos = memosResult.data || [];
-        const users = usersResult.data || [];
-        
-        const userRequests = user.role === 'admin' ? requests : requests.filter(req => req.username === user.username);
-        const stats = calculateStats(userRequests, memos, users, user);
+
+        const summaryResult = await apiCall('GET', 'getStatsSummary');
+        if (summaryResult.status !== 'success' || !summaryResult.data) {
+            throw new Error('ไม่สามารถโหลดข้อมูลสรุปสถิติได้');
+        }
+        const stats = summaryResult.data;
         
         // เตรียมข้อมูลลง Excel
         const reportData = [

@@ -1751,8 +1751,11 @@ async function getApprovalDocsFallback(targetStatus) {
         }
     }
 
-    const fallbackResult = await apiCall('GET', 'getAllRequests');
-    const fallbackRequests = (fallbackResult.status === 'success') ? (fallbackResult.data || []) : [];
+    const targetedFallback = await apiCall('GET', 'getApprovalRequests', {
+        docStatus: targetStatus,
+        cacheBust: String(Date.now())
+    }).catch(() => ({ status: 'error', data: [] }));
+    const fallbackRequests = (targetedFallback.status === 'success') ? (targetedFallback.data || []) : [];
     return buildDocs(fallbackRequests);
 }
 
