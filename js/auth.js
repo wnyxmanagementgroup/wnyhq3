@@ -88,6 +88,7 @@ async function initializeUserSession(user) {
     if (sidebarPos) sidebarPos.textContent = user.position || (user.role === 'admin' ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งานทั่วไป');
 
     const roleName = String(user.role || '').toLowerCase();
+    const isAdmin = roleName === 'admin';
     const isSarabanOrDirector = roleName === 'saraban' || roleName === 'director';
     const canAccessStats = isAdmin || roleName === 'director';
 
@@ -106,7 +107,6 @@ async function initializeUserSession(user) {
     const adminEmailBackupBtn   = document.getElementById('admin-email-backup-btn');
     const archiveLinkBtn        = document.getElementById('archive-link-btn');
     const adminSectionLabel     = document.getElementById('admin-section-label');
-    const isAdmin = roleName === 'admin';
     const setNavVisible = (id, visible) => {
         const el = document.getElementById(id);
         if (!el) return;
