@@ -305,17 +305,22 @@ function normalizeSignerPositionText(value) {
 }
 
 async function getUsersCacheForHeads_() {
-    if (Array.isArray(window.allUsersCache) && window.allUsersCache.length > 0) {
-        return window.allUsersCache;
+    if (Array.isArray(window.signerUserCandidatesCache) && window.signerUserCandidatesCache.length > 0) {
+        return window.signerUserCandidatesCache;
     }
-    if (typeof fetchAllUsers === 'function') {
-        try {
-            await fetchAllUsers();
-        } catch (error) {
-            console.warn('getUsersCacheForHeads_ fetchAllUsers error:', error);
+    try {
+        const positions = Object.keys(specialPositionMap || {});
+        const result = await apiCall('GET', 'getSignerUserCandidates', {
+            positions: JSON.stringify(positions)
+        });
+        if (result?.status === 'success') {
+            window.signerUserCandidatesCache = result.data?.items || [];
+            return window.signerUserCandidatesCache;
         }
+    } catch (error) {
+        console.warn('getUsersCacheForHeads_ getSignerUserCandidates error:', error);
     }
-    return Array.isArray(window.allUsersCache) ? window.allUsersCache : [];
+    return [];
 }
 
 function findSuggestedSignerUser_(position, users) {
@@ -2575,7 +2580,8 @@ async function handleEditUserSubmit(e) {
         
         // โหลดตารางใหม่เพื่อให้ข้อมูลอัปเดตทันที
         if (typeof fetchAllUsers === 'function') {
-            await fetchAllUsers();
+            window.signerUserCandidatesCache = null;
+            await fetchAllUsers(window.currentUsersDirectoryQuery || '');
         }
         const headsPanel = document.getElementById('users-tab-panel-heads');
         if (headsPanel && !headsPanel.classList.contains('hidden') && typeof loadHeadsManagement === 'function') {

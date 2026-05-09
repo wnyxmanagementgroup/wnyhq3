@@ -1287,6 +1287,12 @@ function doGet(e) {
       case "getAllUsers":
         data = getAllUsers();
         break;
+      case "getUsersDirectory":
+        data = getUsersDirectory(params);
+        break;
+      case "getSignerUserCandidates":
+        data = getSignerUserCandidates(params);
+        break;
       case "getSentMemos":
         data = getSentMemos(params.username);
         break;
@@ -2105,6 +2111,110 @@ function getAllUsers() {
   return sheetToObject(sheet);
 }
 
+function normalizeUserDirectoryText_(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getUserDirectoryHaystack_(user) {
+  return [
+    user && user.fullName,
+    user && user.username,
+    user && (user.loginName || user.loginname || user.LoginName),
+    user && user.position,
+    user && user.department,
+    user && user.role,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function sortUsersDirectory_(users) {
+  return (users || []).sort(function (a, b) {
+    const nameA = normalizeUserDirectoryText_(a && (a.fullName || a.username));
+    const nameB = normalizeUserDirectoryText_(b && (b.fullName || b.username));
+    if (nameA !== nameB) return nameA < nameB ? -1 : 1;
+    const userA = normalizeUserDirectoryText_(a && a.username);
+    const userB = normalizeUserDirectoryText_(b && b.username);
+    if (userA !== userB) return userA < userB ? -1 : 1;
+    return 0;
+  });
+}
+
+function getUsersDirectory(params) {
+  const allUsers = getAllUsers();
+  const total = allUsers.length;
+  const query = normalizeUserDirectoryText_(params && params.q);
+  const offset = Math.max(0, parseInt((params && params.offset) || 0, 10) || 0);
+  const limit = Math.min(
+    100,
+    Math.max(1, parseInt((params && params.limit) || (query ? 100 : 40), 10) || (query ? 100 : 40)),
+  );
+
+  const filtered = query
+    ? allUsers.filter(function (user) {
+        return getUserDirectoryHaystack_(user).indexOf(query) !== -1;
+      })
+    : allUsers.slice();
+
+  const sorted = sortUsersDirectory_(filtered);
+  const items = sorted.slice(offset, offset + limit);
+
+  return {
+    items: items,
+    total: total,
+    matched: sorted.length,
+    offset: offset,
+    limit: limit,
+    query: query,
+    hasMore: offset + items.length < sorted.length,
+  };
+}
+
+function getSignerUserCandidates(params) {
+  const allUsers = getAllUsers();
+  let positions = [];
+  const rawPositions = params && params.positions;
+
+  if (rawPositions) {
+    try {
+      positions = JSON.parse(rawPositions);
+    } catch (error) {
+      positions = String(rawPositions)
+        .split("|")
+        .map(function (item) { return item.trim(); })
+        .filter(Boolean);
+    }
+  }
+
+  const normalizedPositions = positions
+    .map(function (position) {
+      return normalizeUserDirectoryText_(position).replace(/\s+/g, " ");
+    })
+    .filter(Boolean);
+
+  if (!normalizedPositions.length) {
+    return { items: [], total: 0 };
+  }
+
+  const matches = allUsers.filter(function (user) {
+    const userPosition = normalizeUserDirectoryText_(user && user.position).replace(/\s+/g, " ");
+    if (!userPosition) return false;
+    return normalizedPositions.some(function (position) {
+      return (
+        userPosition === position ||
+        userPosition.indexOf(position) !== -1 ||
+        position.indexOf(userPosition) !== -1
+      );
+    });
+  });
+
+  return {
+    items: sortUsersDirectory_(matches),
+    total: matches.length,
+  };
+}
+
 function getUsersCount_() {
   const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
   if (!sheet) return 0;
@@ -2142,14 +2252,114 @@ function buildMonthlyStatsFromRows_(rows) {
   return monthlyStats;
 }
 
+function getThaiShortMonthLabel_(dateValue) {
+  const thaiMonths = [
+    "ม.ค.",
+    "ก.พ.",
+    "มี.ค.",
+    "เม.ย.",
+    "พ.ค.",
+    "มิ.ย.",
+    "ก.ค.",
+    "ส.ค.",
+    "ก.ย.",
+    "ต.ค.",
+    "พ.ย.",
+    "ธ.ค.",
+  ];
+  const safeDate = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (isNaN(safeDate.getTime())) return "";
+  const monthLabel = thaiMonths[safeDate.getMonth()] || "";
+  const yearLabel = String(safeDate.getFullYear() + 543).slice(-2);
+  return monthLabel + " " + yearLabel;
+}
+
+function getCurrentWeekDateRange_() {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - daysToMonday);
+  monday.setHours(0, 0, 0, 0);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+  return {
+    start: Utilities.formatDate(monday, "Asia/Bangkok", "yyyy-MM-dd"),
+    end: Utilities.formatDate(sunday, "Asia/Bangkok", "yyyy-MM-dd"),
+  };
+}
+
 function getStatsSummaryFromSupabase_(options) {
   const safeOptions = options || {};
-  const requestRows = supabaseSelectAll_(
+  const statusCandidates = [
+    "กำลังดำเนินการ",
+    "อยู่ระหว่างดำเนินการ",
+    "รอออกคำสั่ง",
+    "ออกคำสั่งแล้ว",
+    "เสร็จสิ้น",
+    "เสร็จสิ้น/รับไฟล์ไปใช้งาน",
+    "รับไฟล์กลับไปใช้งาน",
+    "Approved",
+    "completed",
+    "ยกเลิก",
+    "ถูกตีกลับ",
+    "รอแก้ไข",
+  ];
+  const requestStatus = {};
+  statusCandidates.forEach((statusLabel) => {
+    const count = supabaseCount_(
+      "requests",
+      "status=eq." + encodeURIComponent(statusLabel),
+    );
+    if (count > 0) {
+      requestStatus[statusLabel] = count;
+    }
+  });
+
+  const totalRequests = supabaseCount_("requests", "");
+  const completedRequests =
+    supabaseCount_("requests", "status=eq." + encodeURIComponent("เสร็จสิ้น")) +
+    supabaseCount_(
+      "requests",
+      "status=eq." + encodeURIComponent("เสร็จสิ้น/รับไฟล์ไปใช้งาน"),
+    ) +
+    supabaseCount_(
+      "requests",
+      "status=eq." + encodeURIComponent("รับไฟล์กลับไปใช้งาน"),
+    ) +
+    supabaseCount_("requests", "status=eq." + encodeURIComponent("Approved")) +
+    supabaseCount_("requests", "status=eq." + encodeURIComponent("completed"));
+
+  const monthlyStats = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const target = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const rangeStart = Utilities.formatDate(
+      new Date(target.getFullYear(), target.getMonth(), 1),
+      "Asia/Bangkok",
+      "yyyy-MM-dd",
+    );
+    const rangeEnd = Utilities.formatDate(
+      new Date(target.getFullYear(), target.getMonth() + 1, 0),
+      "Asia/Bangkok",
+      "yyyy-MM-dd",
+    );
+    monthlyStats.push({
+      month: getThaiShortMonthLabel_(target),
+      count: supabaseCount_(
+        "requests",
+        "doc_date=gte." + rangeStart + "&doc_date=lte." + rangeEnd,
+      ),
+    });
+  }
+
+  const recentRequestRows = supabaseSelectAll_(
     "requests",
     "select=request_id,purpose,status,command_status,start_date,doc_date,created_at_source&order=doc_date.desc",
-    1000,
+    5,
   );
-  const recentRequests = requestRows.slice(0, 5).map((row) => ({
+  const recentRequests = recentRequestRows.slice(0, 5).map((row) => ({
     id: row.request_id || "",
     purpose: row.purpose || "",
     status: row.status || "กำลังดำเนินการ",
@@ -2159,23 +2369,13 @@ function getStatsSummaryFromSupabase_(options) {
     timestamp: row.created_at_source || "",
   }));
 
-  const requestStatus = {};
-  let completedRequests = 0;
-  requestRows.forEach((row) => {
-    const status = String(row.status || "กำลังดำเนินการ").trim();
-    requestStatus[status] = (requestStatus[status] || 0) + 1;
-    if (isCompletedRequestStatus_(status, row.command_status || "")) {
-      completedRequests++;
-    }
-  });
-
   return {
-    totalRequests: requestRows.length,
+    totalRequests: totalRequests,
     completedRequests: completedRequests,
     totalMemos: supabaseCount_("memos", ""),
     totalUsers: getUsersCount_(),
     requestStatus: requestStatus,
-    monthlyStats: buildMonthlyStatsFromRows_(requestRows),
+    monthlyStats: monthlyStats,
     recentRequests: recentRequests,
     generatedAt: new Date().toISOString(),
     scope: safeOptions.scope || "summary",
@@ -2616,7 +2816,10 @@ function getUserRequests(username) {
     return getUserRequestsFromSupabase_(username, {});
   } catch (error) {
     Logger.log("getUserRequests fallback to Sheets: " + error.message);
-    return getAllRequests().filter((req) => req.username === username);
+    const sheet =
+      SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Requests");
+    const rows = sheetToObject(sheet);
+    return rows.filter((req) => req.username === username);
   }
 }
 
@@ -2625,11 +2828,14 @@ function getRequestById(requestId) {
     return getRequestByIdFromSupabase_(requestId);
   } catch (error) {
     Logger.log("getRequestById fallback to Sheets: " + error.message);
-    const requestData = getAllRequests();
+    const safeRequestId = String(requestId || "").trim();
+    if (!safeRequestId) return null;
+    const sheet =
+      SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Requests");
+    const rows = sheetToObject(sheet);
     return (
-      requestData.find(
-        (req) =>
-          String(req.id || "").trim() === String(requestId || "").trim(),
+      rows.find(
+        (req) => String(req.id || "").trim() === safeRequestId,
       ) || null
     );
   }
@@ -2640,7 +2846,17 @@ function getPublicWeeklySnapshot() {
   const cached = readJsonCache_(cacheKey);
   if (cached) return cached;
 
-  const requests = getAllRequests();
+  const weekRange = getCurrentWeekDateRange_();
+  const requestRows = supabaseSelectAll_(
+    "requests",
+    "select=*&start_date=gte." +
+      weekRange.start +
+      "&start_date=lte." +
+      weekRange.end +
+      "&order=start_date.asc",
+    500,
+  );
+  const requests = buildSupabaseRequestObjects_(requestRows);
   const snapshot = requests.map((req) => ({
     id: req.id || "",
     requesterName: req.requesterName || req.username || "",
@@ -4071,7 +4287,9 @@ function getSentMemos(username) {
     return getSentMemosFromSupabase_(username, {});
   } catch (error) {
     Logger.log("getSentMemos fallback to Sheets: " + error.message);
-    return getAllMemos().filter((m) => m.submittedBy === username);
+    const memoSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Memos");
+    const memos = sheetToObject(memoSheet);
+    return memos.filter((m) => m.submittedBy === username);
   }
 }
 
@@ -4079,48 +4297,9 @@ function getStatsSummary(options) {
   try {
     return getStatsSummaryFromSupabase_(options);
   } catch (error) {
-    Logger.log("getStatsSummary fallback to legacy aggregation: " + error.message);
-    const requests = getAllRequests();
-    const memos = getAllMemos();
-    const users = getAllUsers();
-    const requestStatus = {};
-    let completedRequests = 0;
-    requests.forEach(function (req) {
-      const status = String(req.status || "กำลังดำเนินการ").trim();
-      requestStatus[status] = (requestStatus[status] || 0) + 1;
-      if (isCompletedRequestStatus_(status, req.commandStatus || "")) {
-        completedRequests++;
-      }
-    });
-    return {
-      totalRequests: requests.length,
-      completedRequests: completedRequests,
-      totalMemos: memos.length,
-      totalUsers: users.length,
-      requestStatus: requestStatus,
-      monthlyStats: buildMonthlyStatsFromRows_(
-        requests.map(function (req) {
-          return {
-            start_date: req.startDate || "",
-            doc_date: req.docDate || "",
-            created_at_source: req.timestamp || "",
-          };
-        }),
-      ),
-      recentRequests: requests.slice(0, 5).map(function (req) {
-        return {
-          id: req.id || "",
-          purpose: req.purpose || "",
-          status: req.status || "กำลังดำเนินการ",
-          commandStatus: req.commandStatus || "",
-          startDate: req.startDate || "",
-          docDate: req.docDate || "",
-          timestamp: req.timestamp || "",
-        };
-      }),
-      generatedAt: new Date().toISOString(),
-      scope: "legacy-fallback",
-    };
+    throw new Error(
+      "ไม่สามารถสร้างสรุปสถิติแบบเจาะจงจาก Supabase ได้: " + error.message,
+    );
   }
 }
 
@@ -4479,14 +4658,18 @@ function generateDispatch(data) {
 }
 // --- ฟังก์ชันสำหรับดึงข้อมูลตามปีงบประมาณ ---
 function getRequestsByYear(yearBE, username) {
-  var allData = getAllRequests({ year: yearBE, scope: "year" });
-
-  var filteredData = allData.filter(function (item) {
-    var userMatch = username === "ADMIN_ALL" || item.username === username;
-    return userMatch;
-  });
-
-  return filteredData;
+  if (String(username || "").trim() === "ADMIN_ALL") {
+    return getAllRequests({ year: yearBE, scope: "year" });
+  }
+  try {
+    return getUserRequestsFromSupabase_(username, { year: yearBE, scope: "year" });
+  } catch (error) {
+    Logger.log("getRequestsByYear fallback to Sheets: " + error.message);
+    var allData = getAllRequests({ year: yearBE, scope: "year" });
+    return allData.filter(function (item) {
+      return item.username === username;
+    });
+  }
 }
 // --- ส่วนที่ต้องเพิ่มใน Google Apps Script (Code.gs) ---
 

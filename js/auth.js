@@ -397,7 +397,8 @@ function handleRegister(e) {
                 const adminUsersPage = document.getElementById('admin-users-page');
                 if (adminUsersPage && !adminUsersPage.classList.contains('hidden')) {
                     if (typeof fetchAllUsers === 'function') {
-                        fetchAllUsers();
+                        window.signerUserCandidatesCache = null;
+                        fetchAllUsers(window.currentUsersDirectoryQuery || '');
                     }
                 }
             } else {

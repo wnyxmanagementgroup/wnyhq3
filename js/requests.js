@@ -2139,26 +2139,11 @@ function tryAutoFillRequester(retry = 0) {
 async function loadPublicWeeklyData() {
     try {
         let requests = [];
-        let usedOptimizedEndpoint = false;
-
-        try {
-            const requestsResult = await apiCall('GET', 'getPublicWeeklySnapshot');
-            if (requestsResult.status === 'success' && Array.isArray(requestsResult.data)) {
-                requests = requestsResult.data;
-                usedOptimizedEndpoint = true;
-            }
-        } catch (_) {}
-
-        if (!usedOptimizedEndpoint) {
-            const [requestsResult, memosResult] = await Promise.all([apiCall('GET', 'getAllRequests'), apiCall('GET', 'getAllMemos')]);
-            if (requestsResult.status !== 'success') {
-                throw new Error('ไม่สามารถโหลดข้อมูลได้');
-            }
-            const memos = memosResult.status === 'success' ? memosResult.data : [];
-            requests = requestsResult.data.map(req => {
-                const relatedMemo = memos.find(m => m.refNumber === req.id);
-                return { ...req, completedCommandUrl: relatedMemo ? relatedMemo.completedCommandUrl : null, realStatus: relatedMemo ? relatedMemo.status : req.status };
-            });
+        const requestsResult = await apiCall('GET', 'getPublicWeeklySnapshot').catch(() => ({ status: 'error', data: [] }));
+        if (requestsResult.status === 'success' && Array.isArray(requestsResult.data)) {
+            requests = requestsResult.data;
+        } else {
+            throw new Error('ไม่สามารถโหลดข้อมูลประจำสัปดาห์ได้');
         }
         currentPublicWeeklyData = requests;
         renderPublicTable(requests);

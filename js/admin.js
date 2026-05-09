@@ -127,13 +127,23 @@ async function fetchAllMemos() {
     }
 }
 
-async function fetchAllUsers() {
+let usersSearchDebounceTimer = null;
+
+async function fetchAllUsers(query = '') {
     try {
         if (!checkAdminAccess()) return;
-        const result = await apiCall('GET', 'getAllUsers');
-        if (result.status === 'success') { 
-            allUsersCache = result.data; 
-            renderUsersList(allUsersCache); 
+        const trimmedQuery = String(query || '').trim();
+        window.currentUsersDirectoryQuery = trimmedQuery;
+        const result = await apiCall('GET', 'getUsersDirectory', {
+            q: trimmedQuery,
+            limit: trimmedQuery ? 100 : 40,
+            offset: 0
+        });
+        if (result.status === 'success') {
+            const payload = result.data || {};
+            allUsersCache = payload.items || [];
+            window.signerUserCandidatesCache = null;
+            renderUsersList(allUsersCache, payload);
         }
     } catch (error) { showAlert('ผิดพลาด', 'ไม่สามารถโหลดข้อมูลผู้ใช้ได้'); }
 }
@@ -1174,21 +1184,35 @@ async function generateOfficialPDF(requestData) {
 }
 
 
-function renderUsersList(users) {
+function renderUsersList(users, meta = {}) {
     const container = document.getElementById('users-content');
     const countBadge = document.getElementById('users-count-badge');
     const searchInput = document.getElementById('users-search-input');
+    const totalUsers = Number(meta.total || users.length || 0);
+    const matchedUsers = Number(meta.matched || users.length || 0);
+    const hasQuery = !!String(meta.query || '').trim();
+    const hasMore = !!meta.hasMore;
 
     if (!users || users.length === 0) {
         container.innerHTML = `<div class="text-center py-16 text-gray-400">
             <div class="text-5xl mb-3">👤</div>
             <p class="font-medium text-gray-500">ไม่พบข้อมูลผู้ใช้</p>
         </div>`;
-        if (countBadge) countBadge.textContent = '0 คน';
+        if (countBadge) countBadge.textContent = hasQuery
+            ? `0/${totalUsers} คน`
+            : `0/${totalUsers} คน`;
         return;
     }
 
-    if (countBadge) countBadge.textContent = users.length + ' คน';
+    if (countBadge) {
+        if (hasQuery) {
+            countBadge.textContent = `${matchedUsers}/${totalUsers} คน`;
+        } else if (hasMore) {
+            countBadge.textContent = `${users.length}/${totalUsers} คน`;
+        } else {
+            countBadge.textContent = `${matchedUsers} คน`;
+        }
+    }
 
     // ── Role badge config ──────────────────────────────────────
     const roleBadgeMap = {
@@ -1340,17 +1364,17 @@ function renderUsersList(users) {
 
     // ── Live search binding ────────────────────────────────────
     if (searchInput) {
+        if (document.activeElement !== searchInput) {
+            searchInput.value = meta.query || '';
+        }
         searchInput.oninput = null;
         searchInput.oninput = function() {
-            const q = this.value.trim().toLowerCase();
-            const filtered = q
-                ? users.filter(u => getUserSearchHaystack(u).includes(q))
-                : users;
-            const tbody = document.getElementById('users-table-body');
-            if (tbody) tbody.innerHTML = buildRows(filtered);
-            if (countBadge) countBadge.textContent = q
-                ? filtered.length + '/' + users.length + ' คน'
-                : users.length + ' คน';
+            const nextQuery = this.value.trim();
+            window.currentUsersDirectoryQuery = nextQuery;
+            if (usersSearchDebounceTimer) clearTimeout(usersSearchDebounceTimer);
+            usersSearchDebounceTimer = window.setTimeout(() => {
+                fetchAllUsers(nextQuery);
+            }, nextQuery ? 220 : 100);
         };
     }
 }
@@ -1629,7 +1653,8 @@ async function deleteUser(username) {
         try { 
             await apiCall('POST', 'deleteUser', { username }); 
             showAlert('สำเร็จ', 'ลบผู้ใช้สำเร็จ'); 
-            await fetchAllUsers(); 
+            window.signerUserCandidatesCache = null;
+            await fetchAllUsers(window.currentUsersDirectoryQuery || ''); 
         } catch (error) { 
             showAlert('ผิดพลาด', error.message); 
         }
@@ -1670,7 +1695,8 @@ async function handleUserImport(e) {
         const result = await apiCall('POST', 'importUsers', { users: jsonData });
         if (result.status === 'success') { 
             showAlert('สำเร็จ', result.message); 
-            await fetchAllUsers(); 
+            window.signerUserCandidatesCache = null;
+            await fetchAllUsers(window.currentUsersDirectoryQuery || ''); 
         } else { 
             showAlert('ผิดพลาด', result.message); 
         }
