@@ -1521,6 +1521,19 @@ function markApprovalLinkTokenUsed(payload) {
     return { status: "error", message: "ไม่พบ token" };
   }
 
+  const key = _getApprovalLinkPropertyKey_(tokenValue);
+  const fallbackRecord = _safeParseApprovalLinkRecord_(
+    PropertiesService.getScriptProperties().getProperty(key),
+  );
+  if (fallbackRecord) {
+    fallbackRecord.used = true;
+    fallbackRecord.usedAtMs = Date.now();
+    PropertiesService.getScriptProperties().setProperty(
+      key,
+      JSON.stringify(fallbackRecord),
+    );
+  }
+
   try {
     supabaseUpsert_(
       "approval_links",
@@ -1541,7 +1554,6 @@ function markApprovalLinkTokenUsed(payload) {
     Logger.log("markApprovalLinkTokenUsed fallback to ScriptProperties: " + error.message);
   }
 
-  const key = _getApprovalLinkPropertyKey_(tokenValue);
   const record = _safeParseApprovalLinkRecord_(
     PropertiesService.getScriptProperties().getProperty(key),
   );
