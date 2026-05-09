@@ -491,17 +491,19 @@ function renderUserRequests(requests) {
 
         // สถานะ
         const hasAdminFile  = !!adminMemoUrl;
+        const isLockedByCompletion = isUserRequestLockedForRequester(req);
         const isReadyToUse  = req.status === 'เสร็จสิ้น/รับไฟล์ไปใช้งาน' || (hasAdminFile && req.status === 'เสร็จสิ้น');
-        const isCompleted   = isReadyToUse || req.status === 'เสร็จสิ้น' || !!completedMemoUrl;
+        const isCompleted   = isReadyToUse || isLockedByCompletion || !!completedMemoUrl;
         const isFixing      = (req.status === 'นำกลับไปแก้ไข' || req.memoStatus === 'นำกลับไปแก้ไข'
             || (req.wasRejected === true && !isReadyToUse && req.status !== 'เสร็จสิ้น'));
         const isSubmitted   = req.status === 'Submitted';
         const isFinalStatus = isReadyToUse
+            || isLockedByCompletion
             || req.status === 'ไม่อนุมัติ'
             || req.status === 'ยกเลิก';
         const needsToSend = (draftMemoUrl && !completedMemoUrl && !isSubmitted && !isFinalStatus) || isFixing;
         const canSend     = (draftMemoUrl || completedMemoUrl) && !isFinalStatus;
-        const canEdit     = !completedCommandUrl && !isReadyToUse;
+        const canEdit     = !isLockedByCompletion && !completedCommandUrl && !isReadyToUse;
 
         // Badge สถานะ
         let statusBadge = '';
@@ -599,7 +601,10 @@ function renderUserRequests(requests) {
             <div class="flex gap-1 mt-1">
                 ${!isCompleted ? `<button onclick="editRequest('${safeId}')" class="btn btn-xs flex-1" style="background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;">✏️ แก้ไข</button>` : ''}
                 <button onclick="deleteRequest('${safeId}')" class="btn btn-xs flex-1" style="background:#fff1f2;color:#e11d48;border:1px solid #fecdd3;">🗑️ ลบ</button>
-            </div>` : '';
+            </div>` : (isLockedByCompletion ? `
+            <div class="mt-1 text-[11px] text-gray-500 font-medium text-center px-2 py-1 rounded-lg border border-gray-200 bg-gray-50">
+                🔒 รายการเสร็จสิ้นแล้ว แก้ไขได้โดยแอดมินเท่านั้น
+            </div>` : '');
 
         // สีแถว
         let rowClass = '';
@@ -638,6 +643,23 @@ function renderUserRequests(requests) {
             </td>
         </tr>`;
     }).join('');
+}
+
+function isUserRequestLockedForRequester(req) {
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const statuses = [
+        req?.status,
+        req?.memoStatus,
+        req?.commandStatus,
+        req?.docStatus,
+    ].map(normalize).filter(Boolean);
+
+    return statuses.some((status) =>
+        status === 'completed' ||
+        status === 'เสร็จสิ้น' ||
+        status === 'เสร็จสิ้น/รับไฟล์ไปใช้งาน' ||
+        status === 'รับไฟล์กลับไปใช้งาน'
+    );
 }
 
 function renderRequestsList(requests, memos, searchTerm = '') {
@@ -1122,6 +1144,11 @@ async function openEditPage(requestId) {
         // STEP 4: นำข้อมูลใส่ฟอร์ม
         // ------------------------------------------------------------------
         if (requestData) {
+            if (isUserRequestLockedForRequester(requestData)) {
+                showAlert("ไม่สามารถแก้ไขได้", "รายการนี้เสร็จสิ้นแล้ว ผู้ใช้ไม่สามารถแก้ไขได้ กรุณาติดต่อแอดมิน");
+                document.getElementById('edit-attendees-list').innerHTML = '';
+                return;
+            }
 
             // ── Guard: เตือนถ้าเอกสารอยู่ในสายอนุมัติขั้นสูงแล้ว ─────────
             const advancedStatuses = ['waiting_admin_review', 'waiting_saraban', 'waiting_director', 'completed'];
@@ -2670,11 +2697,21 @@ function validateRequestForm(data) {
 }
 window.editRequest = async function(requestId) {
     console.log("Triggering edit for:", requestId);
+    const request = (window.userRequestsCache || []).find(r => (r.id || r.requestId) === requestId);
+    if (request && isUserRequestLockedForRequester(request)) {
+        showAlert('ไม่สามารถแก้ไขได้', 'รายการนี้เสร็จสิ้นแล้ว ผู้ใช้ไม่สามารถแก้ไขได้ กรุณาติดต่อแอดมิน');
+        return;
+    }
     await openEditPage(requestId);
 };
 
 window.deleteRequest = async function(requestId) {
     console.log("Triggering delete for:", requestId);
+    const request = (window.userRequestsCache || []).find(r => (r.id || r.requestId) === requestId);
+    if (request && isUserRequestLockedForRequester(request)) {
+        showAlert('ไม่สามารถลบได้', 'รายการนี้เสร็จสิ้นแล้ว ผู้ใช้ไม่สามารถลบได้ กรุณาติดต่อแอดมิน');
+        return;
+    }
     await handleDeleteRequest(requestId);
 };
 // ไฟล์: js/requests.js
@@ -2797,6 +2834,11 @@ function renderPendingMemos(requests) {
 // ฟังก์ชันเปิด Modal จากหน้านี้ (เพิ่ม Global Function)
 // ฟังก์ชันตอนเปิด Modal ส่งงาน
 window.openSendMemoFromList = function(requestId, departmentName = null) {
+    const request = (window.userRequestsCache || []).find(r => (r.id || r.requestId) === requestId);
+    if (request && isUserRequestLockedForRequester(request)) {
+        showAlert('ไม่สามารถส่งบันทึกได้', 'รายการนี้เสร็จสิ้นแล้ว จึงไม่สามารถส่งหรืออัปเดตบันทึกได้');
+        return;
+    }
     document.getElementById('memo-modal-request-id').value = requestId;
     document.getElementById('send-memo-form').reset();
 
@@ -2850,6 +2892,11 @@ window.openSendMemoFromList = function(requestId, departmentName = null) {
 
 // ฟังก์ชันเปิด Modal ส่งงาน พร้อมแนบ URL เอกสารที่ลงนามออนไลน์แล้ว
 window.openSendMemoWithPreSignedDoc = function(requestId, signedUrl, departmentName = null) {
+    const request = (window.userRequestsCache || []).find(r => (r.id || r.requestId) === requestId);
+    if (request && isUserRequestLockedForRequester(request)) {
+        showAlert('ไม่สามารถส่งบันทึกได้', 'รายการนี้เสร็จสิ้นแล้ว จึงไม่สามารถส่งหรืออัปเดตบันทึกได้');
+        return;
+    }
     document.getElementById('memo-modal-request-id').value = requestId;
     document.getElementById('send-memo-form').reset();
 
@@ -2907,6 +2954,12 @@ async function handleMemoSubmitFromModal(e) {
 
     const isAdmin      = user.role === 'admin';
     const requestId    = document.getElementById('memo-modal-request-id').value;
+    const request      = (window.userRequestsCache || []).find(r => (r.id || r.requestId) === requestId);
+    if (!isAdmin && request && isUserRequestLockedForRequester(request)) {
+        document.getElementById('send-memo-modal').style.display = 'none';
+        showAlert('ไม่สามารถส่งบันทึกได้', 'รายการนี้เสร็จสิ้นแล้ว จึงไม่สามารถส่งหรืออัปเดตบันทึกได้');
+        return;
+    }
     const forceUploadMode = typeof isUnifiedMemoUploadEnabled === 'function' && isUnifiedMemoUploadEnabled();
     const memoType     = forceUploadMode
         ? 'non_reimburse'
