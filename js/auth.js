@@ -68,6 +68,10 @@ function loadProfileData() {
 
 // ✅ [แก้ไข] ฟังก์ชันตั้งค่า Session และแสดงปุ่ม Admin ให้ถูกต้อง
 async function initializeUserSession(user) {
+    if (typeof ensureRoleScriptsForUser === 'function') {
+        await ensureRoleScriptsForUser(user);
+    }
+
     // 1. สลับหน้าจอ
     const loginScreen = document.getElementById('login-screen');
     const mainApp = document.getElementById('main-app');

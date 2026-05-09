@@ -5,6 +5,12 @@ let notificationFallbackUsed = false;
 const NOTIFICATION_POLL_INTERVAL_MS = 60000;
 const WORKFLOW_SETTINGS_CACHE_KEY = 'wny_workflow_settings_cache_v1';
 const WORKFLOW_SETTINGS_OWNER_USERNAMES = ['admin', 'admin2'];
+const OPTIONAL_SCRIPT_URLS = {
+    requests: '../js/requests.js?v=4',
+    admin: '../js/admin.js?v=5',
+    stats: '../js/stats.js?v=3'
+};
+const OPTIONAL_SCRIPT_PROMISES = {};
 const DEFAULT_WORKFLOW_SETTINGS = {
     forceMemoUploadForAll: false,
     requiredMemoUploads: {
@@ -21,6 +27,256 @@ window.systemWorkflowSettingsMeta = window.systemWorkflowSettingsMeta || {
 
 // ★ ติดตามลำดับการอัพโหลดของ send-memo modal (timestamp ของแต่ละ input)
 window._memoUploadOrder = {};
+
+function loadOptionalScript(scriptKey) {
+    if (!OPTIONAL_SCRIPT_URLS[scriptKey]) {
+        return Promise.reject(new Error(`Unknown optional script: ${scriptKey}`));
+    }
+
+    if (OPTIONAL_SCRIPT_PROMISES[scriptKey]) {
+        return OPTIONAL_SCRIPT_PROMISES[scriptKey];
+    }
+
+    const existingScript = document.querySelector(`script[data-optional-script="${scriptKey}"]`);
+    if (existingScript?.dataset.loaded === 'true') {
+        OPTIONAL_SCRIPT_PROMISES[scriptKey] = Promise.resolve();
+        return OPTIONAL_SCRIPT_PROMISES[scriptKey];
+    }
+
+    OPTIONAL_SCRIPT_PROMISES[scriptKey] = new Promise((resolve, reject) => {
+        const script = existingScript || document.createElement('script');
+        script.src = OPTIONAL_SCRIPT_URLS[scriptKey];
+        script.dataset.optionalScript = scriptKey;
+
+        script.onload = () => {
+            script.dataset.loaded = 'true';
+            resolve();
+        };
+        script.onerror = () => reject(new Error(`Failed to load script: ${scriptKey}`));
+
+        if (!existingScript) {
+            document.body.appendChild(script);
+        }
+    });
+
+    return OPTIONAL_SCRIPT_PROMISES[scriptKey];
+}
+
+async function ensureRoleScriptsForUser(user, options = {}) {
+    const roleName = String(user?.role || '').toLowerCase();
+    const pageId = options.pageId || '';
+    const loaders = [];
+
+    const needsUserBundle = roleName === 'user' || roleName.startsWith('head_') || roleName.startsWith('deputy_');
+    const needsAdminBundle = roleName === 'admin';
+    const needsStatsBundle = pageId === 'stats-page';
+
+    if (needsUserBundle || ['dashboard-page', 'form-page', 'send-memo-page', 'edit-page'].includes(pageId)) {
+        loaders.push(loadOptionalScript('requests'));
+    }
+    if (needsAdminBundle || ['command-generation-page', 'admin-users-page', 'admin-system-settings-page'].includes(pageId)) {
+        loaders.push(loadOptionalScript('admin'));
+    }
+    if (needsStatsBundle) {
+        loaders.push(loadOptionalScript('stats'));
+    }
+
+    if (!loaders.length) return;
+    await Promise.all(loaders);
+}
+
+window.currentPublicWeeklyData = window.currentPublicWeeklyData || [];
+
+function sanitizeUrl(url) {
+    if (!url) return '#';
+    const trimmed = String(url).trim();
+    if (trimmed.toLowerCase().startsWith('javascript:')) return '#';
+    if (trimmed.toLowerCase().startsWith('data:text/html')) return '#';
+    return trimmed;
+}
+
+async function loadPublicWeeklyData() {
+    try {
+        let requests = [];
+        const requestsResult = await apiCall('GET', 'getPublicWeeklySnapshot').catch(() => ({ status: 'error', data: [] }));
+        if (requestsResult.status === 'success' && Array.isArray(requestsResult.data)) {
+            requests = requestsResult.data;
+        } else {
+            throw new Error('ไม่สามารถโหลดข้อมูลประจำสัปดาห์ได้');
+        }
+        window.currentPublicWeeklyData = requests;
+        renderPublicTable(requests);
+    } catch (error) {
+        const tbody = document.getElementById('public-weekly-list');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-gray-500">ไม่พบข้อมูล</td></tr>`;
+        }
+    }
+}
+
+function renderPublicTable(requests) {
+    const tbody = document.getElementById('public-weekly-list');
+    if (!tbody) return;
+
+    tbody.parentElement?.classList.add('responsive-table');
+
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - daysToMonday);
+    monday.setHours(0, 0, 0, 0);
+
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+
+    const dateOptions = { day: 'numeric', month: 'short', year: '2-digit' };
+    const weekDisplay = document.getElementById('current-week-display');
+    if (weekDisplay) {
+        weekDisplay.textContent = `${monday.toLocaleDateString('th-TH', dateOptions)} - ${sunday.toLocaleDateString('th-TH', dateOptions)}`;
+    }
+
+    const weeklyRequests = requests.filter(req => {
+        if (!req.startDate || !req.endDate) return false;
+        const reqStart = new Date(req.startDate);
+        const reqEnd = new Date(req.endDate);
+        reqStart.setHours(0, 0, 0, 0);
+        reqEnd.setHours(0, 0, 0, 0);
+        return reqStart <= sunday && reqEnd >= monday;
+    }).sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+
+    window.currentPublicWeeklyData = weeklyRequests;
+
+    if (!weeklyRequests.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center py-10 text-gray-500">ไม่มีรายการไปราชการในสัปดาห์นี้</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = weeklyRequests.map((req, index) => {
+        let attendeesList = [];
+        try {
+            attendeesList = typeof req.attendees === 'string' ? JSON.parse(req.attendees) : (req.attendees || []);
+        } catch (e) {
+            attendeesList = [];
+        }
+
+        const requesterName = (req.requesterName || '').trim().replace(/\s+/g, ' ');
+        const hasRequesterInList = attendeesList.some(att => (att.name || '').trim().replace(/\s+/g, ' ') === requesterName);
+        const totalCount = attendeesList.length > 0
+            ? (hasRequesterInList ? attendeesList.length : attendeesList.length + 1)
+            : (req.attendeeCount ? (parseInt(req.attendeeCount, 10) + 1) : 1);
+
+        const attendeesText = totalCount > 1
+            ? `<div class="text-xs text-indigo-500 mt-1 cursor-pointer hover:underline" onclick="openPublicAttendeeModal(${index})">👥 และคณะรวม ${totalCount} คน</div>`
+            : '';
+
+        const dateText = `${formatDisplayDate(req.startDate)} - ${formatDisplayDate(req.endDate)}`;
+        const finalCommandUrl = req.completedCommandUrl;
+        let actionHtml = '';
+
+        if (finalCommandUrl && finalCommandUrl.trim() !== '') {
+            actionHtml = `<a href="${sanitizeUrl(finalCommandUrl)}" target="_blank" class="btn bg-green-600 hover:bg-green-700 text-white btn-sm shadow-md transition-transform hover:scale-105 inline-flex items-center gap-1">ดูคำสั่ง</a>`;
+        } else {
+            let displayStatus = req.realStatus || req.status;
+            let badgeClass = 'bg-gray-100 text-gray-600';
+            let icon = '🔄';
+
+            if (displayStatus === 'Pending' || displayStatus === 'กำลังดำเนินการ') {
+                badgeClass = 'bg-yellow-100 text-yellow-700 border border-yellow-200';
+                icon = '⏳';
+            } else if (displayStatus && displayStatus.includes('แก้ไข')) {
+                badgeClass = 'bg-red-100 text-red-700 border border-red-200';
+                icon = '⚠️';
+            } else if (displayStatus === 'เสร็จสิ้นรอออกคำสั่งไปราชการ') {
+                badgeClass = 'bg-blue-50 text-blue-600 border border-blue-100';
+                icon = '📝';
+                displayStatus = 'รอออกคำสั่ง';
+            } else if (displayStatus === 'เสร็จสิ้น/รับไฟล์ไปใช้งาน' || displayStatus === 'เสร็จสิ้น') {
+                badgeClass = 'bg-green-100 text-green-700 border border-green-200';
+                icon = '✅';
+                displayStatus = 'เสร็จสิ้น';
+            }
+
+            actionHtml = `<span class="${badgeClass} px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap">${icon} ${translateStatus(displayStatus)}</span>`;
+        }
+
+        return `
+        <tr class="border-b hover:bg-gray-50 transition">
+            <td class="px-6 py-4 whitespace-nowrap font-medium text-indigo-600" data-label="วัน-เวลา">${dateText}</td>
+            <td class="px-6 py-4" data-label="ชื่อผู้ขอ">
+                <div class="font-bold text-gray-800">${escapeHtml(req.requesterName)}</div>
+                <div class="text-xs text-gray-500">${escapeHtml(req.requesterPosition || '')}</div>
+            </td>
+            <td class="px-6 py-4" data-label="เรื่อง / สถานที่">
+                <div class="font-medium text-gray-900 truncate max-w-xs" title="${escapeHtml(req.purpose)}">${escapeHtml(req.purpose)}</div>
+                <div class="text-xs text-gray-500">ณ ${escapeHtml(req.location)}</div>
+                ${attendeesText}
+            </td>
+            <td class="px-6 py-4 text-center align-middle" data-label="ไฟล์คำสั่ง">${actionHtml}</td>
+        </tr>`;
+    }).join('');
+}
+
+function openPublicAttendeeModal(index) {
+    const req = window.currentPublicWeeklyData[index];
+    if (!req) return;
+
+    document.getElementById('public-modal-purpose').textContent = req.purpose;
+    document.getElementById('public-modal-location').textContent = req.location;
+
+    const startD = new Date(req.startDate);
+    const endD = new Date(req.endDate);
+    let dateText = formatDisplayDate(req.startDate);
+    if (startD.getTime() !== endD.getTime()) {
+        dateText += ` ถึง ${formatDisplayDate(req.endDate)}`;
+    }
+    document.getElementById('public-modal-date').textContent = dateText;
+
+    const listBody = document.getElementById('public-modal-attendee-list');
+    let html = '';
+    let rowCount = 1;
+
+    const requesterName = (req.requesterName || '').trim().replace(/\s+/g, ' ');
+    const requesterPos = (req.requesterPosition || '').trim();
+
+    let attendeesList = [];
+    if (typeof req.attendees === 'string') {
+        try {
+            attendeesList = JSON.parse(req.attendees);
+        } catch (e) {
+            attendeesList = [];
+        }
+    } else if (Array.isArray(req.attendees)) {
+        attendeesList = req.attendees;
+    }
+
+    const others = attendeesList.filter(att => {
+        const attName = (att.name || '').trim().replace(/\s+/g, ' ');
+        return attName !== '' && attName !== requesterName;
+    });
+
+    html += `
+        <tr class="bg-blue-50/50">
+            <td class="px-4 py-2 font-bold text-center">${rowCount++}</td>
+            <td class="px-4 py-2 font-bold text-blue-800">${escapeHtml(requesterName)} (ผู้ขอ)</td>
+            <td class="px-4 py-2 text-gray-600">${escapeHtml(requesterPos)}</td>
+        </tr>`;
+
+    if (others.length > 0) {
+        others.forEach(att => {
+            html += `
+                <tr class="border-t">
+                    <td class="px-4 py-2 text-center text-gray-500">${rowCount++}</td>
+                    <td class="px-4 py-2 text-gray-800">${escapeHtml(att.name)}</td>
+                    <td class="px-4 py-2 text-gray-600">${escapeHtml(att.position)}</td>
+                </tr>`;
+        });
+    }
+
+    listBody.innerHTML = html;
+    document.getElementById('public-attendee-modal').style.display = 'flex';
+}
 
 // --- Sidebar ---
 const PAGE_TITLES = {
@@ -166,9 +422,13 @@ window.addEventListener('resize', () => {
 async function switchPage(targetPageId) {
     console.log("🔄 Switching to page:", targetPageId);
 
+    const currentUserForPage = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
+    if (currentUserForPage && typeof ensureRoleScriptsForUser === 'function') {
+        await ensureRoleScriptsForUser(currentUserForPage, { pageId: targetPageId });
+    }
+
     if (targetPageId === 'stats-page') {
-        const currentUser = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
-        const currentRole = String(currentUser?.role || '').toLowerCase();
+        const currentRole = String(currentUserForPage?.role || '').toLowerCase();
         const canAccessStats = currentRole === 'admin' || currentRole === 'director';
         if (!canAccessStats) {
             if (typeof showAlert === 'function') {
@@ -231,13 +491,15 @@ async function switchPage(targetPageId) {
     // --- Logic เฉพาะของแต่ละหน้า (Parallel Processing) ---
 
     if (targetPageId === 'edit-page') { 
-        setTimeout(() => { setupEditPageEventListeners(); }, 100); 
+        setTimeout(() => {
+            if (typeof setupEditPageEventListeners === 'function') setupEditPageEventListeners();
+        }, 100);
     }
     
     if (targetPageId === 'dashboard-page') {
         // [แก้ไข] ลบ await ออก เพื่อให้โหลดข้อมูลแบบ Background Process
         // ผู้ใช้จะเห็น Loader หมุนๆ บนหน้าจอ แต่ Popup จะเด้งได้เลย
-        fetchUserRequests(); 
+        if (typeof fetchUserRequests === 'function') fetchUserRequests();
         
         // เรียก Popup แจ้งเตือนทันที
         showReminderModal();
@@ -245,8 +507,10 @@ async function switchPage(targetPageId) {
     
     if (targetPageId === 'form-page') { 
         // ฟอร์มควรรอให้รีเซ็ตเสร็จก่อน เพื่อป้องกันข้อมูลค้าง
-        await resetRequestForm(); 
-        setTimeout(() => { tryAutoFillRequester(); }, 100); 
+        if (typeof resetRequestForm === 'function') await resetRequestForm();
+        setTimeout(() => {
+            if (typeof tryAutoFillRequester === 'function') tryAutoFillRequester();
+        }, 100);
     }
     
     if (targetPageId === 'profile-page') {
@@ -377,11 +641,15 @@ function showReminderModal() {
 function setupVehicleOptions() {
     // จัดการ Checkbox ยานพาหนะ (หน้าสร้าง)
     document.querySelectorAll('input[name="vehicle_option"].vehicle-checkbox').forEach(checkbox => { 
-        checkbox.addEventListener('change', toggleVehicleDetails); 
+        checkbox.addEventListener('change', () => {
+            if (typeof toggleVehicleDetails === 'function') toggleVehicleDetails();
+        });
     });
     // จัดการ Checkbox ยานพาหนะ (หน้าแก้ไข)
     document.querySelectorAll('input[name="edit-vehicle_option"].vehicle-checkbox').forEach(checkbox => { 
-        checkbox.addEventListener('change', toggleEditVehicleDetails); 
+        checkbox.addEventListener('change', () => {
+            if (typeof toggleEditVehicleDetails === 'function') toggleEditVehicleDetails();
+        });
     });
 }
 // [เพิ่มฟังก์ชัน Real-time Notification]
@@ -1012,22 +1280,37 @@ document.getElementById('edit-user-cancel')?.addEventListener('click', () => { d
     
     // --- Admin Commands & Memos ---
     document.getElementById('back-to-admin-command')?.addEventListener('click', async () => { await switchPage('command-generation-page'); });
-    document.getElementById('admin-generate-command-button')?.addEventListener('click', handleAdminGenerateCommand);
-    document.getElementById('command-approval-form')?.addEventListener('submit', handleCommandApproval);
+    document.getElementById('admin-generate-command-button')?.addEventListener('click', async (e) => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
+        if (typeof handleAdminGenerateCommand === 'function') handleAdminGenerateCommand(e);
+    });
+    document.getElementById('command-approval-form')?.addEventListener('submit', async (e) => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
+        if (typeof handleCommandApproval === 'function') handleCommandApproval(e);
+    });
     document.getElementById('command-approval-modal-close-button')?.addEventListener('click', () => document.getElementById('command-approval-modal').style.display = 'none');
     document.getElementById('command-approval-cancel-button')?.addEventListener('click', () => document.getElementById('command-approval-modal').style.display = 'none');
     
-    document.getElementById('dispatch-form')?.addEventListener('submit', handleDispatchFormSubmit);
+    document.getElementById('dispatch-form')?.addEventListener('submit', async (e) => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
+        if (typeof handleDispatchFormSubmit === 'function') handleDispatchFormSubmit(e);
+    });
     document.getElementById('dispatch-modal-close-button')?.addEventListener('click', () => document.getElementById('dispatch-modal').style.display = 'none');
     document.getElementById('dispatch-cancel-button')?.addEventListener('click', () => document.getElementById('dispatch-modal').style.display = 'none');
     
-    document.getElementById('admin-memo-action-form')?.addEventListener('submit', handleAdminMemoActionSubmit);
+    document.getElementById('admin-memo-action-form')?.addEventListener('submit', async (e) => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
+        if (typeof handleAdminMemoActionSubmit === 'function') handleAdminMemoActionSubmit(e);
+    });
     document.getElementById('admin-memo-action-modal-close-button')?.addEventListener('click', () => document.getElementById('admin-memo-action-modal').style.display = 'none');
     document.getElementById('admin-memo-cancel-button')?.addEventListener('click', () => document.getElementById('admin-memo-action-modal').style.display = 'none');
     
     document.getElementById('send-memo-modal-close-button')?.addEventListener('click', () => document.getElementById('send-memo-modal').style.display = 'none');
     document.getElementById('send-memo-cancel-button')?.addEventListener('click', () => document.getElementById('send-memo-modal').style.display = 'none');
-    document.getElementById('send-memo-form')?.addEventListener('submit', handleMemoSubmitFromModal);
+    document.getElementById('send-memo-form')?.addEventListener('submit', async (e) => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'send-memo-page' });
+        if (typeof handleMemoSubmitFromModal === 'function') handleMemoSubmitFromModal(e);
+    });
 
     // ★ ติดตามลำดับการอัพโหลดของแต่ละไฟล์ใน send-memo modal
     ['file-signed-memo', 'file-exchange', 'file-ref-doc', 'file-other'].forEach(id => {
@@ -1085,14 +1368,25 @@ document.getElementById('edit-user-cancel')?.addEventListener('click', () => { d
     }
 
     const reqForm = document.getElementById('request-form');
-    if (reqForm) reqForm.addEventListener('submit', handleRequestFormSubmit);
+    if (reqForm) {
+        reqForm.addEventListener('submit', async (e) => {
+            await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'form-page' });
+            if (typeof handleRequestFormSubmit === 'function') handleRequestFormSubmit(e);
+        });
+    }
     
-    document.getElementById('form-add-attendee')?.addEventListener('click', () => addAttendeeField());
+    document.getElementById('form-add-attendee')?.addEventListener('click', async () => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'form-page' });
+        if (typeof addAttendeeField === 'function') addAttendeeField();
+    });
     document.getElementById('form-import-excel')?.addEventListener('click', () => document.getElementById('excel-file-input').click());
     document.getElementById('excel-file-input')?.addEventListener('change', handleExcelImport); 
     document.getElementById('form-download-template')?.addEventListener('click', downloadAttendeeTemplate); 
     
-    document.querySelectorAll('input[name="expense_option"]').forEach(radio => radio.addEventListener('change', toggleExpenseOptions));
+    document.querySelectorAll('input[name="expense_option"]').forEach(radio => radio.addEventListener('change', async () => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'form-page' });
+        if (typeof toggleExpenseOptions === 'function') toggleExpenseOptions();
+    }));
     
     document.querySelectorAll('input[name="modal_memo_type"]').forEach(radio =>
         radio.addEventListener('change', () => applyMemoWorkflowModeUI())
@@ -1130,7 +1424,12 @@ document.getElementById('edit-user-cancel')?.addEventListener('click', () => { d
     applyMemoWorkflowModeUI();
     if (typeof refreshSignerPositionOptions === 'function') refreshSignerPositionOptions();
     
-    document.querySelectorAll('input[name="vehicle_option"]').forEach(checkbox => {checkbox.addEventListener('change', toggleVehicleDetails);});
+    document.querySelectorAll('input[name="vehicle_option"]').forEach(checkbox => {
+        checkbox.addEventListener('change', async () => {
+            await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'form-page' });
+            if (typeof toggleVehicleDetails === 'function') toggleVehicleDetails();
+        });
+    });
     
     document.getElementById('profile-form')?.addEventListener('submit', handleProfileUpdate);
     document.getElementById('password-form')?.addEventListener('submit', handlePasswordUpdate);
@@ -1159,17 +1458,31 @@ document.getElementById('edit-user-cancel')?.addEventListener('click', () => { d
     if (searchInput) {
         searchInput.addEventListener('input', (e) => {
             const source = Array.isArray(window.userRequestsCache) ? window.userRequestsCache : [];
-            renderUserRequests(filterUserRequestsForDashboard(source, e.target.value));
+            if (typeof renderUserRequests === 'function') {
+                renderUserRequests(filterUserRequestsForDashboard(source, e.target.value));
+            }
         });
     }
 
-    document.getElementById('user-requests-list')?.addEventListener('click', handleRequestAction);
+    document.getElementById('user-requests-list')?.addEventListener('click', async (e) => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'dashboard-page' });
+        if (typeof handleRequestAction === 'function') handleRequestAction(e);
+    });
 
     // --- Admin User Mgmt ---
-    document.getElementById('add-user-button')?.addEventListener('click', openAddUserModal);
-    document.getElementById('download-user-template-button')?.addEventListener('click', downloadUserTemplate);
+    document.getElementById('add-user-button')?.addEventListener('click', async () => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'admin-users-page' });
+        if (typeof openAddUserModal === 'function') openAddUserModal();
+    });
+    document.getElementById('download-user-template-button')?.addEventListener('click', async () => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'admin-users-page' });
+        if (typeof downloadUserTemplate === 'function') downloadUserTemplate();
+    });
     document.getElementById('import-users-button')?.addEventListener('click', () => document.getElementById('user-excel-input').click());
-    document.getElementById('user-excel-input')?.addEventListener('change', handleUserImport);
+    document.getElementById('user-excel-input')?.addEventListener('change', async (e) => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'admin-users-page' });
+        if (typeof handleUserImport === 'function') handleUserImport(e);
+    });
     
     // --- Admin Tabs (Color-coded strip) ---
     function switchAdminTab(tabName) {
@@ -1208,18 +1521,21 @@ document.getElementById('edit-user-cancel')?.addEventListener('click', () => { d
     window.switchAdminTab = switchAdminTab;
 
     document.getElementById('admin-view-dashboard-tab')?.addEventListener('click', async () => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
         switchAdminTab('dashboard');
         if (typeof loadAdminDashboard === 'function') await loadAdminDashboard();
     });
 
     document.getElementById('admin-view-requests-tab')?.addEventListener('click', async () => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
         switchAdminTab('requests');
-        await fetchAllRequestsForCommand();
+        if (typeof fetchAllRequestsForCommand === 'function') await fetchAllRequestsForCommand();
     });
 
     document.getElementById('admin-view-memos-tab')?.addEventListener('click', async () => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
         switchAdminTab('memos');
-        await fetchAllMemos();
+        if (typeof fetchAllMemos === 'function') await fetchAllMemos();
     });
 
     // ── ผูก search requests กับ filter ──
@@ -1291,13 +1607,17 @@ document.getElementById('edit-user-cancel')?.addEventListener('click', () => { d
     window.addEventListener('unhandledrejection', (event) => {
         console.error('Unhandled promise rejection:', event.reason);
     });
-    document.getElementById('admin-view-announcement-tab')?.addEventListener('click', () => {
+    document.getElementById('admin-view-announcement-tab')?.addEventListener('click', async () => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
         switchAdminTab('announcement');
         if (typeof loadAdminAnnouncementSettings === 'function') loadAdminAnnouncementSettings();
     });
 
     // Submit ฟอร์มประกาศ
-    document.getElementById('admin-announcement-form')?.addEventListener('submit', handleSaveAnnouncement);
+    document.getElementById('admin-announcement-form')?.addEventListener('submit', async (e) => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
+        if (typeof handleSaveAnnouncement === 'function') handleSaveAnnouncement(e);
+    });
 
     // เริ่มต้นระบบแจ้งเตือน (ถ้า User Login อยู่แล้ว)
     const currentUser = getCurrentUser();
@@ -1456,9 +1776,11 @@ function setupYearSelectors() {
         // เมื่อเปลี่ยนปี ให้โหลดข้อมูลใหม่ทันที
         select.addEventListener('change', async (e) => {
             if (selectId === 'user-year-select') {
-                await fetchUserRequests();
+                await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'dashboard-page' });
+                if (typeof fetchUserRequests === 'function') await fetchUserRequests();
             } else if (selectId === 'admin-year-select') {
-                await fetchAllRequestsForCommand();
+                await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
+                if (typeof fetchAllRequestsForCommand === 'function') await fetchAllRequestsForCommand();
             }
         });
     };
@@ -2790,10 +3112,15 @@ document.addEventListener('DOMContentLoaded', function () {
     // ผูก form-sig-canvas (pre-submission pad)
     const formNavBtn = document.getElementById('user-nav-form');
     if (formNavBtn) {
-        formNavBtn.addEventListener('click', () => setTimeout(initFormSignaturePad, 150));
+        formNavBtn.addEventListener('click', async () => {
+            await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'form-page' });
+            if (typeof initFormSignaturePad === 'function') setTimeout(initFormSignaturePad, 150);
+        });
     }
     // init ครั้งแรกเผื่อหน้า form เปิดตอนโหลด
-    setTimeout(initFormSignaturePad, 500);
+    setTimeout(() => {
+        if (typeof initFormSignaturePad === 'function') initFormSignaturePad();
+    }, 500);
 
     // ปุ่มล้าง pre-submission pad
     document.getElementById('form-sig-clear-btn')?.addEventListener('click', () => {
