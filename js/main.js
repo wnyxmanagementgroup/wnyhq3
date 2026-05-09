@@ -288,6 +288,48 @@ function switchUsersTab(tab) {
     }
 }
 
+function normalizeSignerPositionText(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+async function getUsersCacheForHeads_() {
+    if (Array.isArray(window.allUsersCache) && window.allUsersCache.length > 0) {
+        return window.allUsersCache;
+    }
+    if (typeof fetchAllUsers === 'function') {
+        try {
+            await fetchAllUsers();
+        } catch (error) {
+            console.warn('getUsersCacheForHeads_ fetchAllUsers error:', error);
+        }
+    }
+    return Array.isArray(window.allUsersCache) ? window.allUsersCache : [];
+}
+
+function findSuggestedSignerUser_(position, users) {
+    const normalizedTarget = normalizeSignerPositionText(position);
+    if (!normalizedTarget || !Array.isArray(users)) return null;
+
+    const exactMatch = users.find(user =>
+        normalizeSignerPositionText(user?.position) === normalizedTarget
+    );
+    if (exactMatch) return exactMatch;
+
+    return users.find(user => {
+        const userPos = normalizeSignerPositionText(user?.position);
+        return userPos && (userPos.includes(normalizedTarget) || normalizedTarget.includes(userPos));
+    }) || null;
+}
+
+window.openUsersTabForPosition = function(position) {
+    switchUsersTab('users');
+    const searchInput = document.getElementById('users-search-input');
+    if (!searchInput) return;
+    searchInput.value = position || '';
+    searchInput.dispatchEvent(new Event('input'));
+    searchInput.focus();
+};
+
 // ★★★ เพิ่มฟังก์ชันนี้ไว้ท้ายไฟล์ main.js หรือบริเวณใกล้เคียง switchPage ★★★
 function showReminderModal() {
     // ตรวจสอบว่าเคยแสดงไปแล้วหรือยังใน Session นี้ (ถ้าต้องการให้แสดงทุกครั้งที่ Login ใหม่)
@@ -2500,7 +2542,11 @@ async function handleEditUserSubmit(e) {
         
         // โหลดตารางใหม่เพื่อให้ข้อมูลอัปเดตทันที
         if (typeof fetchAllUsers === 'function') {
-            fetchAllUsers(); 
+            await fetchAllUsers();
+        }
+        const headsPanel = document.getElementById('users-tab-panel-heads');
+        if (headsPanel && !headsPanel.classList.contains('hidden') && typeof loadHeadsManagement === 'function') {
+            await loadHeadsManagement();
         }
         
     } catch (error) {
@@ -2745,26 +2791,48 @@ async function loadHeadsManagement() {
         console.warn('loadHeadsManagement API error:', e);
     }
 
+    const users = await getUsersCacheForHeads_();
+
     // สร้าง rows จาก specialPositionMap (ฐาน) + override จาก Supabase
     const positions = Object.keys(specialPositionMap);
     tbody.innerHTML = '';
     positions.forEach(pos => {
+        const suggestedUser = findSuggestedSignerUser_(pos, users);
         const safePos = escapeHtml(pos);
-        const currentName = escapeHtml(savedNames[pos] !== undefined ? savedNames[pos] : (specialPositionMap[pos] || ''));
-        const currentUsername = escapeHtml(savedUsernames[pos] || '');
+        const suggestedName = suggestedUser?.fullName || specialPositionMap[pos] || '';
+        const suggestedUsername = suggestedUser?.username || '';
+        const hasSavedName = Object.prototype.hasOwnProperty.call(savedNames, pos) && savedNames[pos] !== '';
+        const hasSavedUsername = Object.prototype.hasOwnProperty.call(savedUsernames, pos) && savedUsernames[pos] !== '';
+        const currentName = escapeHtml(hasSavedName ? savedNames[pos] : suggestedName);
+        const currentUsername = escapeHtml(hasSavedUsername ? savedUsernames[pos] : suggestedUsername);
+        const safeSuggestedName = escapeHtml(suggestedName);
+        const safeSuggestedUsername = escapeHtml(suggestedUsername);
+        const referenceLabel = suggestedUser
+            ? `อ้างอิงจากผู้ใช้: ${escapeHtml(suggestedUser.fullName || suggestedUser.username || '-')}`
+            : 'ยังไม่พบผู้ใช้ที่ตั้งตำแหน่งนี้ในรายการ';
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-gray-50';
         tr.innerHTML = `
             <td class="p-3 text-gray-700 text-xs">${safePos}</td>
             <td class="p-3">
                 <input type="text" data-pos="${safePos}" data-field="name"
+                    data-suggested-value="${safeSuggestedName}"
                     class="heads-name-input w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
                     value="${currentName}" placeholder="ชื่อ-นามสกุล">
+                <div class="mt-2 text-xs text-gray-400">${referenceLabel}</div>
             </td>
             <td class="p-3">
                 <input type="text" data-pos="${safePos}" data-field="username"
+                    data-suggested-value="${safeSuggestedUsername}"
                     class="heads-username-input w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
                     value="${currentUsername}" placeholder="username (ว่างได้)">
+                <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span class="text-gray-400">${safeSuggestedUsername ? `username อ้างอิง: ${safeSuggestedUsername}` : 'ยังไม่พบ username ที่ตรงตำแหน่งนี้'}</span>
+                    <button type="button" class="text-blue-600 hover:text-blue-700 hover:underline"
+                        onclick="openUsersTabForPosition(this.dataset.pos)" data-pos="${safePos}">
+                        ดูในรายชื่อผู้ใช้
+                    </button>
+                </div>
             </td>`;
         tbody.appendChild(tr);
     });
@@ -2780,11 +2848,21 @@ async function saveHeadsConfig() {
 
         document.querySelectorAll('#heads-config-tbody input[data-field="name"]').forEach(input => {
             const pos = input.dataset.pos;
-            if (pos) names[pos] = input.value.trim();
+            const suggested = (input.dataset.suggestedValue || '').trim();
+            const manualValue = input.value.trim();
+            if (!pos) return;
+            if (manualValue && manualValue !== suggested) {
+                names[pos] = manualValue;
+            }
         });
         document.querySelectorAll('#heads-config-tbody input[data-field="username"]').forEach(input => {
             const pos = input.dataset.pos;
-            if (pos && input.value.trim()) usernames[pos] = input.value.trim();
+            const suggested = (input.dataset.suggestedValue || '').trim();
+            const manualValue = input.value.trim();
+            if (!pos) return;
+            if (manualValue && manualValue !== suggested) {
+                usernames[pos] = manualValue;
+            }
         });
 
         const result = await apiCall('POST', 'saveSignerPositions', {
@@ -2799,6 +2877,7 @@ async function saveHeadsConfig() {
         // อัปเดต specialPositionMap ในหน่วยความจำทันที
         Object.assign(specialPositionMap, names);
         if (typeof refreshSignerPositionOptions === 'function') refreshSignerPositionOptions();
+        await loadHeadsManagement();
 
         showAlert('สำเร็จ', 'บันทึกการตั้งค่าหัวหน้าส่วนเรียบร้อยแล้ว');
     } catch (e) {

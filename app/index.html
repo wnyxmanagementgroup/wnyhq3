@@ -985,7 +985,7 @@
                                     <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                                     </svg>
-                                    <input type="text" id="users-search-input" class="form-input pl-9 py-2 text-sm w-full" placeholder="🔍 ค้นหาชื่อ / ยูเซอร์เนม / Login...">
+                                    <input type="text" id="users-search-input" class="form-input pl-9 py-2 text-sm w-full" placeholder="🔍 ค้นหาชื่อ / ยูเซอร์เนม / Login / ตำแหน่ง...">
                                 </div>
                             </div>
                             <div id="users-content" class="p-0">
@@ -999,9 +999,17 @@
 
                     <!-- ═══ Tab Panel: หัวหน้าส่วน (ผู้ลงนาม) ═══ -->
                     <div id="users-tab-panel-heads" class="hidden">
-                        <div class="flex justify-between items-center mb-5">
-                            <p class="text-gray-500 text-sm">กำหนดชื่อและ Username ผู้ที่ต้องลงนามในแต่ละตำแหน่ง</p>
-                            <button onclick="saveHeadsConfig()" id="save-heads-btn" class="btn bg-green-600 text-white hover:bg-green-700 shadow-sm">💾 บันทึกการตั้งค่า</button>
+                        <div class="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3 mb-5">
+                            <div>
+                                <p class="text-gray-500 text-sm">กำหนดชื่อและ Username ผู้ที่ต้องลงนามในแต่ละตำแหน่ง</p>
+                                <p class="text-xs text-blue-600 mt-1">ระบบจะอ้างอิงข้อมูลจากหน้ารายชื่อผู้ใช้ตามตำแหน่งก่อนเสมอ แต่ยังสามารถแก้ไขด้วยมือและบันทึกทับได้</p>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button type="button" onclick="switchUsersTab('users')" id="heads-back-to-users-btn" class="btn bg-slate-100 text-slate-700 hover:bg-slate-200 shadow-sm">
+                                    👥 กลับไปรายชื่อผู้ใช้
+                                </button>
+                                <button onclick="saveHeadsConfig()" id="save-heads-btn" class="btn bg-green-600 text-white hover:bg-green-700 shadow-sm">💾 บันทึกการตั้งค่า</button>
+                            </div>
                         </div>
                         <div class="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
                             <table class="w-full text-sm">
