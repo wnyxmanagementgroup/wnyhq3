@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wny-pwa-shell-v2';
+const CACHE_NAME = 'wny-pwa-shell-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -13,7 +13,7 @@ const APP_SHELL = [
   './js/config.js?v=3',
   './js/utils.js?v=3',
   './js/firebaseService.js?v=3',
-  './js/auth.js?v=3',
+  './js/auth.js?v=4',
   './js/requests.js?v=4',
   './js/admin.js?v=5',
   './js/stats.js?v=3',
@@ -52,6 +52,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  const isVersionedStaticAsset =
+    url.pathname.includes('/js/') ||
+    url.pathname.includes('/css/');
+
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
@@ -64,6 +68,20 @@ self.addEventListener('fetch', (event) => {
           const cached = await caches.match(request);
           return cached || caches.match('./offline.html');
         })
+    );
+    return;
+  }
+
+  if (isVersionedStaticAsset) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (!response || response.status !== 200) return response;
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || caches.match('./offline.html')))
     );
     return;
   }
