@@ -1215,6 +1215,27 @@ function renderUsersList(users) {
         return `<span class="inline-flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full ${cfg.cls}">${cfg.label}</span>`;
     }
 
+    function getUserSearchHaystack(user) {
+        const roleKey = String(user?.role || 'user').toLowerCase();
+        const roleLabel = String(roleBadgeMap[roleKey]?.label || '').toLowerCase();
+        const matchedPositions = (typeof POSITION_TO_ROLE !== 'undefined')
+            ? Object.keys(POSITION_TO_ROLE).filter(position => POSITION_TO_ROLE[position] === roleKey)
+            : [];
+
+        return [
+            user?.fullName || '',
+            user?.username || '',
+            user?.loginName || user?.loginname || user?.LoginName || '',
+            user?.position || '',
+            user?.department || '',
+            roleKey,
+            roleLabel,
+            ...matchedPositions
+        ]
+            .join(' ')
+            .toLowerCase();
+    }
+
     function getInitials(name) {
         if (!name) return '?';
         const parts = name.trim().split(/\s+/);
@@ -1323,13 +1344,7 @@ function renderUsersList(users) {
         searchInput.oninput = function() {
             const q = this.value.trim().toLowerCase();
             const filtered = q
-                ? users.filter(u =>
-                    (u.fullName   || '').toLowerCase().includes(q) ||
-                    (u.username   || '').toLowerCase().includes(q) ||
-                    (u.loginName || u.loginname || u.LoginName || '').toLowerCase().includes(q) ||
-                    (u.position   || '').toLowerCase().includes(q) ||
-                    (u.department || '').toLowerCase().includes(q)
-                  )
+                ? users.filter(u => getUserSearchHaystack(u).includes(q))
                 : users;
             const tbody = document.getElementById('users-table-body');
             if (tbody) tbody.innerHTML = buildRows(filtered);
