@@ -2386,11 +2386,24 @@ async function loadSupabaseKeepAliveStatus() {
     if (box) box.textContent = 'กำลังโหลดสถานะ...';
 
     try {
-        const result = await apiCall('GET', 'getSupabaseKeepAliveStatus');
+        const result = await apiCall('GET', 'getSupabaseKeepAliveStatus', {}, 2, { silent: true });
         renderSupabaseKeepAliveStatus(result?.data || {});
     } catch (error) {
         console.error('Load keep-alive status error:', error);
-        if (box) box.textContent = 'โหลดสถานะ keep-alive ไม่สำเร็จ';
+        const message = String(error?.message || '');
+        if (box) {
+            if (message.includes('ScriptApp.getProjectTriggers') || message.includes('script.scriptapp')) {
+                box.innerHTML = `
+                    <div class="space-y-1 text-amber-800">
+                        <div><strong>ยังไม่พร้อมใช้งาน</strong></div>
+                        <div>ระบบยังไม่ได้รับสิทธิ์ ScriptApp สำหรับจัดการ trigger</div>
+                        <div>ให้อัปเดต manifest และอนุญาตสิทธิ์ใหม่ใน Apps Script ก่อน</div>
+                    </div>
+                `;
+            } else {
+                box.textContent = 'โหลดสถานะ keep-alive ไม่สำเร็จ';
+            }
+        }
     }
 }
 

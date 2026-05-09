@@ -45,9 +45,10 @@ async function getFirebaseIdToken() {
     return null;
 }
 
-async function apiCall(method, action, payload = {}, retries = 2) {
+async function apiCall(method, action, payload = {}, retries = 2, extraOptions = {}) {
     let url = SCRIPT_URL;
     const TIMEOUT_MS = 30000; // 30 วินาที (ถ้าเกินนี้ให้ตัด)
+    const silent = extraOptions?.silent === true;
 
     // แนบ Firebase ID Token ทุก request ยกเว้น verifyCredentials (login)
     // GAS ฝั่งเซิร์ฟเวอร์จะยืนยัน token นี้ก่อนประมวลผล
@@ -101,12 +102,14 @@ async function apiCall(method, action, payload = {}, retries = 2) {
                 // ถ้าครบโควตาลองใหม่แล้วยังไม่ได้ ให้แจ้ง Error จริงๆ
                 console.error('❌ API Call Given Up:', error);
                 
-                if (isTimeout) {
-                    showAlert('หมดเวลาการเชื่อมต่อ', 'ระบบใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง');
-                } else if (error.message.includes('Failed to fetch')) {
-                    showAlert('การเชื่อมต่อล้มเหลว', 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาเช็คอินเทอร์เน็ต');
-                } else {
-                    showAlert('เกิดข้อผิดพลาด', `Server error: ${error.message}`);
+                if (!silent) {
+                    if (isTimeout) {
+                        showAlert('หมดเวลาการเชื่อมต่อ', 'ระบบใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง');
+                    } else if (error.message.includes('Failed to fetch')) {
+                        showAlert('การเชื่อมต่อล้มเหลว', 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาเช็คอินเทอร์เน็ต');
+                    } else {
+                        showAlert('เกิดข้อผิดพลาด', `Server error: ${error.message}`);
+                    }
                 }
                 throw error;
             }
