@@ -103,6 +103,12 @@ async function initializeUserSession(user) {
     const archiveLinkBtn        = document.getElementById('archive-link-btn');
     const adminSectionLabel     = document.getElementById('admin-section-label');
     const isAdmin = String(user.role).toLowerCase() === 'admin';
+    const setNavVisible = (id, visible) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.style.display = visible ? '' : 'none';
+        el.classList.toggle('hidden', !visible);
+    };
 
     if (isAdmin) {
         if (adminBtnCommand)       adminBtnCommand.classList.remove('hidden');
@@ -115,6 +121,19 @@ async function initializeUserSession(user) {
         if (adminEmailBackupBtn)   { adminEmailBackupBtn.classList.remove('hidden'); adminEmailBackupBtn.style.display = ''; }
         if (archiveLinkBtn)        { archiveLinkBtn.classList.remove('hidden'); archiveLinkBtn.style.display = ''; }
         if (adminSectionLabel)     adminSectionLabel.classList.remove('hidden');
+
+        // แอดมินแสดงเฉพาะเมนูที่จำเป็นจริงเท่านั้น
+        setNavVisible('user-nav-dashboard', false);
+        setNavVisible('user-nav-form', false);
+        setNavVisible('nav-send-memo', false);
+        setNavVisible('nav-edit', false);
+        setNavVisible('nav-approval-inbox', true);
+        setNavVisible('nav-stats', true);
+        setNavVisible('nav-profile', true);
+        setNavVisible('admin-nav-command', true);
+        setNavVisible('admin-nav-users', true);
+        setNavVisible('admin-nav-approval-links', true);
+        setNavVisible('admin-nav-system-settings', true);
     } else {
         if (adminBtnCommand)       adminBtnCommand.classList.add('hidden');
         if (adminBtnUsers)         adminBtnUsers.classList.add('hidden');
@@ -126,6 +145,12 @@ async function initializeUserSession(user) {
         if (adminEmailBackupBtn)   { adminEmailBackupBtn.classList.add('hidden'); adminEmailBackupBtn.style.display = 'none'; }
         if (archiveLinkBtn)        { archiveLinkBtn.classList.add('hidden'); archiveLinkBtn.style.display = 'none'; }
         if (adminSectionLabel)     adminSectionLabel.classList.add('hidden');
+
+        setNavVisible('user-nav-dashboard', true);
+        setNavVisible('user-nav-form', true);
+        setNavVisible('nav-send-memo', true);
+        setNavVisible('nav-stats', true);
+        setNavVisible('nav-profile', true);
     }
 
     // 4. เมนู "เอกสารรอลงนาม" — แสดงทันทีถ้า role บ่งบอกว่าเป็นผู้อนุมัติ
