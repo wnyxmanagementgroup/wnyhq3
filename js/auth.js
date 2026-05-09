@@ -87,7 +87,10 @@ async function initializeUserSession(user) {
     const sidebarPos = document.getElementById('user-position-sidebar');
     if (sidebarPos) sidebarPos.textContent = user.position || (user.role === 'admin' ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งานทั่วไป');
 
-    if (typeof loadSystemWorkflowSettings === 'function') {
+    const roleName = String(user.role || '').toLowerCase();
+    const isSarabanOrDirector = roleName === 'saraban' || roleName === 'director';
+
+    if (!isSarabanOrDirector && typeof loadSystemWorkflowSettings === 'function') {
         await loadSystemWorkflowSettings();
     }
     
@@ -102,7 +105,7 @@ async function initializeUserSession(user) {
     const adminEmailBackupBtn   = document.getElementById('admin-email-backup-btn');
     const archiveLinkBtn        = document.getElementById('archive-link-btn');
     const adminSectionLabel     = document.getElementById('admin-section-label');
-    const isAdmin = String(user.role).toLowerCase() === 'admin';
+    const isAdmin = roleName === 'admin';
     const setNavVisible = (id, visible) => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -167,13 +170,17 @@ async function initializeUserSession(user) {
     }
 
     // 5. สารบรรณ / ผู้อำนวยการ: แสดงเฉพาะเมนูที่ใช้งาน (เอกสารรอลงนาม + ข้อมูลส่วนตัว)
-    if (user.role === 'saraban' || user.role === 'director') {
+    if (isSarabanOrDirector) {
         // ซ่อนเมนูที่ไม่ใช้งาน
-        const hideMenus = ['user-nav-dashboard', 'user-nav-form', 'nav-send-memo', 'nav-stats'];
+        const hideMenus = ['user-nav-dashboard', 'user-nav-form', 'nav-send-memo', 'nav-edit'];
         hideMenus.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });
+        const profileNav = document.getElementById('nav-profile');
+        if (profileNav) profileNav.style.display = '';
+        const statsNav = document.getElementById('nav-stats');
+        if (statsNav) statsNav.style.display = '';
         // ปรับสไตล์ปุ่ม Inbox ให้เข้ากับ grid layout เหมือนปุ่มอื่น
         const inboxNav = document.getElementById('nav-approval-inbox');
         if (inboxNav) {
@@ -225,7 +232,6 @@ async function initializeUserSession(user) {
     // 6. นำทางหน้าแรกหลัง Login
     // saraban/director ถูก redirect ไปแล้วที่ข้างบน (approval-page)
     if (typeof switchPage === 'function') {
-        const isSarabanOrDirector = user.role === 'saraban' || user.role === 'director';
         if (!isSarabanOrDirector) {
             if (isAdmin) {
                 switchPage('command-generation-page');

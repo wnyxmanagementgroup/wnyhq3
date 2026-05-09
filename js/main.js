@@ -1699,11 +1699,10 @@ function updateSidebarForRole(user) {
 window._approvalDocs = {};
 
 async function getApprovalDocsFallback(targetStatus) {
-    const result = await apiCall('GET', 'getAllRequests');
+    const result = await apiCall('GET', 'getApprovalRequests', { docStatus: targetStatus });
     const requests = (result.status === 'success') ? (result.data || []) : [];
 
     return requests
-        .filter(req => (req.docStatus || '') === targetStatus)
         .map(req => {
             const safeDocId = (req.id || req.requestId || '').replace(/[\/\\:\.]/g, '-');
             return {
@@ -1749,19 +1748,6 @@ async function loadPendingApprovals() {
     const container = document.getElementById('approval-list-container');
     container.innerHTML = `<div class="flex justify-center py-10"><div class="loader"></div></div>`;
 
-    // ตรวจสอบ Firebase / Firestore พร้อมใช้งานหรือไม่
-    if (typeof db === 'undefined' || !db) {
-        container.innerHTML = `
-            <div class="text-center py-10">
-                <div class="text-red-500 mb-2">⚠️ ระบบฐานข้อมูลยังไม่พร้อมใช้งาน</div>
-                <div class="text-xs text-gray-400 mb-4">กรุณารอสักครู่แล้วลองอีกครั้ง</div>
-                <button onclick="loadPendingApprovals()" class="btn bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100">
-                    🔄 ลองอีกครั้ง
-                </button>
-            </div>`;
-        return;
-    }
-
     try {
         const targetStatus = getTargetStatusForUser(user.role);
 
@@ -1797,8 +1783,8 @@ async function loadPendingApprovals() {
 
         // sort ใน JS: ใช้ timestamp หรือ lastUpdated ที่มี fallback เป็น 0
         docs.sort((a, b) => {
-            const tA = (a.timestamp?.toMillis?.() || a.lastUpdated?.toMillis?.() || 0);
-            const tB = (b.timestamp?.toMillis?.() || b.lastUpdated?.toMillis?.() || 0);
+            const tA = new Date(a.lastUpdated || a.timestamp || a.docDate || 0).getTime() || 0;
+            const tB = new Date(b.lastUpdated || b.timestamp || b.docDate || 0).getTime() || 0;
             return tB - tA; // ล่าสุดก่อน
         });
 

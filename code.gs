@@ -1088,6 +1088,65 @@ function getAllRequestsFromSupabase(options) {
   );
 }
 
+function getApprovalRequestsFromSupabase_(options) {
+  const docStatus = String((options && options.docStatus) || "").trim();
+  if (!docStatus) return [];
+
+  const safeDocStatus = encodeURIComponent(docStatus);
+  const requestRows = supabaseSelectAll_(
+    "requests",
+    "select=*&doc_status=eq." + safeDocStatus + "&order=updated_at.desc,doc_date.desc",
+    500,
+  );
+
+  const requestIds = requestRows
+    .map((row) => String(row.request_id || "").trim())
+    .filter(Boolean);
+
+  const attendeeRows = supabaseSelectByValues_(
+    "attendees",
+    "request_id",
+    requestIds,
+    "select=request_id&order=id.asc",
+    1000,
+  );
+  const memoRows = supabaseSelectByValues_(
+    "memos",
+    "ref_number",
+    requestIds,
+    "select=ref_number,status,completed_memo_url,completed_command_url,dispatch_book_url,admin_memo_url&order=memo_id.asc",
+    1000,
+  );
+
+  const attendeeCountMap = {};
+  attendeeRows.forEach((row) => {
+    const requestId = String(row.request_id || "").trim();
+    if (!requestId) return;
+    attendeeCountMap[requestId] = (attendeeCountMap[requestId] || 0) + 1;
+  });
+
+  const memoMap = {};
+  memoRows.forEach((row) => {
+    const key = String(row.ref_number || "").trim();
+    if (!key) return;
+    memoMap[key] = {
+      status: row.status || "",
+      completedMemoUrl: row.completed_memo_url || "",
+      completedCommandUrl: row.completed_command_url || "",
+      dispatchBookUrl: row.dispatch_book_url || "",
+      adminMemoUrl: row.admin_memo_url || "",
+    };
+  });
+
+  return requestRows.map((row) =>
+    mapSupabaseRequestRow_(
+      row,
+      attendeeCountMap[String(row.request_id || "").trim()] || 0,
+      memoMap[String(row.request_id || "").trim()] || null,
+    ),
+  );
+}
+
 function getAllMemosFromSupabase(options) {
   const requests = getAllRequestsFromSupabase(options);
   const requestIds = requests.map((req) => String(req.id || "").trim()).filter(Boolean);
@@ -1136,6 +1195,9 @@ function doGet(e) {
         break;
       case "getAllRequests":
         data = getAllRequests(params);
+        break;
+      case "getApprovalRequests":
+        data = getApprovalRequests(params);
         break;
       case "getAllRequestsFromSupabase":
         data = getAllRequestsFromSupabase(params);
@@ -2331,6 +2393,22 @@ function getAllRequests(options) {
   } catch (error) {
     Logger.log("getAllRequests fallback to Sheets: " + error.message);
     return filterRequestsByPeriod_(getAllRequestsFromSheets_(), options);
+  }
+}
+
+function getApprovalRequests(options) {
+  const docStatus = String((options && options.docStatus) || "").trim();
+  if (!docStatus) {
+    throw new Error("กรุณาระบุ docStatus ที่ต้องการ");
+  }
+
+  try {
+    return getApprovalRequestsFromSupabase_(options);
+  } catch (error) {
+    Logger.log("getApprovalRequests fallback to Sheets: " + error.message);
+    return getAllRequestsFromSheets_().filter(function (req) {
+      return String(req.docStatus || "").trim() === docStatus;
+    });
   }
 }
 
