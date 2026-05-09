@@ -1849,90 +1849,273 @@ function markApprovalLinkTokenUsed(payload) {
 // === USER MANAGEMENT FUNCTIONS ====================================
 // ==================================================================
 
+function mapSupabaseUserToLegacy_(row) {
+  if (!row) return null;
+  return {
+    username: row.username || "",
+    loginName: row.login_name || row.username || "",
+    fullName: row.full_name || "",
+    email: row.email || "",
+    position: row.position || "",
+    department: row.department || "",
+    role: row.role || "user",
+    specialPosition: row.special_position || "",
+    password: row.legacy_password || "",
+  };
+}
+
+function buildSupabaseUserRecord_(payload, existingRow) {
+  const current = existingRow || {};
+  const loginName = String(
+    payload.loginName || payload.login_name || current.login_name || payload.username || current.username || "",
+  ).trim();
+  return {
+    username: String(payload.username || current.username || "").trim(),
+    login_name: loginName,
+    full_name: payload.fullName !== undefined ? payload.fullName : (current.full_name || ""),
+    email: payload.email !== undefined ? payload.email : (current.email || ""),
+    position: payload.position !== undefined ? payload.position : (current.position || ""),
+    department: payload.department !== undefined ? payload.department : (current.department || ""),
+    role: payload.role !== undefined ? payload.role : (current.role || "user"),
+    special_position:
+      payload.specialPosition !== undefined
+        ? payload.specialPosition
+        : (current.special_position || ""),
+    legacy_password:
+      payload.password !== undefined
+        ? payload.password
+        : payload.newPassword !== undefined && String(payload.newPassword).trim() !== ""
+          ? String(payload.newPassword).trim()
+          : (current.legacy_password || ""),
+  };
+}
+
+function getAllUsersFromSheets_() {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
+  return sheet ? sheetToObject(sheet) : [];
+}
+
+function getAllUsersFromSupabase_() {
+  const rows = supabaseSelectAll_(
+    "app_users",
+    "select=username,login_name,full_name,email,position,department,role,special_position,legacy_password,updated_at&order=full_name.asc.nullslast,username.asc",
+    500,
+  );
+  return rows.map(mapSupabaseUserToLegacy_);
+}
+
+function getSupabaseUserByUsername_(username) {
+  const safeUsername = String(username || "").trim();
+  if (!safeUsername) return null;
+  return supabaseSelectSingle_(
+    "app_users",
+    "select=username,login_name,full_name,email,position,department,role,special_position,legacy_password&username=eq." +
+      encodeURIComponent(safeUsername),
+  );
+}
+
+function getSupabaseUsersByCredential_(usernameOrLogin) {
+  const safeValue = String(usernameOrLogin || "").trim();
+  if (!safeValue) return [];
+  return supabaseSelectAll_(
+    "app_users",
+    "select=username,login_name,full_name,email,position,department,role,special_position,legacy_password&or=(username.eq." +
+      encodeURIComponent(safeValue) +
+      ",login_name.eq." +
+      encodeURIComponent(safeValue) +
+      ")",
+    10,
+  );
+}
+
+function findConflictingSupabaseLoginName_(loginName, ignoreUsername) {
+  const safeLoginName = String(loginName || "").trim();
+  const safeIgnore = String(ignoreUsername || "").trim();
+  if (!safeLoginName) return null;
+  const rows = supabaseSelectAll_(
+    "app_users",
+    "select=username,login_name&or=(login_name.eq." +
+      encodeURIComponent(safeLoginName) +
+      ",username.eq." +
+      encodeURIComponent(safeLoginName) +
+      ")",
+    10,
+  );
+  return rows.find(function (row) {
+    return String(row.username || "").trim() !== safeIgnore;
+  }) || null;
+}
+
+function upsertUserToSupabase_(payload, existingRow) {
+  const record = buildSupabaseUserRecord_(payload, existingRow);
+  if (!record.username) throw new Error("ไม่พบ username สำหรับบันทึกผู้ใช้");
+  supabaseUpsert_("app_users", [record], "username");
+  return record;
+}
+
+function upsertUserToSheetsByRecord_(record) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
+  if (!sheet) return;
+  ensureSheetColumns(sheet, [
+    "Username",
+    "Password",
+    "FullName",
+    "Email",
+    "Position",
+    "Department",
+    "Role",
+    "SpecialPosition",
+    "LoginName",
+  ]);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const usernameCol = findColumnIndex(headers, "Username");
+  const userRowIndex = data.findIndex(function (row, index) {
+    return index > 0 && String(row[usernameCol]).trim() === String(record.username || "").trim();
+  });
+
+  const rowValues = {
+    Username: record.username || "",
+    Password: record.legacy_password || "",
+    FullName: record.full_name || "",
+    Email: record.email || "",
+    Position: record.position || "",
+    Department: record.department || "",
+    Role: record.role || "user",
+    SpecialPosition: record.special_position || "",
+    LoginName: record.login_name || record.username || "",
+  };
+
+  const writeRow = function (rowNum) {
+    Object.keys(rowValues).forEach(function (colName) {
+      const colIndex = findColumnIndex(headers, colName);
+      if (colIndex > -1) {
+        sheet.getRange(rowNum, colIndex + 1).setValue(rowValues[colName]);
+      }
+    });
+  };
+
+  if (userRowIndex > 0) {
+    writeRow(userRowIndex + 1);
+  } else {
+    const appendRow = headers.map(function (header) {
+      return rowValues[header] !== undefined ? rowValues[header] : "";
+    });
+    sheet.appendRow(appendRow);
+  }
+}
+
+function deleteUserFromSheetsByUsername_(username) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
+  if (!sheet) return false;
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const usernameCol = findColumnIndex(headers, "Username");
+  const userRowIndex = data.findIndex(function (row, index) {
+    return index > 0 && String(row[usernameCol]).trim() === String(username || "").trim();
+  });
+  if (userRowIndex > 0) {
+    sheet.deleteRow(userRowIndex + 1);
+    return true;
+  }
+  return false;
+}
+
+function verifyUserCredentialsFromSheets_(payload) {
+  const { username, password } = payload;
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName("Users");
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+
+  const usernameCol = findColumnIndex(headers, "Username");
+  const loginNameCol = findColumnIndex(headers, "LoginName");
+  const passwordCol = findColumnIndex(headers, "Password");
+  const fullNameCol = findColumnIndex(headers, "FullName");
+  const roleCol = findColumnIndex(headers, "Role");
+  const positionCol = findColumnIndex(headers, "Position");
+  const departmentCol = findColumnIndex(headers, "Department");
+  const emailCol = findColumnIndex(headers, "Email");
+  const specialPositionCol = findColumnIndex(headers, "SpecialPosition");
+
+  const userInput = String(username).trim();
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const rowInternalId = String(row[usernameCol]).trim();
+    const rowPassword = String(row[passwordCol]).trim();
+    const rowLoginName =
+      loginNameCol > -1 && String(row[loginNameCol]).trim() !== ""
+        ? String(row[loginNameCol]).trim()
+        : "";
+
+    if (
+      (userInput === rowInternalId ||
+        (rowLoginName !== "" && userInput === rowLoginName)) &&
+      rowPassword === password
+    ) {
+      return {
+        status: "success",
+        user: {
+          username: rowInternalId,
+          loginName: rowLoginName || rowInternalId,
+          fullName: row[fullNameCol] || "",
+          email: emailCol > -1 ? row[emailCol] || "" : "",
+          role: row[roleCol] || "user",
+          position: positionCol > -1 ? row[positionCol] : "",
+          department: departmentCol > -1 ? row[departmentCol] : "",
+          specialPosition: specialPositionCol > -1 ? row[specialPositionCol] : "",
+        },
+      };
+    }
+  }
+  return { status: "error", message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" };
+}
+
 function verifyUserCredentials(payload) {
   try {
     const { username, password } = payload;
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = ss.getSheetByName("Users");
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
-
-    const usernameCol = findColumnIndex(headers, "Username");
-    const loginNameCol = findColumnIndex(headers, "LoginName");
-    const passwordCol = findColumnIndex(headers, "Password");
-    const fullNameCol = findColumnIndex(headers, "FullName");
-    const roleCol = findColumnIndex(headers, "Role");
-    // เพิ่มการ Map คอลัมน์อื่นๆ ให้ครบ
-    const positionCol = findColumnIndex(headers, "Position");
-    const departmentCol = findColumnIndex(headers, "Department");
-
-    const userInput = String(username).trim(); // ค่าที่ user พิมพ์มา
-
-    for (let i = 1; i < data.length; i++) {
-      const row = data[i];
-      const rowInternalId = String(row[usernameCol]).trim(); // ID หลัก
-      const rowPassword = String(row[passwordCol]).trim();
-
-      // ดึง LoginName (ถ้ามี)
-      const rowLoginName =
-        loginNameCol > -1 && String(row[loginNameCol]).trim() !== ""
-          ? String(row[loginNameCol]).trim()
-          : "";
-
-      // ★★★ แก้ไข Logic: เช็คว่าตรงกับ "ID หลัก" หรือ "LoginName" อย่างใดอย่างหนึ่ง ★★★
-      // และรหัสผ่านต้องถูกต้อง
-      if (
-        (userInput === rowInternalId ||
-          (rowLoginName !== "" && userInput === rowLoginName)) &&
-        rowPassword === password
-      ) {
+    const userInput = String(username || "").trim();
+    const matchedRows = getSupabaseUsersByCredential_(userInput);
+    for (let i = 0; i < matchedRows.length; i++) {
+      const row = matchedRows[i];
+      if (String(row.legacy_password || "").trim() === String(password || "").trim()) {
+        const mapped = mapSupabaseUserToLegacy_(row);
         return {
           status: "success",
           user: {
-            username: rowInternalId, // ส่ง ID หลักกลับไปเสมอ (สำคัญมาก)
-            loginName: rowLoginName || rowInternalId, // ส่งชื่อที่ใช้ล็อกอินกลับไปแสดงผล
-            fullName: row[fullNameCol] || "",
-            role: row[roleCol] || "user",
-            position: positionCol > -1 ? row[positionCol] : "", // เพิ่มส่งค่าตำแหน่ง
-            department: departmentCol > -1 ? row[departmentCol] : "", // เพิ่มส่งค่าสังกัด
+            username: mapped.username,
+            loginName: mapped.loginName || mapped.username,
+            fullName: mapped.fullName || "",
+            email: mapped.email || "",
+            role: mapped.role || "user",
+            position: mapped.position || "",
+            department: mapped.department || "",
+            specialPosition: mapped.specialPosition || "",
           },
         };
       }
     }
-    return { status: "error", message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" };
+    return verifyUserCredentialsFromSheets_(payload);
   } catch (error) {
-    return { status: "error", message: "Login Error: " + error.message };
+    Logger.log("verifyUserCredentials fallback to Sheets: " + error.message);
+    return verifyUserCredentialsFromSheets_(payload);
   }
 }
 function registerUser(payload) {
   try {
-    const { username, password, fullName, email, position, department, role } =
-      payload;
-    const sheet =
-      SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
-    const usernameCol = findColumnIndex(headers, "Username");
-
-    if (usernameCol > -1) {
-      for (let i = 1; i < data.length; i++) {
-        if (String(data[i][usernameCol]).trim() === username.trim()) {
-          return { status: "error", message: "ชื่อผู้ใช้นี้มีอยู่แล้วในระบบ" };
-        }
-      }
+    const username = String(payload.username || "").trim();
+    if (!username) return { status: "error", message: "กรุณาระบุชื่อผู้ใช้" };
+    const existing = getSupabaseUserByUsername_(username);
+    if (existing) {
+      return { status: "error", message: "ชื่อผู้ใช้นี้มีอยู่แล้วในระบบ" };
     }
-
-    sheet.appendRow([
-      username,
-      password,
-      fullName,
-      email,
-      position,
-      department,
-      role || "user",
-      "",
-      username, // Use username as default LoginName
-    ]);
+    const record = upsertUserToSupabase_(payload, null);
+    try {
+      upsertUserToSheetsByRecord_(record);
+    } catch (sheetError) {
+      Logger.log("registerUser sheet sync warning: " + sheetError.message);
+    }
     return { status: "success", message: "ลงทะเบียนสำเร็จ" };
   } catch (error) {
     return {
@@ -1945,101 +2128,108 @@ function registerUser(payload) {
 // ในไฟล์ Code.gs ค้นหาและแทนที่ฟังก์ชัน updateUserProfile ด้วยอันนี้
 
 function updateUserProfile(payload) {
-  const { username, loginName, fullName, email, position, department } =
-    payload;
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-
-  const usernameCol = findColumnIndex(headers, "Username");
-  const loginNameCol = findColumnIndex(headers, "LoginName");
-
-  // เตรียมข้อมูลเปรียบเทียบ (แปลงเป็น String และตัดช่องว่างให้หมด)
-  const targetUsername = String(username).trim();
-  const targetLoginName = String(loginName).trim();
-
-  // 1. ตรวจสอบชื่อซ้ำ (Validation)
-  if (loginNameCol > -1) {
-    for (let i = 1; i < data.length; i++) {
-      const rowUsername = String(data[i][usernameCol]).trim();
-      const rowLoginName = String(data[i][loginNameCol]).trim();
-
-      // ★★★ จุดที่แก้ไข: ถ้าเจอแถวของตัวเอง ให้ข้ามไปเลย ไม่ต้องเช็ค ★★★
-      if (rowUsername === targetUsername) {
-        continue;
-      }
-
-      // เช็คว่าชื่อ LoginName ไปซ้ำกับคนอื่นไหม
-      if (rowLoginName !== "" && rowLoginName === targetLoginName) {
-        return {
-          status: "error",
-          message: "ชื่อสำหรับล็อกอิน (LoginName) นี้มีผู้ใช้อื่นใช้งานแล้ว",
-        };
-      }
-
-      // (Option เสริม) เช็คว่า LoginName ไปซ้ำกับ Username (ID) ของคนอื่นไหม
-      if (rowUsername === targetLoginName) {
-        return {
-          status: "error",
-          message: "ชื่อสำหรับล็อกอินซ้ำกับรหัสผู้ใช้งานของผู้อื่น",
-        };
+  try {
+    const targetUsername = String(payload.username || "").trim();
+    const targetLoginName = String(payload.loginName || "").trim();
+    const existing = getSupabaseUserByUsername_(targetUsername);
+    if (!existing) return { status: "error", message: "ไม่พบข้อมูลผู้ใช้ในระบบ" };
+    const conflict = findConflictingSupabaseLoginName_(targetLoginName, targetUsername);
+    if (conflict) {
+      return {
+        status: "error",
+        message: "ชื่อสำหรับล็อกอิน (LoginName) นี้มีผู้ใช้อื่นใช้งานแล้ว",
+      };
+    }
+    const record = upsertUserToSupabase_(payload, existing);
+    try {
+      upsertUserToSheetsByRecord_(record);
+    } catch (sheetError) {
+      Logger.log("updateUserProfile sheet sync warning: " + sheetError.message);
+    }
+    return { status: "success", message: "อัปเดตข้อมูลสำเร็จ" };
+  } catch (error) {
+    Logger.log("updateUserProfile fallback to Sheets: " + error.message);
+    const { username, loginName, fullName, email, position, department } = payload;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const usernameCol = findColumnIndex(headers, "Username");
+    const loginNameCol = findColumnIndex(headers, "LoginName");
+    const targetUsername = String(username).trim();
+    const targetLoginName = String(loginName).trim();
+    if (loginNameCol > -1) {
+      for (let i = 1; i < data.length; i++) {
+        const rowUsername = String(data[i][usernameCol]).trim();
+        const rowLoginName = String(data[i][loginNameCol]).trim();
+        if (rowUsername === targetUsername) continue;
+        if (rowLoginName !== "" && rowLoginName === targetLoginName) {
+          return {
+            status: "error",
+            message: "ชื่อสำหรับล็อกอิน (LoginName) นี้มีผู้ใช้อื่นใช้งานแล้ว",
+          };
+        }
+        if (rowUsername === targetLoginName) {
+          return {
+            status: "error",
+            message: "ชื่อสำหรับล็อกอินซ้ำกับรหัสผู้ใช้งานของผู้อื่น",
+          };
+        }
       }
     }
+    const userRowIndex = data.findIndex(
+      (row) => String(row[usernameCol]).trim() === targetUsername,
+    );
+    if (userRowIndex > 0) {
+      if (loginNameCol > -1)
+        sheet.getRange(userRowIndex + 1, loginNameCol + 1).setValue(targetLoginName);
+      const fullNameCol = findColumnIndex(headers, "FullName");
+      const emailCol = findColumnIndex(headers, "Email");
+      const positionCol = findColumnIndex(headers, "Position");
+      const departmentCol = findColumnIndex(headers, "Department");
+      if (fullNameCol > -1) sheet.getRange(userRowIndex + 1, fullNameCol + 1).setValue(fullName);
+      if (emailCol > -1) sheet.getRange(userRowIndex + 1, emailCol + 1).setValue(email);
+      if (positionCol > -1) sheet.getRange(userRowIndex + 1, positionCol + 1).setValue(position);
+      if (departmentCol > -1) sheet.getRange(userRowIndex + 1, departmentCol + 1).setValue(department);
+      return { status: "success", message: "อัปเดตข้อมูลสำเร็จ" };
+    }
+    return { status: "error", message: "ไม่พบข้อมูลผู้ใช้ในระบบ" };
   }
-
-  // 2. บันทึกข้อมูล (Update)
-  const userRowIndex = data.findIndex(
-    (row) => String(row[usernameCol]).trim() === targetUsername,
-  );
-
-  if (userRowIndex > 0) {
-    // บันทึก LoginName
-    if (loginNameCol > -1)
-      sheet
-        .getRange(userRowIndex + 1, loginNameCol + 1)
-        .setValue(targetLoginName);
-
-    // บันทึกข้อมูลอื่นๆ
-    const fullNameCol = findColumnIndex(headers, "FullName");
-    const emailCol = findColumnIndex(headers, "Email");
-    const positionCol = findColumnIndex(headers, "Position");
-    const departmentCol = findColumnIndex(headers, "Department");
-
-    if (fullNameCol > -1)
-      sheet.getRange(userRowIndex + 1, fullNameCol + 1).setValue(fullName);
-    if (emailCol > -1)
-      sheet.getRange(userRowIndex + 1, emailCol + 1).setValue(email);
-    if (positionCol > -1)
-      sheet.getRange(userRowIndex + 1, positionCol + 1).setValue(position);
-    if (departmentCol > -1)
-      sheet.getRange(userRowIndex + 1, departmentCol + 1).setValue(department);
-
-    return { status: "success", message: "อัปเดตข้อมูลสำเร็จ" };
-  }
-
-  return { status: "error", message: "ไม่พบข้อมูลผู้ใช้ในระบบ" };
 }
 
 function updatePassword(payload) {
-  const { username, oldPassword, newPassword } = payload;
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const usernameCol = findColumnIndex(headers, "Username");
-  const userRowIndex = data.findIndex((row) => row[usernameCol] === username);
-
-  if (userRowIndex > 0) {
-    const passwordColIndex = findColumnIndex(headers, "Password");
-    const currentPasswordInSheet = data[userRowIndex][passwordColIndex];
-    if (currentPasswordInSheet !== oldPassword) {
+  try {
+    const { username, oldPassword, newPassword } = payload;
+    const existing = getSupabaseUserByUsername_(username);
+    if (!existing) return { status: "error", message: "ไม่พบผู้ใช้ในระบบ" };
+    if (String(existing.legacy_password || "") !== String(oldPassword || "")) {
       return { status: "error", message: "รหัสผ่านปัจจุบันไม่ถูกต้อง" };
     }
-    sheet
-      .getRange(userRowIndex + 1, passwordColIndex + 1)
-      .setValue(newPassword);
+    const record = upsertUserToSupabase_({ username, newPassword }, existing);
+    try {
+      upsertUserToSheetsByRecord_(record);
+    } catch (sheetError) {
+      Logger.log("updatePassword sheet sync warning: " + sheetError.message);
+    }
     return { status: "success", message: "เปลี่ยนรหัสผ่านสำเร็จ" };
+  } catch (error) {
+    Logger.log("updatePassword fallback to Sheets: " + error.message);
+    const { username, oldPassword, newPassword } = payload;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const usernameCol = findColumnIndex(headers, "Username");
+    const userRowIndex = data.findIndex((row) => row[usernameCol] === username);
+    if (userRowIndex > 0) {
+      const passwordColIndex = findColumnIndex(headers, "Password");
+      const currentPasswordInSheet = data[userRowIndex][passwordColIndex];
+      if (currentPasswordInSheet !== oldPassword) {
+        return { status: "error", message: "รหัสผ่านปัจจุบันไม่ถูกต้อง" };
+      }
+      sheet.getRange(userRowIndex + 1, passwordColIndex + 1).setValue(newPassword);
+      return { status: "success", message: "เปลี่ยนรหัสผ่านสำเร็จ" };
+    }
+    return { status: "error", message: "ไม่พบผู้ใช้ในระบบ" };
   }
-  return { status: "error", message: "ไม่พบผู้ใช้ในระบบ" };
 }
 
 function handleForgotPassword(payload) {
@@ -2047,47 +2237,77 @@ function handleForgotPassword(payload) {
   if (!email) return { status: "error", message: "ไม่พบอีเมล" };
 
   try {
-    const sheet =
-      SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
-
-    const emailCol = findColumnIndex(headers, "Email");
-    const passwordCol = findColumnIndex(headers, "Password");
-    const fullNameCol = findColumnIndex(headers, "FullName");
-
-    if (emailCol === -1 || passwordCol === -1 || fullNameCol === -1) {
-      return { status: "error", message: "การตั้งค่าชีตผู้ใช้ไม่ถูกต้อง" };
+    const rows = supabaseSelectAll_(
+      "app_users",
+      "select=username,login_name,full_name,email,position,department,role,special_position,legacy_password&email=eq." +
+        encodeURIComponent(String(email).trim()),
+      5,
+    );
+    const matched = rows.find(function (row) {
+      return String(row.email || "").trim().toLowerCase() === String(email).trim().toLowerCase();
+    });
+    if (matched) {
+      const tempPassword = `WNY@${Math.floor(1000 + Math.random() * 9000)}`;
+      const record = upsertUserToSupabase_({ username: matched.username, newPassword: tempPassword }, matched);
+      try {
+        upsertUserToSheetsByRecord_(record);
+      } catch (sheetError) {
+        Logger.log("handleForgotPassword sheet sync warning: " + sheetError.message);
+      }
+      const subject = "[WNY App] คำขอรีเซ็ตรหัสผ่านของคุณ";
+      const body = `
+          <p>สวัสดีคุณ ${matched.full_name || matched.username},</p>
+          <p>รหัสผ่านชั่วคราวของคุณคือ: <strong>${tempPassword}</strong></p>
+          <p>กรุณาใช้รหัสผ่านนี้เพื่อเข้าสู่ระบบ และเปลี่ยนรหัสผ่านทันที</p>
+        `;
+      MailApp.sendEmail({
+        to: email,
+        subject: subject,
+        htmlBody: body,
+        name: "ระบบ WNY App",
+      });
+      return { status: "success", message: "ส่งรหัสผ่านใหม่ไปยังอีเมลแล้ว" };
     }
-
-    for (let i = 1; i < data.length; i++) {
-      const row = data[i];
-      const userEmail = String(row[emailCol]).trim();
-
-      if (userEmail.toLowerCase() === email.toLowerCase()) {
-        const fullName = row[fullNameCol];
-        const rowNumber = i + 1;
-        const tempPassword = `WNY@${Math.floor(1000 + Math.random() * 9000)}`;
-
-        sheet.getRange(rowNumber, passwordCol + 1).setValue(tempPassword);
-        const subject = "[WNY App] คำขอรีเซ็ตรหัสผ่านของคุณ";
-        const body = `
+    return { status: "error", message: "ไม่พบอีเมลนี้ในระบบ" };
+  } catch (error) {
+    Logger.log("handleForgotPassword fallback to Sheets: " + error.message);
+    try {
+      const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
+      const data = sheet.getDataRange().getValues();
+      const headers = data[0];
+      const emailCol = findColumnIndex(headers, "Email");
+      const passwordCol = findColumnIndex(headers, "Password");
+      const fullNameCol = findColumnIndex(headers, "FullName");
+      if (emailCol === -1 || passwordCol === -1 || fullNameCol === -1) {
+        return { status: "error", message: "การตั้งค่าชีตผู้ใช้ไม่ถูกต้อง" };
+      }
+      for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        const userEmail = String(row[emailCol]).trim();
+        if (userEmail.toLowerCase() === email.toLowerCase()) {
+          const fullName = row[fullNameCol];
+          const rowNumber = i + 1;
+          const tempPassword = `WNY@${Math.floor(1000 + Math.random() * 9000)}`;
+          sheet.getRange(rowNumber, passwordCol + 1).setValue(tempPassword);
+          const subject = "[WNY App] คำขอรีเซ็ตรหัสผ่านของคุณ";
+          const body = `
           <p>สวัสดีคุณ ${fullName},</p>
           <p>รหัสผ่านชั่วคราวของคุณคือ: <strong>${tempPassword}</strong></p>
           <p>กรุณาใช้รหัสผ่านนี้เพื่อเข้าสู่ระบบ และเปลี่ยนรหัสผ่านทันที</p>
         `;
-        MailApp.sendEmail({
-          to: email,
-          subject: subject,
-          htmlBody: body,
-          name: "ระบบ WNY App",
-        });
-        return { status: "success", message: "ส่งรหัสผ่านใหม่ไปยังอีเมลแล้ว" };
+          MailApp.sendEmail({
+            to: email,
+            subject: subject,
+            htmlBody: body,
+            name: "ระบบ WNY App",
+          });
+          return { status: "success", message: "ส่งรหัสผ่านใหม่ไปยังอีเมลแล้ว" };
+        }
       }
+      return { status: "error", message: "ไม่พบอีเมลนี้ในระบบ" };
+    } catch (sheetError) {
+      return { status: "error", message: "เกิดข้อผิดพลาด: " + sheetError.message };
     }
-    return { status: "error", message: "ไม่พบอีเมลนี้ในระบบ" };
-  } catch (error) {
-    return { status: "error", message: "เกิดข้อผิดพลาด: " + error.message };
   }
 }
 
@@ -2096,25 +2316,41 @@ function adminAddUser(payload) {
 }
 
 function deleteUser(payload) {
-  const { username } = payload;
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const usernameCol = findColumnIndex(headers, "Username");
-  // ✅ แก้ไข GAS-BUG-008: เพิ่ม String() เพื่อป้องกัน type mismatch ในการเปรียบเทียบ
-  const userRowIndex = data.findIndex(
-    (row) => String(row[usernameCol]).trim() === String(username).trim(),
-  );
-  if (userRowIndex > 0) {
-    sheet.deleteRow(userRowIndex + 1);
+  try {
+    const username = String(payload.username || "").trim();
+    if (!username) return { status: "error", message: "ไม่พบผู้ใช้ที่ต้องการลบ" };
+    supabaseDeleteWhere_("app_users", "username=eq." + encodeURIComponent(username));
+    try {
+      deleteUserFromSheetsByUsername_(username);
+    } catch (sheetError) {
+      Logger.log("deleteUser sheet sync warning: " + sheetError.message);
+    }
     return { status: "success", message: "ลบผู้ใช้สำเร็จ" };
+  } catch (error) {
+    Logger.log("deleteUser fallback to Sheets: " + error.message);
+    const { username } = payload;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const usernameCol = findColumnIndex(headers, "Username");
+    const userRowIndex = data.findIndex(
+      (row) => String(row[usernameCol]).trim() === String(username).trim(),
+    );
+    if (userRowIndex > 0) {
+      sheet.deleteRow(userRowIndex + 1);
+      return { status: "success", message: "ลบผู้ใช้สำเร็จ" };
+    }
+    return { status: "error", message: "ไม่พบผู้ใช้ที่ต้องการลบ" };
   }
-  return { status: "error", message: "ไม่พบผู้ใช้ที่ต้องการลบ" };
 }
 
 function getAllUsers() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
-  return sheetToObject(sheet);
+  try {
+    return getAllUsersFromSupabase_();
+  } catch (error) {
+    Logger.log("getAllUsers fallback to Sheets: " + error.message);
+    return getAllUsersFromSheets_();
+  }
 }
 
 function normalizeUserDirectoryText_(value) {
@@ -2287,9 +2523,14 @@ function getSignerUserCandidates(params) {
 }
 
 function getUsersCount_() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
-  if (!sheet) return 0;
-  return Math.max(0, sheet.getLastRow() - 1);
+  try {
+    return supabaseCount_("app_users", "");
+  } catch (error) {
+    Logger.log("getUsersCount fallback to Sheets: " + error.message);
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
+    if (!sheet) return 0;
+    return Math.max(0, sheet.getLastRow() - 1);
+  }
 }
 
 function isCompletedRequestStatus_(status, commandStatus) {
@@ -2459,56 +2700,90 @@ function importUsers(payload) {
     return { status: "error", message: "No user data provided." };
   }
 
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const usernameCol = findColumnIndex(headers, "Username");
-  const lastRow = sheet.getLastRow();
-  const existingUsernames =
-    lastRow > 1
-      ? sheet
-          .getRange(2, usernameCol + 1, lastRow - 1, 1)
-          .getValues()
-          .flat()
-          .map(String)
-      : [];
+  try {
+    const existingUsers = getAllUsersFromSupabase_();
+    const existingUsernames = new Set(existingUsers.map((user) => String(user.username || "").trim()));
+    const records = [];
+    let importedCount = 0;
 
-  let importedCount = 0;
-  const rowsToAdd = [];
+    for (const user of users) {
+      const username = String(user.Username || "").trim();
+      if (!username || existingUsernames.has(username)) continue;
+      const record = buildSupabaseUserRecord_(
+        {
+          username: username,
+          loginName: user.LoginName || username,
+          password: user.Password || "password123",
+          fullName: user.FullName || "",
+          email: user.Email || "",
+          position: user.Position || "",
+          department: user.Department || "",
+          role: user.Role || "user",
+          specialPosition: user.SpecialPosition || "",
+        },
+        null,
+      );
+      records.push(record);
+      existingUsernames.add(username);
+      importedCount++;
+    }
 
-  for (const user of users) {
-    const username = String(user.Username).trim();
-    if (!username || existingUsernames.includes(username)) continue;
+    if (records.length) {
+      supabaseUpsert_("app_users", records, "username");
+      records.forEach(function (record) {
+        try {
+          upsertUserToSheetsByRecord_(record);
+        } catch (sheetError) {
+          Logger.log("importUsers sheet sync warning: " + sheetError.message);
+        }
+      });
+    }
 
-    rowsToAdd.push([
-      username,
-      user.Password || "password123",
-      user.FullName || "",
-      user.Email || "",
-      user.Position || "",
-      user.Department || "",
-      user.Role || "user",
-      user.SpecialPosition || "",
-      username, // LoginName default
-    ]);
-    existingUsernames.push(username);
-    importedCount++;
+    return {
+      status: "success",
+      message: `นำเข้าผู้ใช้สำเร็จ ${importedCount} คน`,
+    };
+  } catch (error) {
+    Logger.log("importUsers fallback to Sheets: " + error.message);
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Users");
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const usernameCol = findColumnIndex(headers, "Username");
+    const lastRow = sheet.getLastRow();
+    const existingUsernames =
+      lastRow > 1
+        ? sheet
+            .getRange(2, usernameCol + 1, lastRow - 1, 1)
+            .getValues()
+            .flat()
+            .map(String)
+        : [];
+    let importedCount = 0;
+    const rowsToAdd = [];
+    for (const user of users) {
+      const username = String(user.Username).trim();
+      if (!username || existingUsernames.includes(username)) continue;
+      rowsToAdd.push([
+        username,
+        user.Password || "password123",
+        user.FullName || "",
+        user.Email || "",
+        user.Position || "",
+        user.Department || "",
+        user.Role || "user",
+        user.SpecialPosition || "",
+        username,
+      ]);
+      existingUsernames.push(username);
+      importedCount++;
+    }
+    if (rowsToAdd.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+    }
+    return {
+      status: "success",
+      message: `นำเข้าผู้ใช้สำเร็จ ${importedCount} คน`,
+    };
   }
-
-  if (rowsToAdd.length > 0) {
-    sheet
-      .getRange(
-        sheet.getLastRow() + 1,
-        1,
-        rowsToAdd.length,
-        rowsToAdd[0].length,
-      )
-      .setValues(rowsToAdd);
-  }
-
-  return {
-    status: "success",
-    message: `นำเข้าผู้ใช้สำเร็จ ${importedCount} คน`,
-  };
 }
 
 // ==================================================================
@@ -4944,64 +5219,84 @@ function adminUpdateUser(payload) {
     // username = Internal ID (ใช้ค้นหาแถว)
     // loginName = ชื่อล็อกอินใหม่ (ใช้บันทึก)
 
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = ss.getSheetByName("Users");
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
-
-    const usernameCol = findColumnIndex(headers, "Username");
-    const loginNameCol = findColumnIndex(headers, "LoginName");
-
-    // 1. ตรวจสอบความซ้ำซ้อนของ Login Name ใหม่
-    // (ต้องไม่ซ้ำกับ LoginName ของคนอื่น และไม่ซ้ำกับ Username ของคนอื่นด้วย เพื่อความปลอดภัย)
-    for (let i = 1; i < data.length; i++) {
-      const rowId = String(data[i][usernameCol]);
-      const rowLogin = loginNameCol > -1 ? String(data[i][loginNameCol]) : "";
-
-      // ข้ามแถวของตัวเอง (ถ้าเจอตัวเองให้ข้ามไป)
-      if (rowId === username) continue;
-
-      // เช็คซ้ำ
-      if (rowLogin === loginName || rowId === loginName) {
-        return {
-          status: "error",
-          message: "ชื่อล็อกอิน '" + loginName + "' มีผู้อื่นใช้งานแล้ว",
-        };
-      }
+    const existing = getSupabaseUserByUsername_(username);
+    if (!existing) return { status: "error", message: "ไม่พบข้อมูลผู้ใช้ในระบบ" };
+    const conflict = findConflictingSupabaseLoginName_(loginName, username);
+    if (conflict) {
+      return {
+        status: "error",
+        message: "ชื่อล็อกอิน '" + loginName + "' มีผู้อื่นใช้งานแล้ว",
+      };
     }
-
-    // 2. หาแถวและอัปเดต
-    let rowIndex = -1;
-    for (let i = 1; i < data.length; i++) {
-      if (String(data[i][usernameCol]) === String(username)) {
-        rowIndex = i + 1;
-        break;
-      }
+    const record = upsertUserToSupabase_(
+      {
+        username,
+        loginName,
+        fullName,
+        position,
+        department,
+        role,
+        newPassword,
+      },
+      existing,
+    );
+    try {
+      upsertUserToSheetsByRecord_(record);
+    } catch (sheetError) {
+      Logger.log("adminUpdateUser sheet sync warning: " + sheetError.message);
     }
-
-    if (rowIndex === -1)
-      return { status: "error", message: "ไม่พบข้อมูลผู้ใช้ในระบบ" };
-
-    // ฟังก์ชันช่วยบันทึก
-    const setVal = (colName, val) => {
-      const col = findColumnIndex(headers, colName);
-      if (col > -1) sheet.getRange(rowIndex, col + 1).setValue(val);
-    };
-
-    // บันทึกข้อมูล
-    setVal("LoginName", loginName); // อัปเดตชื่อล็อกอิน
-    setVal("FullName", fullName);
-    setVal("Position", position);
-    setVal("Department", department);
-    setVal("Role", role);
-
-    if (newPassword && newPassword.trim() !== "") {
-      setVal("Password", newPassword.trim());
-    }
-
     return { status: "success", message: "อัปเดตข้อมูลสำเร็จ" };
   } catch (error) {
-    return { status: "error", message: "Update Error: " + error.message };
+    Logger.log("adminUpdateUser fallback to Sheets: " + error.message);
+    try {
+      const {
+        username,
+        loginName,
+        fullName,
+        position,
+        department,
+        role,
+        newPassword,
+      } = payload;
+      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      const sheet = ss.getSheetByName("Users");
+      const data = sheet.getDataRange().getValues();
+      const headers = data[0];
+      const usernameCol = findColumnIndex(headers, "Username");
+      const loginNameCol = findColumnIndex(headers, "LoginName");
+      for (let i = 1; i < data.length; i++) {
+        const rowId = String(data[i][usernameCol]);
+        const rowLogin = loginNameCol > -1 ? String(data[i][loginNameCol]) : "";
+        if (rowId === username) continue;
+        if (rowLogin === loginName || rowId === loginName) {
+          return {
+            status: "error",
+            message: "ชื่อล็อกอิน '" + loginName + "' มีผู้อื่นใช้งานแล้ว",
+          };
+        }
+      }
+      let rowIndex = -1;
+      for (let i = 1; i < data.length; i++) {
+        if (String(data[i][usernameCol]) === String(username)) {
+          rowIndex = i + 1;
+          break;
+        }
+      }
+      if (rowIndex === -1) return { status: "error", message: "ไม่พบข้อมูลผู้ใช้ในระบบ" };
+      const setVal = (colName, val) => {
+        const col = findColumnIndex(headers, colName);
+        if (col > -1) sheet.getRange(rowIndex, col + 1).setValue(val);
+      };
+      setVal("LoginName", loginName);
+      setVal("FullName", fullName);
+      setVal("Position", position);
+      setVal("Department", department);
+      setVal("Role", role);
+      if (newPassword && newPassword.trim() !== "") setVal("Password", newPassword.trim());
+      return { status: "success", message: "อัปเดตข้อมูลสำเร็จ" };
+    } catch (sheetError) {
+      return { status: "error", message: "Update Error: " + sheetError.message };
+    }
   } finally {
     lock.releaseLock();
   }
