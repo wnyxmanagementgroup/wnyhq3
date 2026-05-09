@@ -1545,10 +1545,16 @@ function doPost(e) {
       case "batchSyncFromSupabase":
         result = batchSyncFromSupabase(payload);
         break;
+      case "backupYearToSheets":
+        result = backupYearToSheets(payload);
+        break;
 
       // --- Yearly Backup Email ---
       case "sendYearlyBackupEmail":
         result = sendYearlyBackupEmail(payload);
+        break;
+      case "sendYearlyBackupEmailByYear":
+        result = sendYearlyBackupEmailByYear(payload);
         break;
       default:
         throw new Error(`Unknown action: ${action}`);
@@ -2115,7 +2121,69 @@ function normalizeUserDirectoryText_(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function getPositionToRoleMap_() {
+  return {
+    "หัวหน้ากลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี": "head_science",
+    "รองหัวหน้ากลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี": "head_science",
+    "หัวหน้ากลุ่มสาระการเรียนรู้คณิตศาสตร์": "head_math",
+    "หัวหน้ากลุ่มสาระการเรียนรู้ภาษาไทย": "head_thai",
+    "หัวหน้ากลุ่มสาระการเรียนรู้ภาษาต่างประเทศ": "head_foreign",
+    "หัวหน้ากลุ่มสาระการเรียนรู้สังคมศึกษา ศาสนา และวัฒนธรรม": "head_social",
+    "หัวหน้ากลุ่มสาระการเรียนรู้สุขศึกษาและพลศึกษา": "head_health",
+    "หัวหน้ากลุ่มสาระการเรียนรู้ศิลปะ": "head_art",
+    "หัวหน้ากลุ่มสาระการเรียนรู้การงานอาชีพ": "head_career",
+    "หัวหน้างานแนะแนว": "head_guidance",
+    "หัวหน้ากลุ่มบริหารทั่วไป": "head_general",
+    "หัวหน้ากลุ่มบริหารงานบุคคล": "head_personnel",
+    "หัวหน้ากลุ่มบริหารงบประมาณ": "head_budget",
+    "หัวหน้ากลุ่มบริหารวิชาการ": "head_acad",
+    "รองผู้อำนวยการกลุ่มบริหารทั่วไป": "deputy_general",
+    "รองผู้อำนวยการกลุ่มบริหารงบประมาณ": "deputy_budget",
+    "รองผู้อำนวยการกลุ่มบริหารวิชาการ": "deputy_acad",
+    "รองผู้อำนวยการกลุ่มบริหารงานบุคคล": "deputy_personnel",
+    "ผู้อำนวยการโรงเรียน": "director",
+  };
+}
+
+function getRoleSearchLabels_(roleKey) {
+  const labels = [];
+  const safeRole = String(roleKey || "").trim().toLowerCase();
+  if (!safeRole) return labels;
+
+  const positionMap = getPositionToRoleMap_();
+  Object.keys(positionMap).forEach(function (position) {
+    if (positionMap[position] === safeRole) labels.push(position);
+  });
+
+  const badgeLabelMap = {
+    admin: "admin ผู้ดูแลระบบ",
+    director: "ผู้อำนวยการโรงเรียน",
+    saraban: "สารบรรณ",
+    deputy_acad: "รอง ผอ.วิชาการ รองผู้อำนวยการกลุ่มบริหารวิชาการ",
+    deputy_personnel: "รอง ผอ.บุคคล รองผู้อำนวยการกลุ่มบริหารงานบุคคล",
+    deputy_general: "รอง ผอ.ทั่วไป รองผู้อำนวยการกลุ่มบริหารทั่วไป",
+    deputy_budget: "รอง ผอ.งบประมาณ รองผู้อำนวยการกลุ่มบริหารงบประมาณ",
+    head_guidance: "หัวหน้าแนะแนว หัวหน้างานแนะแนว",
+    head_general: "หัวหน้าทั่วไป หัวหน้ากลุ่มบริหารทั่วไป",
+    head_personnel: "หัวหน้าบุคคล หัวหน้ากลุ่มบริหารงานบุคคล",
+    head_budget: "หัวหน้างบประมาณ หัวหน้ากลุ่มบริหารงบประมาณ",
+    head_acad: "หัวหน้าวิชาการ หัวหน้ากลุ่มบริหารวิชาการ",
+    head_science: "หัวหน้ากลุ่มสาระวิทยาศาสตร์และเทคโนโลยี รองหัวหน้ากลุ่มสาระวิทยาศาสตร์และเทคโนโลยี",
+    head_math: "หัวหน้ากลุ่มสาระคณิตศาสตร์",
+    head_thai: "หัวหน้ากลุ่มสาระภาษาไทย",
+    head_foreign: "หัวหน้ากลุ่มสาระภาษาต่างประเทศ",
+    head_social: "หัวหน้ากลุ่มสาระสังคมศึกษา ศาสนา และวัฒนธรรม",
+    head_health: "หัวหน้ากลุ่มสาระสุขศึกษาและพลศึกษา",
+    head_art: "หัวหน้ากลุ่มสาระศิลปะ",
+    head_career: "หัวหน้ากลุ่มสาระการงานอาชีพ",
+    user: "user ครู ผู้ใช้งานทั่วไป",
+  };
+  if (badgeLabelMap[safeRole]) labels.push(badgeLabelMap[safeRole]);
+  return labels;
+}
+
 function getUserDirectoryHaystack_(user) {
+  const roleLabels = getRoleSearchLabels_(user && user.role);
   return [
     user && user.fullName,
     user && user.username,
@@ -2123,6 +2191,7 @@ function getUserDirectoryHaystack_(user) {
     user && user.position,
     user && user.department,
     user && user.role,
+    roleLabels.join(" "),
   ]
     .filter(Boolean)
     .join(" ")
@@ -2198,10 +2267,12 @@ function getSignerUserCandidates(params) {
   }
 
   const matches = allUsers.filter(function (user) {
+    const userRole = normalizeUserDirectoryText_(user && user.role);
     const userPosition = normalizeUserDirectoryText_(user && user.position).replace(/\s+/g, " ");
-    if (!userPosition) return false;
     return normalizedPositions.some(function (position) {
+      const mappedRole = normalizeUserDirectoryText_(getPositionToRoleMap_()[position] || "");
       return (
+        (mappedRole && userRole === mappedRole) ||
         userPosition === position ||
         userPosition.indexOf(position) !== -1 ||
         position.indexOf(userPosition) !== -1
@@ -5481,6 +5552,23 @@ function batchSyncFromFirestore(payload) {
   return batchSyncPrimaryDataToSheets_(payload);
 }
 
+function getBackupBundleFromSupabase_(yearBE) {
+  const safeYear = parseInt(yearBE, 10) || new Date().getFullYear() + 543;
+  const options = { year: safeYear, scope: "year" };
+  return {
+    year: safeYear,
+    requests: getAllRequestsFromSupabase(options),
+    memos: getAllMemosFromSupabase(options),
+    syncedAt: new Date().toISOString(),
+  };
+}
+
+function backupYearToSheets(payload) {
+  const safeYear = parseInt((payload && payload.year) || 0, 10) || new Date().getFullYear() + 543;
+  const bundle = getBackupBundleFromSupabase_(safeYear);
+  return batchSyncPrimaryDataToSheets_(bundle);
+}
+
 /**
  * ตั้งค่า Time Trigger สำรองข้อมูลอัตโนมัติทุกเดือน (ทุกวันที่ 1 เวลา 02:00)
  * รัน setupMonthlyBackupTrigger() ครั้งเดียวใน GAS Editor เพื่อติดตั้ง Trigger
@@ -5842,6 +5930,20 @@ function sendYearlyBackupEmail(payload) {
       requests.length +
       " รายการเรียบร้อยแล้ว",
   };
+}
+
+function sendYearlyBackupEmailByYear(payload) {
+  const safeYear =
+    parseInt((payload && payload.year) || 0, 10) ||
+    new Date().getFullYear() + 543;
+  const toEmail = String((payload && payload.email) || "").trim();
+  if (!toEmail) throw new Error("ไม่ระบุ email ปลายทาง");
+  const requests = getAllRequestsFromSupabase({ year: safeYear, scope: "year" });
+  return sendYearlyBackupEmail({
+    year: safeYear,
+    email: toEmail,
+    requests: requests,
+  });
 }
 
 /** escape HTML สำหรับใช้ใน email body */

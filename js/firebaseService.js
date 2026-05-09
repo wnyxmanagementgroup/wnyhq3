@@ -353,29 +353,15 @@ async function backupSupabaseToSheets(yearBE) {
     const targetYear = yearBE || (new Date().getFullYear() + 543);
     console.log(`📦 Starting Supabase backup for year ${targetYear}...`);
 
-    const [requestsResult, memosResult] = await Promise.all([
-        apiCall('GET', 'getAllRequests', { year: targetYear, scope: 'year' }),
-        apiCall('GET', 'getAllMemos', { year: targetYear, scope: 'year' })
-    ]);
-
-    const requests = requestsResult.status === 'success' ? (requestsResult.data || []) : [];
-    const memos = memosResult.status === 'success' ? (memosResult.data || []) : [];
-
-    if (!requests.length) {
-        return { status: 'success', message: `ไม่มีข้อมูลในปี ${targetYear}`, count: 0 };
-    }
-
-    console.log(`📤 Sending ${requests.length} requests and ${memos.length} memos to GAS...`);
-
-    const result = await apiCall('POST', 'batchSyncFromSupabase', {
-        requests,
-        memos,
-        year: targetYear,
-        syncedAt: new Date().toISOString()
+    const result = await apiCall('POST', 'backupYearToSheets', {
+        year: targetYear
     });
 
     console.log('📦 Backup result:', result);
-    return { ...result, count: requests.length };
+    return {
+        ...result,
+        count: Number(result?.total || result?.count || 0)
+    };
 }
 
 async function backupFirestoreToSheets(yearBE) {

@@ -2323,40 +2323,9 @@ async function adminSendYearlyBackupEmail() {
     try {
         showAlert('กำลังดำเนินการ', 'กำลังรวบรวมข้อมูลและส่ง Email... กรุณารอสักครู่', false);
 
-        let requests = [];
-        const gasResult = await apiCall('GET', 'getAllRequests', { year: selectedYear, scope: 'year' });
-        if (gasResult.status === 'success') requests = gasResult.data || [];
-
-        if (!requests.length) {
-            const archiveResult = await apiCall('GET', 'getArchiveRequests', { year: selectedYear });
-            if (archiveResult.status === 'success') requests = archiveResult.data || [];
-        }
-
-        if (!requests.length) {
-            document.getElementById('alert-modal').style.display = 'none';
-            return showAlert('แจ้งเตือน', `ไม่พบข้อมูลในปี พ.ศ. ${selectedYear}`);
-        }
-
-        // 2. ส่งไป GAS เพื่อสร้างและส่ง Email
-        const result = await apiCall('POST', 'sendYearlyBackupEmail', {
+        const result = await apiCall('POST', 'sendYearlyBackupEmailByYear', {
             year:     selectedYear,
-            email:    email,
-            requests: requests.map(r => ({
-                id:                 r.id             || '',
-                requesterName:      r.requesterName  || r.name || r.username || '',
-                purpose:            r.purpose        || '',
-                location:           r.location       || '',
-                docDate:            r.docDate        || '',
-                startDate:          r.startDate      || '',
-                endDate:            r.endDate        || '',
-                status:             r.status         || '',
-                commandStatus:      r.commandStatus  || '',
-                pdfUrl:             r.pdfUrl         || r.memoPdfUrl || r.currentPdfUrl || '',
-                completedMemoUrl:   r.completedMemoUrl  || '',
-                completedCommandUrl: r.completedCommandUrl || '',
-                adminMemoUrl:       r.adminMemoUrl   || '',
-                dispatchBookUrl:    r.dispatchBookUrl || '',
-            }))
+            email:    email
         });
 
         document.getElementById('alert-modal').style.display = 'none';
