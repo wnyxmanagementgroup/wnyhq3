@@ -169,6 +169,15 @@ async function switchPage(targetPageId) {
     // Hide all pages
     document.querySelectorAll('.page-view').forEach(page => { page.classList.add('hidden'); });
 
+    // Hide admin subviews that may sit outside their parent page container
+    const detachedAdminViews = [
+        'admin-announcement-view',
+    ];
+    detachedAdminViews.forEach(viewId => {
+        const el = document.getElementById(viewId);
+        if (el) el.classList.add('hidden');
+    });
+
     // Show target page
     const targetPage = document.getElementById(targetPageId);
     if (targetPage) { targetPage.classList.remove('hidden'); }
