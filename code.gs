@@ -15,7 +15,7 @@ const ARCHIVE_CACHE_TTL_SEC = 300;
 const PUBLIC_WEEKLY_CACHE_TTL_SEC = 180;
 const DATA_CACHE_VERSION = "v3";
 const SUPABASE_KEEPALIVE_TRIGGER_HANDLER = "runSupabaseKeepAliveTrigger";
-const SUPABASE_KEEPALIVE_DEFAULT_INTERVAL_HOURS = 6;
+const SUPABASE_KEEPALIVE_DEFAULT_INTERVAL_DAYS = 5;
 
 function getScriptCache_() {
   return CacheService.getScriptCache();
@@ -868,14 +868,14 @@ function getSupabaseKeepAliveStatus_() {
   const triggers = ScriptApp.getProjectTriggers().filter(
     (trigger) => trigger.getHandlerFunction() === SUPABASE_KEEPALIVE_TRIGGER_HANDLER,
   );
-  const intervalHours =
-    parseInt(props.getProperty("SUPABASE_KEEPALIVE_INTERVAL_HOURS") || "", 10) ||
-    SUPABASE_KEEPALIVE_DEFAULT_INTERVAL_HOURS;
+  const intervalDays =
+    parseInt(props.getProperty("SUPABASE_KEEPALIVE_INTERVAL_DAYS") || "", 10) ||
+    SUPABASE_KEEPALIVE_DEFAULT_INTERVAL_DAYS;
 
   return {
     enabled: triggers.length > 0,
     triggerCount: triggers.length,
-    intervalHours: intervalHours,
+    intervalDays: intervalDays,
     lastRunAt: props.getProperty("SUPABASE_KEEPALIVE_LAST_RUN_AT") || "",
     lastSuccessAt: props.getProperty("SUPABASE_KEEPALIVE_LAST_SUCCESS_AT") || "",
     lastStatus: props.getProperty("SUPABASE_KEEPALIVE_LAST_STATUS") || "",
@@ -921,7 +921,11 @@ function runSupabaseKeepAliveCore_() {
 
 function runSupabaseKeepAliveNow() {
   const result = runSupabaseKeepAliveCore_();
-  return Object.assign({}, getSupabaseKeepAliveStatus_(), result);
+  return {
+    status: "success",
+    data: Object.assign({}, getSupabaseKeepAliveStatus_(), result),
+    message: "ปลุก Supabase สำเร็จ",
+  };
 }
 
 function runSupabaseKeepAliveTrigger() {
@@ -949,31 +953,39 @@ function removeSupabaseKeepAliveTrigger_() {
 
 function installSupabaseKeepAliveTrigger(payload) {
   const props = PropertiesService.getScriptProperties();
-  const requestedHours = parseInt((payload && payload.intervalHours) || "", 10);
-  const intervalHours =
-    requestedHours >= 1 && requestedHours <= 12
-      ? requestedHours
-      : SUPABASE_KEEPALIVE_DEFAULT_INTERVAL_HOURS;
+  const requestedDays = parseInt((payload && payload.intervalDays) || "", 10);
+  const intervalDays =
+    requestedDays >= 1 && requestedDays <= 7
+      ? requestedDays
+      : SUPABASE_KEEPALIVE_DEFAULT_INTERVAL_DAYS;
 
   removeSupabaseKeepAliveTrigger_();
 
   ScriptApp.newTrigger(SUPABASE_KEEPALIVE_TRIGGER_HANDLER)
     .timeBased()
-    .everyHours(intervalHours)
+    .everyDays(intervalDays)
     .create();
 
-  props.setProperty("SUPABASE_KEEPALIVE_INTERVAL_HOURS", String(intervalHours));
+  props.setProperty("SUPABASE_KEEPALIVE_INTERVAL_DAYS", String(intervalDays));
 
-  return Object.assign({}, getSupabaseKeepAliveStatus_(), {
+  return {
+    status: "success",
+    data: Object.assign({}, getSupabaseKeepAliveStatus_(), {
+      message: "เปิดใช้งานระบบป้องกัน Supabase หลับแล้ว",
+    }),
     message: "เปิดใช้งานระบบป้องกัน Supabase หลับแล้ว",
-  });
+  };
 }
 
 function removeSupabaseKeepAliveTrigger() {
   removeSupabaseKeepAliveTrigger_();
-  return Object.assign({}, getSupabaseKeepAliveStatus_(), {
+  return {
+    status: "success",
+    data: Object.assign({}, getSupabaseKeepAliveStatus_(), {
+      message: "ปิดระบบป้องกัน Supabase หลับแล้ว",
+    }),
     message: "ปิดระบบป้องกัน Supabase หลับแล้ว",
-  });
+  };
 }
 
 function testDraftRequestFlow(requestId) {

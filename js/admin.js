@@ -2365,7 +2365,7 @@ function renderSupabaseKeepAliveStatus(data = {}) {
     const healthText = data.lastStatus === 'success'
         ? 'ปลุกล่าสุดสำเร็จ'
         : (data.lastStatus === 'error' ? 'ปลุกล่าสุดไม่สำเร็จ' : 'ยังไม่เคยปลุก');
-    const intervalText = `${data.intervalHours || 6} ชั่วโมง`;
+    const intervalText = `${data.intervalDays || 5} วัน`;
 
     box.innerHTML = `
         <div class="space-y-1">
@@ -2410,12 +2410,12 @@ async function loadSupabaseKeepAliveStatus() {
 async function enableSupabaseKeepAlive() {
     if (!checkAdminAccess()) return;
     const btn = document.getElementById('supabase-keepalive-enable-btn');
-    const intervalHours = 6;
+    const intervalDays = 5;
 
     if (btn) toggleLoader('supabase-keepalive-enable-btn', true);
     try {
         const result = await apiCall('POST', 'installSupabaseKeepAliveTrigger', {
-            intervalHours
+            intervalDays
         });
         if (result?.status !== 'success') {
             throw new Error(result?.message || 'เปิดระบบกันหลับไม่สำเร็จ');
