@@ -251,7 +251,6 @@
                 </button>
 
                 <button id="admin-nav-approval-links" data-target="admin-approval-links-page"
-                    onclick="loadApprovalLinkManagement()"
                     class="nav-button hidden">
                     <span class="nav-icon">🔗</span>
                     <span class="nav-label">จัดการลิงก์ลงนาม</span>
@@ -917,7 +916,7 @@
                             <h1 class="text-2xl font-bold text-gray-800 tracking-tight">🔗 จัดการลิงก์ลงนาม</h1>
                             <p class="text-gray-500 text-sm mt-1">สร้างลิงก์พิเศษให้ผู้ลงนามแต่ละขั้น โดยผู้รับไม่ต้องเข้าสู่ระบบ</p>
                         </div>
-                        <button onclick="loadApprovalLinkManagement()"
+                        <button id="refresh-approval-links-btn"
                             class="btn bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 shadow-sm flex items-center gap-2">
                             <span>🔄</span> รีเฟรช
                         </button>
@@ -2439,10 +2438,8 @@
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';</script>
    <script src="../js/config.js?v=3"></script>          <script src="../js/utils.js?v=3"></script>
 <script src="../js/firebaseService.js?v=3"></script>  <script src="../js/auth.js?v=4"></script>
-<script src="../js/tokenSign.js?v=4"></script>
 <script src="../js/main.js?v=6"></script>
 <script src="../js/sarabun.js?v=3"></script>
-<script src="../js/signature.js?v=3"></script>
 <script src="../js/pwa.js?v=2"></script>
 
 <!-- ====== Token Sign Overlay (ลงนามผ่านลิงก์ ไม่ต้อง Login) ====== -->

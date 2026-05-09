@@ -8,7 +8,9 @@ const WORKFLOW_SETTINGS_OWNER_USERNAMES = ['admin', 'admin2'];
 const OPTIONAL_SCRIPT_URLS = {
     requests: '../js/requests.js?v=4',
     admin: '../js/admin.js?v=5',
-    stats: '../js/stats.js?v=3'
+    stats: '../js/stats.js?v=3',
+    approvals: '../js/tokenSign.js?v=4',
+    signature: '../js/signature.js?v=3'
 };
 const OPTIONAL_SCRIPT_PROMISES = {};
 const DEFAULT_WORKFLOW_SETTINGS = {
@@ -70,6 +72,8 @@ async function ensureRoleScriptsForUser(user, options = {}) {
     const needsUserBundle = roleName === 'user' || roleName.startsWith('head_') || roleName.startsWith('deputy_');
     const needsAdminBundle = roleName === 'admin';
     const needsStatsBundle = pageId === 'stats-page';
+    const needsApprovalBundle = options.signToken === true || ['approval-page', 'admin-approval-links-page'].includes(pageId);
+    const needsSignatureBundle = options.signToken === true || pageId === 'approval-page';
 
     if (needsUserBundle || ['dashboard-page', 'form-page', 'send-memo-page', 'edit-page'].includes(pageId)) {
         loaders.push(loadOptionalScript('requests'));
@@ -79,6 +83,12 @@ async function ensureRoleScriptsForUser(user, options = {}) {
     }
     if (needsStatsBundle) {
         loaders.push(loadOptionalScript('stats'));
+    }
+    if (needsApprovalBundle) {
+        loaders.push(loadOptionalScript('approvals'));
+    }
+    if (needsSignatureBundle) {
+        loaders.push(loadOptionalScript('signature'));
     }
 
     if (!loaders.length) return;
@@ -1613,6 +1623,15 @@ document.getElementById('edit-user-cancel')?.addEventListener('click', () => { d
         if (typeof loadAdminAnnouncementSettings === 'function') loadAdminAnnouncementSettings();
     });
 
+    document.getElementById('admin-nav-approval-links')?.addEventListener('click', async () => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'admin-approval-links-page' });
+        if (typeof loadApprovalLinkManagement === 'function') loadApprovalLinkManagement();
+    });
+    document.getElementById('refresh-approval-links-btn')?.addEventListener('click', async () => {
+        await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'admin-approval-links-page' });
+        if (typeof loadApprovalLinkManagement === 'function') loadApprovalLinkManagement();
+    });
+
     // Submit ฟอร์มประกาศ
     document.getElementById('admin-announcement-form')?.addEventListener('submit', async (e) => {
         await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'command-generation-page' });
@@ -1752,6 +1771,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const _signToken = new URLSearchParams(window.location.search).get('sign');
     if (_signToken) {
         // โหมดลงนามผ่านลิงก์ — ไม่ต้อง Login
+        await ensureRoleScriptsForUser(null, { signToken: true });
         if (typeof handleTokenSignFlow === 'function') {
             handleTokenSignFlow(_signToken);
         }
@@ -2432,7 +2452,7 @@ function getTargetStatusForUser(role) {
 }
 
 // 3. ฟังก์ชันเมื่อกดปุ่ม "เปิดอ่านและลงนาม" (อ่านข้อมูลจาก cache _approvalDocs)
-function openApprovalDocument(docId) {
+async function openApprovalDocument(docId) {
     const data = window._approvalDocs?.[docId] || {};
     const pdfUrl = getApprovalPdfUrl(data);
     const currentDocStatus = data.docStatus || null;
@@ -2447,6 +2467,7 @@ function openApprovalDocument(docId) {
     const title = docType === 'dispatch'
         ? '✍️ ลงนามหนังสือส่ง'
         : (docType === 'command' ? '✍️ ลงนามคำสั่งไปราชการ' : '✍️ ลงนามเอกสาร');
+    await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'approval-page' });
     openSignatureSystem(pdfUrl, origId, title, currentDocStatus);
 }
 
