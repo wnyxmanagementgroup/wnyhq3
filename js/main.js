@@ -166,6 +166,18 @@ window.addEventListener('resize', () => {
 async function switchPage(targetPageId) {
     console.log("🔄 Switching to page:", targetPageId);
 
+    if (targetPageId === 'stats-page') {
+        const currentUser = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
+        const currentRole = String(currentUser?.role || '').toLowerCase();
+        const canAccessStats = currentRole === 'admin' || currentRole === 'director';
+        if (!canAccessStats) {
+            if (typeof showAlert === 'function') {
+                showAlert('ไม่มีสิทธิ์เข้าถึง', 'หน้าสถิติข้อมูลเปิดใช้งานเฉพาะแอดมินและผู้อำนวยการโรงเรียน');
+            }
+            targetPageId = currentRole === 'saraban' ? 'approval-page' : 'profile-page';
+        }
+    }
+
     // Hide all pages
     document.querySelectorAll('.page-view').forEach(page => { page.classList.add('hidden'); });
 

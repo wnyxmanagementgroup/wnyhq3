@@ -9,6 +9,19 @@ async function loadStatsData(forceRefresh = false) {
         console.log("🔄 Loading stats data...");
         const user = getCurrentUser();
         if (!user) return;
+        const roleName = String(user.role || '').toLowerCase();
+        const canAccessStats = roleName === 'admin' || roleName === 'director';
+        if (!canAccessStats) {
+            const container = document.getElementById('stats-overview');
+            if (container) {
+                container.innerHTML = `
+                    <div class="text-center p-8 text-red-500 border rounded-lg bg-red-50">
+                        <p class="font-bold">ไม่มีสิทธิ์เข้าถึงหน้าสถิติข้อมูล</p>
+                        <p class="text-sm mb-4">หน้านี้เปิดใช้งานเฉพาะแอดมินและผู้อำนวยการโรงเรียน</p>
+                    </div>`;
+            }
+            return;
+        }
 
         // Reset UI ชั่วคราว
         const container = document.getElementById('stats-overview');

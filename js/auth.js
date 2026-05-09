@@ -89,6 +89,7 @@ async function initializeUserSession(user) {
 
     const roleName = String(user.role || '').toLowerCase();
     const isSarabanOrDirector = roleName === 'saraban' || roleName === 'director';
+    const canAccessStats = isAdmin || roleName === 'director';
 
     if (!isSarabanOrDirector && typeof loadSystemWorkflowSettings === 'function') {
         await loadSystemWorkflowSettings();
@@ -152,7 +153,7 @@ async function initializeUserSession(user) {
         setNavVisible('user-nav-dashboard', true);
         setNavVisible('user-nav-form', true);
         setNavVisible('nav-send-memo', true);
-        setNavVisible('nav-stats', true);
+        setNavVisible('nav-stats', canAccessStats);
         setNavVisible('nav-profile', true);
     }
 
@@ -169,7 +170,7 @@ async function initializeUserSession(user) {
         if (typeof refreshApprovalInboxBadge === 'function') refreshApprovalInboxBadge();
     }
 
-    // 5. สารบรรณ / ผู้อำนวยการ: แสดงเฉพาะเมนูที่ใช้งาน (เอกสารรอลงนาม + ข้อมูลส่วนตัว)
+    // 5. สารบรรณ / ผู้อำนวยการ: แสดงเฉพาะเมนูที่ใช้งาน
     if (isSarabanOrDirector) {
         // ซ่อนเมนูที่ไม่ใช้งาน
         const hideMenus = ['user-nav-dashboard', 'user-nav-form', 'nav-send-memo', 'nav-edit'];
@@ -180,7 +181,7 @@ async function initializeUserSession(user) {
         const profileNav = document.getElementById('nav-profile');
         if (profileNav) profileNav.style.display = '';
         const statsNav = document.getElementById('nav-stats');
-        if (statsNav) statsNav.style.display = '';
+        if (statsNav) statsNav.style.display = roleName === 'director' ? '' : 'none';
         // ปรับสไตล์ปุ่ม Inbox ให้เข้ากับ grid layout เหมือนปุ่มอื่น
         const inboxNav = document.getElementById('nav-approval-inbox');
         if (inboxNav) {
