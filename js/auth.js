@@ -107,11 +107,34 @@ async function initializeUserSession(user) {
     const adminEmailBackupBtn   = document.getElementById('admin-email-backup-btn');
     const archiveLinkBtn        = document.getElementById('archive-link-btn');
     const adminSectionLabel     = document.getElementById('admin-section-label');
+    const allSidebarNavIds = [
+        'user-nav-dashboard',
+        'user-nav-form',
+        'nav-approval-inbox',
+        'nav-send-memo',
+        'nav-stats',
+        'nav-profile',
+        'nav-edit',
+        'admin-nav-command',
+        'admin-nav-users',
+        'admin-nav-approval-links',
+        'admin-nav-system-settings'
+    ];
     const setNavVisible = (id, visible) => {
         const el = document.getElementById(id);
         if (!el) return;
         el.style.display = visible ? '' : 'none';
         el.classList.toggle('hidden', !visible);
+    };
+    const applySidebarRolePolicy = (visibleIds) => {
+        const visibleSet = new Set(visibleIds);
+        allSidebarNavIds.forEach(id => setNavVisible(id, visibleSet.has(id)));
+        if (adminSectionLabel) {
+            adminSectionLabel.classList.toggle(
+                'hidden',
+                !['admin-nav-command', 'admin-nav-users', 'admin-nav-approval-links', 'admin-nav-system-settings'].some(id => visibleSet.has(id))
+            );
+        }
     };
 
     if (isAdmin) {
@@ -126,18 +149,15 @@ async function initializeUserSession(user) {
         if (archiveLinkBtn)        { archiveLinkBtn.classList.remove('hidden'); archiveLinkBtn.style.display = ''; }
         if (adminSectionLabel)     adminSectionLabel.classList.remove('hidden');
 
-        // แอดมินแสดงเฉพาะเมนูที่จำเป็นจริงเท่านั้น
-        setNavVisible('user-nav-dashboard', false);
-        setNavVisible('user-nav-form', false);
-        setNavVisible('nav-send-memo', false);
-        setNavVisible('nav-edit', false);
-        setNavVisible('nav-approval-inbox', true);
-        setNavVisible('nav-stats', true);
-        setNavVisible('nav-profile', true);
-        setNavVisible('admin-nav-command', true);
-        setNavVisible('admin-nav-users', true);
-        setNavVisible('admin-nav-approval-links', true);
-        setNavVisible('admin-nav-system-settings', true);
+        applySidebarRolePolicy([
+            'nav-approval-inbox',
+            'nav-stats',
+            'nav-profile',
+            'admin-nav-command',
+            'admin-nav-users',
+            'admin-nav-approval-links',
+            'admin-nav-system-settings'
+        ]);
     } else {
         if (adminBtnCommand)       adminBtnCommand.classList.add('hidden');
         if (adminBtnUsers)         adminBtnUsers.classList.add('hidden');
@@ -150,11 +170,13 @@ async function initializeUserSession(user) {
         if (archiveLinkBtn)        { archiveLinkBtn.classList.add('hidden'); archiveLinkBtn.style.display = 'none'; }
         if (adminSectionLabel)     adminSectionLabel.classList.add('hidden');
 
-        setNavVisible('user-nav-dashboard', true);
-        setNavVisible('user-nav-form', true);
-        setNavVisible('nav-send-memo', true);
-        setNavVisible('nav-stats', canAccessStats);
-        setNavVisible('nav-profile', true);
+        applySidebarRolePolicy([
+            'user-nav-dashboard',
+            'user-nav-form',
+            'nav-send-memo',
+            ...(canAccessStats ? ['nav-stats'] : []),
+            'nav-profile'
+        ]);
     }
 
     // 4. เมนู "เอกสารรอลงนาม" — แสดงทันทีถ้า role บ่งบอกว่าเป็นผู้อนุมัติ
@@ -172,16 +194,11 @@ async function initializeUserSession(user) {
 
     // 5. สารบรรณ / ผู้อำนวยการ: แสดงเฉพาะเมนูที่ใช้งาน
     if (isSarabanOrDirector) {
-        // ซ่อนเมนูที่ไม่ใช้งาน
-        const hideMenus = ['user-nav-dashboard', 'user-nav-form', 'nav-send-memo', 'nav-edit'];
-        hideMenus.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.style.display = 'none';
-        });
-        const profileNav = document.getElementById('nav-profile');
-        if (profileNav) profileNav.style.display = '';
-        const statsNav = document.getElementById('nav-stats');
-        if (statsNav) statsNav.style.display = roleName === 'director' ? '' : 'none';
+        applySidebarRolePolicy([
+            'nav-approval-inbox',
+            ...(roleName === 'director' ? ['nav-stats'] : []),
+            'nav-profile'
+        ]);
         // ปรับสไตล์ปุ่ม Inbox ให้เข้ากับ grid layout เหมือนปุ่มอื่น
         const inboxNav = document.getElementById('nav-approval-inbox');
         if (inboxNav) {
