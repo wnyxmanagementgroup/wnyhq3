@@ -220,6 +220,7 @@ async function switchPage(targetPageId) {
     }
     if (targetPageId === 'admin-system-settings-page') {
         if (typeof loadSystemWorkflowSettings === 'function') loadSystemWorkflowSettings();
+        if (typeof loadSupabaseKeepAliveStatus === 'function') loadSupabaseKeepAliveStatus();
     }
     if (targetPageId === 'admin-heads-page') {
         // admin-heads-page ถูกรวมเข้า admin-users-page tab แล้ว — redirect ไปหน้านั้นแทน

@@ -936,6 +936,20 @@ a.btn-sync { text-decoration: none; }
 }
 .btn-sync--pink:hover { background: linear-gradient(135deg, #fce7f3 0%, #bae6fd 100%); }
 
+.btn-sync--amber {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    color: #92400e;
+    border-color: rgba(252, 211, 77, 0.95);
+}
+.btn-sync--amber:hover { background: linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%); }
+
+.btn-sync--rose {
+    background: linear-gradient(135deg, #fff1f2 0%, #fecdd3 100%);
+    color: #9f1239;
+    border-color: rgba(253, 164, 175, 0.95);
+}
+.btn-sync--rose:hover { background: linear-gradient(135deg, #ffe4e6 0%, #fda4af 100%); }
+
 /* --- Page Content Area --- */
 .page-content-area {
     flex: 1;

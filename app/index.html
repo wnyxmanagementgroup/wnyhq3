@@ -1309,6 +1309,20 @@
                                 <button id="admin-email-backup-btn" onclick="adminSendYearlyBackupEmail()" class="btn-sync btn-sync--cyan w-full hidden" title="ส่ง Email สำรองข้อมูลพร้อม link ดาวน์โหลดทุกไฟล์">📧 ส่ง Email สำรอง</button>
                             </div>
 
+                            <div class="bg-white border border-amber-100 rounded-lg p-5 shadow-sm">
+                                <div class="text-sm font-semibold text-amber-700 mb-2">ป้องกันการหลับ</div>
+                                <h3 class="text-lg font-bold text-gray-800 mb-2">Supabase Keep-Alive</h3>
+                                <p class="text-sm text-gray-500 mb-4">สร้าง trigger ใน Apps Script เพื่อเรียกเช็ก Supabase แบบเบา ๆ ทุกไม่กี่ชั่วโมง ป้องกันโปรเจกต์ Free ถูก pause จากการไม่ใช้งานนานเกินไป</p>
+                                <div id="supabase-keepalive-status" class="text-xs text-gray-500 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-3 mb-4">
+                                    กำลังโหลดสถานะ...
+                                </div>
+                                <div class="grid grid-cols-1 gap-2">
+                                    <button id="supabase-keepalive-enable-btn" onclick="enableSupabaseKeepAlive()" class="btn-sync btn-sync--amber w-full">🟡 เปิดระบบกันหลับ</button>
+                                    <button id="supabase-keepalive-run-btn" onclick="runSupabaseKeepAliveNowFromAdmin()" class="btn-sync btn-sync--sky w-full">⚡ ทดสอบปลุกทันที</button>
+                                    <button id="supabase-keepalive-disable-btn" onclick="disableSupabaseKeepAlive()" class="btn-sync btn-sync--rose w-full">🛑 ปิดระบบกันหลับ</button>
+                                </div>
+                            </div>
+
 	                            <div class="bg-white border border-emerald-100 rounded-lg p-5 shadow-sm">
 	                                <div class="text-sm font-semibold text-emerald-700 mb-2">คลังข้อมูล</div>
 	                                <h3 class="text-lg font-bold text-gray-800 mb-2">คลังข้อมูลย้อนหลัง</h3>

@@ -2343,6 +2343,120 @@ async function adminSendYearlyBackupEmail() {
     }
 }
 
+function formatKeepAliveTimeLabel(value) {
+    if (!value) return 'ยังไม่มีข้อมูล';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('th-TH', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+function renderSupabaseKeepAliveStatus(data = {}) {
+    const box = document.getElementById('supabase-keepalive-status');
+    if (!box) return;
+
+    const enabled = data.enabled === true;
+    const statusText = enabled ? 'เปิดใช้งานอยู่' : 'ยังไม่ได้เปิดใช้งาน';
+    const healthText = data.lastStatus === 'success'
+        ? 'ปลุกล่าสุดสำเร็จ'
+        : (data.lastStatus === 'error' ? 'ปลุกล่าสุดไม่สำเร็จ' : 'ยังไม่เคยปลุก');
+    const intervalText = `${data.intervalHours || 6} ชั่วโมง`;
+
+    box.innerHTML = `
+        <div class="space-y-1">
+            <div><strong>สถานะ:</strong> ${statusText}</div>
+            <div><strong>รอบการปลุก:</strong> ทุก ${intervalText}</div>
+            <div><strong>สุขภาพล่าสุด:</strong> ${healthText}</div>
+            <div><strong>รันล่าสุด:</strong> ${formatKeepAliveTimeLabel(data.lastRunAt)}</div>
+            <div><strong>สำเร็จล่าสุด:</strong> ${formatKeepAliveTimeLabel(data.lastSuccessAt)}</div>
+            <div><strong>ข้อความ:</strong> ${data.lastMessage || 'ยังไม่มีข้อความ'}</div>
+        </div>
+    `;
+}
+
+async function loadSupabaseKeepAliveStatus() {
+    if (!checkAdminAccess()) return;
+
+    const box = document.getElementById('supabase-keepalive-status');
+    if (box) box.textContent = 'กำลังโหลดสถานะ...';
+
+    try {
+        const result = await apiCall('GET', 'getSupabaseKeepAliveStatus');
+        renderSupabaseKeepAliveStatus(result?.data || {});
+    } catch (error) {
+        console.error('Load keep-alive status error:', error);
+        if (box) box.textContent = 'โหลดสถานะ keep-alive ไม่สำเร็จ';
+    }
+}
+
+async function enableSupabaseKeepAlive() {
+    if (!checkAdminAccess()) return;
+    const btn = document.getElementById('supabase-keepalive-enable-btn');
+    const intervalHours = 6;
+
+    if (btn) toggleLoader('supabase-keepalive-enable-btn', true);
+    try {
+        const result = await apiCall('POST', 'installSupabaseKeepAliveTrigger', {
+            intervalHours
+        });
+        if (result?.status !== 'success') {
+            throw new Error(result?.message || 'เปิดระบบกันหลับไม่สำเร็จ');
+        }
+        renderSupabaseKeepAliveStatus(result.data || {});
+        showAlert('สำเร็จ', 'เปิดใช้งานระบบป้องกัน Supabase หลับแล้ว');
+    } catch (error) {
+        console.error('Enable keep-alive error:', error);
+        showAlert('ผิดพลาด', 'ไม่สามารถเปิดระบบกันหลับได้: ' + error.message);
+    } finally {
+        if (btn) toggleLoader('supabase-keepalive-enable-btn', false);
+    }
+}
+
+async function disableSupabaseKeepAlive() {
+    if (!checkAdminAccess()) return;
+    const btn = document.getElementById('supabase-keepalive-disable-btn');
+
+    if (btn) toggleLoader('supabase-keepalive-disable-btn', true);
+    try {
+        const result = await apiCall('POST', 'removeSupabaseKeepAliveTrigger', {});
+        if (result?.status !== 'success') {
+            throw new Error(result?.message || 'ปิดระบบกันหลับไม่สำเร็จ');
+        }
+        renderSupabaseKeepAliveStatus(result.data || {});
+        showAlert('สำเร็จ', 'ปิดระบบป้องกัน Supabase หลับแล้ว');
+    } catch (error) {
+        console.error('Disable keep-alive error:', error);
+        showAlert('ผิดพลาด', 'ไม่สามารถปิดระบบกันหลับได้: ' + error.message);
+    } finally {
+        if (btn) toggleLoader('supabase-keepalive-disable-btn', false);
+    }
+}
+
+async function runSupabaseKeepAliveNowFromAdmin() {
+    if (!checkAdminAccess()) return;
+    const btn = document.getElementById('supabase-keepalive-run-btn');
+
+    if (btn) toggleLoader('supabase-keepalive-run-btn', true);
+    try {
+        const result = await apiCall('POST', 'runSupabaseKeepAliveNow', {});
+        if (result?.status !== 'success') {
+            throw new Error(result?.message || 'ปลุก Supabase ไม่สำเร็จ');
+        }
+        renderSupabaseKeepAliveStatus(result.data || {});
+        showAlert('สำเร็จ', 'ปลุก Supabase สำเร็จแล้ว');
+    } catch (error) {
+        console.error('Run keep-alive now error:', error);
+        showAlert('ผิดพลาด', 'ปลุก Supabase ไม่สำเร็จ: ' + error.message);
+    } finally {
+        if (btn) toggleLoader('supabase-keepalive-run-btn', false);
+    }
+}
+
 // --- ANNOUNCEMENT MANAGEMENT ---
 
 async function loadAdminAnnouncementSettings() {

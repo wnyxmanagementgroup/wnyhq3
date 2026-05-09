@@ -14,6 +14,8 @@ const PDF_FOLDER_ID = "1pGiVOigsZZqb-jOix2izMMl0AwzfS27Z";
 const ARCHIVE_CACHE_TTL_SEC = 300;
 const PUBLIC_WEEKLY_CACHE_TTL_SEC = 180;
 const DATA_CACHE_VERSION = "v3";
+const SUPABASE_KEEPALIVE_TRIGGER_HANDLER = "runSupabaseKeepAliveTrigger";
+const SUPABASE_KEEPALIVE_DEFAULT_INTERVAL_HOURS = 6;
 
 function getScriptCache_() {
   return CacheService.getScriptCache();
@@ -861,6 +863,119 @@ function testSupabaseConnection() {
   };
 }
 
+function getSupabaseKeepAliveStatus_() {
+  const props = PropertiesService.getScriptProperties();
+  const triggers = ScriptApp.getProjectTriggers().filter(
+    (trigger) => trigger.getHandlerFunction() === SUPABASE_KEEPALIVE_TRIGGER_HANDLER,
+  );
+  const intervalHours =
+    parseInt(props.getProperty("SUPABASE_KEEPALIVE_INTERVAL_HOURS") || "", 10) ||
+    SUPABASE_KEEPALIVE_DEFAULT_INTERVAL_HOURS;
+
+  return {
+    enabled: triggers.length > 0,
+    triggerCount: triggers.length,
+    intervalHours: intervalHours,
+    lastRunAt: props.getProperty("SUPABASE_KEEPALIVE_LAST_RUN_AT") || "",
+    lastSuccessAt: props.getProperty("SUPABASE_KEEPALIVE_LAST_SUCCESS_AT") || "",
+    lastStatus: props.getProperty("SUPABASE_KEEPALIVE_LAST_STATUS") || "",
+    lastMessage: props.getProperty("SUPABASE_KEEPALIVE_LAST_MESSAGE") || "",
+  };
+}
+
+function getSupabaseKeepAliveStatus() {
+  return getSupabaseKeepAliveStatus_();
+}
+
+function runSupabaseKeepAliveCore_() {
+  const props = PropertiesService.getScriptProperties();
+  const nowIso = new Date().toISOString();
+  props.setProperty("SUPABASE_KEEPALIVE_LAST_RUN_AT", nowIso);
+
+  try {
+    const response = supabaseFetch_("/rest/v1/app_users?select=username&limit=1", {
+      method: "get",
+    });
+    assertSupabaseResponseOk_(response, "ปลุก Supabase ไม่สำเร็จ");
+
+    props.setProperty("SUPABASE_KEEPALIVE_LAST_SUCCESS_AT", nowIso);
+    props.setProperty("SUPABASE_KEEPALIVE_LAST_STATUS", "success");
+    props.setProperty("SUPABASE_KEEPALIVE_LAST_MESSAGE", "ปลุก Supabase สำเร็จ");
+
+    return {
+      ok: true,
+      statusCode: response.statusCode,
+      lastRunAt: nowIso,
+      lastSuccessAt: nowIso,
+      message: "ปลุก Supabase สำเร็จ",
+    };
+  } catch (error) {
+    props.setProperty("SUPABASE_KEEPALIVE_LAST_STATUS", "error");
+    props.setProperty(
+      "SUPABASE_KEEPALIVE_LAST_MESSAGE",
+      String(error && error.message ? error.message : error),
+    );
+    throw error;
+  }
+}
+
+function runSupabaseKeepAliveNow() {
+  const result = runSupabaseKeepAliveCore_();
+  return Object.assign({}, getSupabaseKeepAliveStatus_(), result);
+}
+
+function runSupabaseKeepAliveTrigger() {
+  try {
+    runSupabaseKeepAliveCore_();
+  } catch (error) {
+    Logger.log(
+      "Supabase keep-alive trigger failed: " +
+        (error && error.stack ? error.stack : error),
+    );
+  }
+}
+
+function removeSupabaseKeepAliveTrigger_() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  triggers.forEach((trigger) => {
+    if (trigger.getHandlerFunction() === SUPABASE_KEEPALIVE_TRIGGER_HANDLER) {
+      ScriptApp.deleteTrigger(trigger);
+      removed += 1;
+    }
+  });
+  return removed;
+}
+
+function installSupabaseKeepAliveTrigger(payload) {
+  const props = PropertiesService.getScriptProperties();
+  const requestedHours = parseInt((payload && payload.intervalHours) || "", 10);
+  const intervalHours =
+    requestedHours >= 1 && requestedHours <= 12
+      ? requestedHours
+      : SUPABASE_KEEPALIVE_DEFAULT_INTERVAL_HOURS;
+
+  removeSupabaseKeepAliveTrigger_();
+
+  ScriptApp.newTrigger(SUPABASE_KEEPALIVE_TRIGGER_HANDLER)
+    .timeBased()
+    .everyHours(intervalHours)
+    .create();
+
+  props.setProperty("SUPABASE_KEEPALIVE_INTERVAL_HOURS", String(intervalHours));
+
+  return Object.assign({}, getSupabaseKeepAliveStatus_(), {
+    message: "เปิดใช้งานระบบป้องกัน Supabase หลับแล้ว",
+  });
+}
+
+function removeSupabaseKeepAliveTrigger() {
+  removeSupabaseKeepAliveTrigger_();
+  return Object.assign({}, getSupabaseKeepAliveStatus_(), {
+    message: "ปิดระบบป้องกัน Supabase หลับแล้ว",
+  });
+}
+
 function testDraftRequestFlow(requestId) {
   const safeRequestId = String(requestId || "").trim();
   if (!safeRequestId) {
@@ -1363,6 +1478,9 @@ function doGet(e) {
       case "testSupabaseConnection":
         data = testSupabaseConnection();
         break;
+      case "getSupabaseKeepAliveStatus":
+        data = getSupabaseKeepAliveStatus();
+        break;
       case "testDraftRequestFlow":
         data = testDraftRequestFlow(params.requestId);
         break;
@@ -1526,6 +1644,15 @@ function doPost(e) {
         break;
       case "syncSheetsToSupabase":
         result = syncSheetsToSupabase(payload);
+        break;
+      case "installSupabaseKeepAliveTrigger":
+        result = installSupabaseKeepAliveTrigger(payload);
+        break;
+      case "removeSupabaseKeepAliveTrigger":
+        result = removeSupabaseKeepAliveTrigger();
+        break;
+      case "runSupabaseKeepAliveNow":
+        result = runSupabaseKeepAliveNow();
         break;
       case "sendCompletionEmail":
         sendCompletionEmail(
