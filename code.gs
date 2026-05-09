@@ -1432,6 +1432,7 @@ function createApprovalLinkToken(payload) {
     storage: "gas",
   };
 
+  let savedToSupabase = false;
   try {
     supabaseUpsert_(
       "approval_links",
@@ -1454,14 +1455,16 @@ function createApprovalLinkToken(payload) {
       },
       "token",
     );
-    record.storage = "supabase";
+    savedToSupabase = true;
   } catch (error) {
     Logger.log("createApprovalLinkToken fallback to ScriptProperties: " + error.message);
-    PropertiesService.getScriptProperties().setProperty(
-      _getApprovalLinkPropertyKey_(token),
-      JSON.stringify(record),
-    );
   }
+
+  record.storage = savedToSupabase ? "supabase+gas" : "gas";
+  PropertiesService.getScriptProperties().setProperty(
+    _getApprovalLinkPropertyKey_(token),
+    JSON.stringify(record),
+  );
 
   return {
     status: "success",
