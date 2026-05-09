@@ -555,56 +555,26 @@ function getWorkflowSettingsOwnerPriority(data = {}) {
 }
 
 async function loadWorkflowSettingsFromAdminUserDoc() {
-    if (typeof db === 'undefined' || !db) return null;
-
-    const candidates = [];
     try {
-        const snap = await db.collection('users')
-            .where('username', 'in', WORKFLOW_SETTINGS_OWNER_USERNAMES)
-            .get();
-        snap.forEach(doc => {
-            const data = doc.data() || {};
-            if (data.workflowSettings) candidates.push(data);
-        });
-    } catch (error) {
-        console.warn('loadWorkflowSettingsFromAdminUserDoc username query error:', error);
-    }
-
-    if (candidates.length === 0) {
-        try {
-            const snap = await db.collection('users')
-                .where('loginName', 'in', WORKFLOW_SETTINGS_OWNER_USERNAMES)
-                .get();
-            snap.forEach(doc => {
-                const data = doc.data() || {};
-                if (data.workflowSettings) candidates.push(data);
-            });
-        } catch (error) {
-            console.warn('loadWorkflowSettingsFromAdminUserDoc loginName query error:', error);
+        const result = await apiCall('GET', 'getWorkflowSettings');
+        if (result?.status === 'success' && result?.data) {
+            return normalizeWorkflowSettings(result.data);
         }
+    } catch (error) {
+        console.warn('loadWorkflowSettingsFromAdminUserDoc Supabase/GAS error:', error);
     }
-
-    if (candidates.length === 0) return null;
-
-    candidates.sort((a, b) => getWorkflowSettingsOwnerPriority(a) - getWorkflowSettingsOwnerPriority(b));
-    return normalizeWorkflowSettings(candidates[0].workflowSettings || {});
+    return null;
 }
 
 async function saveWorkflowSettingsToAdminUserDoc(settings) {
-    if (typeof db === 'undefined' || !db || typeof firebase === 'undefined' || !firebase.auth) {
-        throw new Error('ไม่พบการเชื่อมต่อ Firebase');
-    }
-    const authUser = firebase.auth().currentUser;
-    if (!authUser) throw new Error('ไม่พบ session ของ Firebase');
-
     const currentUser = typeof getCurrentUser === 'function' ? (getCurrentUser() || {}) : {};
-    await db.collection('users').doc(authUser.uid).set({
-        username: currentUser.username || '',
-        loginName: currentUser.loginName || currentUser.username || '',
-        fullName: currentUser.fullName || '',
-        workflowSettings: normalizeWorkflowSettings(settings),
-        workflowSettingsUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+    const result = await apiCall('POST', 'saveWorkflowSettings', {
+        ...normalizeWorkflowSettings(settings),
+        updatedBy: currentUser.username || currentUser.loginName || ''
+    });
+    if (result?.status !== 'success') {
+        throw new Error(result?.message || 'ไม่สามารถบันทึกการตั้งค่า workflow ได้');
+    }
 }
 
 function isUnifiedMemoUploadEnabled() {
@@ -783,45 +753,30 @@ async function loadSystemWorkflowSettings() {
     meta.warningMessage = '';
     meta.source = 'cache';
 
-    if (typeof db !== 'undefined' && db) {
-        try {
-            const snap = await db.collection('systemConfig').doc('workflowSettings').get();
-            if (snap.exists) {
-                const remoteSettings = normalizeWorkflowSettings(snap.data() || {});
-                window.systemWorkflowSettings = remoteSettings;
-                window.lastPersistedWorkflowSettings = remoteSettings;
-                cacheWorkflowSettings(remoteSettings);
-                meta.source = 'remote';
-            } else {
-                const fallbackSettings = await loadWorkflowSettingsFromAdminUserDoc();
-                if (fallbackSettings) {
-                    window.systemWorkflowSettings = fallbackSettings;
-                    window.lastPersistedWorkflowSettings = fallbackSettings;
-                    cacheWorkflowSettings(fallbackSettings);
-                    meta.source = 'admin-user-doc';
-                    meta.warningMessage = 'ยังไม่พบ system config กลาง จึงใช้ค่าจากบัญชีแอดมินที่บันทึกล่าสุด';
-                } else {
-                    window.systemWorkflowSettings = cachedSettings;
-                    meta.warningMessage = 'ยังไม่พบการตั้งค่ากลาง จึงใช้ค่าล่าสุดที่เก็บไว้ในเครื่อง';
-                }
-            }
-        } catch (error) {
-            console.warn('loadSystemWorkflowSettings error:', error);
-            const fallbackSettings = await loadWorkflowSettingsFromAdminUserDoc();
-            if (fallbackSettings) {
-                window.systemWorkflowSettings = fallbackSettings;
-                window.lastPersistedWorkflowSettings = fallbackSettings;
-                cacheWorkflowSettings(fallbackSettings);
-                meta.source = 'admin-user-doc';
-                meta.warningMessage = 'ไม่สามารถอ่าน system config โดยตรง จึงใช้ค่าจากบัญชีแอดมินแทน';
-            } else {
-                window.systemWorkflowSettings = cachedSettings;
-                meta.warningMessage = 'ไม่สามารถโหลดการตั้งค่ากลางได้ จึงใช้ค่าล่าสุดที่เก็บไว้ในเครื่อง';
-            }
+    try {
+        const result = await apiCall('GET', 'getWorkflowSettings');
+        if (result?.status === 'success' && result?.data) {
+            const remoteSettings = normalizeWorkflowSettings(result.data);
+            window.systemWorkflowSettings = remoteSettings;
+            window.lastPersistedWorkflowSettings = remoteSettings;
+            cacheWorkflowSettings(remoteSettings);
+            meta.source = 'remote';
+        } else {
+            throw new Error(result?.message || 'ไม่พบข้อมูล workflow settings');
         }
-    } else {
-        window.systemWorkflowSettings = cachedSettings;
-        meta.warningMessage = 'ไม่พบการเชื่อมต่อฐานข้อมูล จึงใช้ค่าล่าสุดที่เก็บไว้ในเครื่อง';
+    } catch (error) {
+        console.warn('loadSystemWorkflowSettings error:', error);
+        const fallbackSettings = await loadWorkflowSettingsFromAdminUserDoc();
+        if (fallbackSettings) {
+            window.systemWorkflowSettings = fallbackSettings;
+            window.lastPersistedWorkflowSettings = fallbackSettings;
+            cacheWorkflowSettings(fallbackSettings);
+            meta.source = 'api-fallback';
+            meta.warningMessage = 'ไม่สามารถโหลดการตั้งค่ากลางได้ จึงใช้ค่าจากข้อมูลสำรองล่าสุด';
+        } else {
+            window.systemWorkflowSettings = cachedSettings;
+            meta.warningMessage = 'ไม่สามารถโหลดการตั้งค่ากลางได้ จึงใช้ค่าล่าสุดที่เก็บไว้ในเครื่อง';
+        }
     }
 
     applyMemoWorkflowModeUI();
@@ -853,29 +808,16 @@ async function saveSystemWorkflowSettings() {
     const meta = getSystemWorkflowSettingsMeta();
 
     try {
-        if (typeof db !== 'undefined' && db) {
-            try {
-                await db.collection('systemConfig').doc('workflowSettings').set({
-                    ...nextSettings,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    updatedBy: getCurrentUser()?.username || ''
-                }, { merge: true });
-            } catch (error) {
-                const message = String(error?.message || error || '');
-                if (!/Missing or insufficient permissions/i.test(message)) throw error;
-                await saveWorkflowSettingsToAdminUserDoc(nextSettings);
-                meta.source = 'admin-user-doc';
-                meta.warningMessage = 'บันทึกผ่านเอกสารบัญชีแอดมินแทน system config กลาง';
-            }
-        }
+        await saveWorkflowSettingsToAdminUserDoc({
+            ...nextSettings,
+            updatedBy: getCurrentUser()?.username || ''
+        });
 
         window.systemWorkflowSettings = nextSettings;
         window.lastPersistedWorkflowSettings = nextSettings;
         cacheWorkflowSettings(nextSettings);
-        if (meta.source !== 'admin-user-doc') {
-            meta.warningMessage = '';
-            meta.source = 'remote';
-        }
+        meta.warningMessage = '';
+        meta.source = 'remote';
         applyMemoWorkflowModeUI();
         showAlert('สำเร็จ', forceMemoUploadForAll
             ? 'เปิดโหมดบังคับอัปโหลดไฟล์สำหรับทุกคำขอเรียบร้อยแล้ว'
@@ -1521,24 +1463,22 @@ async function loadAdminAnnouncementSettings() {
     document.getElementById('current-announcement-img-preview').classList.add('hidden');
 
     try {
-        const doc = await db.collection('settings').doc('announcement').get();
-        if (doc.exists) {
-            const data = doc.data();
-            document.getElementById('announcement-active').checked = data.isActive || false;
-            document.getElementById('announcement-title-input').value = data.title || '';
-            document.getElementById('announcement-message-input').value = data.message || '';
+        const result = await apiCall('GET', 'getAnnouncementSetting');
+        const data = result?.status === 'success' ? (result.data || {}) : {};
+        document.getElementById('announcement-active').checked = data.isActive || false;
+        document.getElementById('announcement-title-input').value = data.title || '';
+        document.getElementById('announcement-message-input').value = data.message || '';
+        
+        if (data.imageUrl) {
+            const preview = document.getElementById('current-announcement-img-preview');
+            preview.classList.remove('hidden');
             
-            if (data.imageUrl) {
-                const preview = document.getElementById('current-announcement-img-preview');
-                preview.classList.remove('hidden');
-                
-                // แปลงลิงก์ให้แสดงผลได้
-                const displayUrl = convertToDirectLink(data.imageUrl);
-                preview.querySelector('img').src = displayUrl;
-                
-                // ใส่ค่าลงในช่อง URL ด้วย เพื่อให้แอดมินเห็นว่าลิงก์เดิมคืออะไร
-                document.getElementById('announcement-image-url-input').value = displayUrl;
-            }
+            // แปลงลิงก์ให้แสดงผลได้
+            const displayUrl = convertToDirectLink(data.imageUrl);
+            preview.querySelector('img').src = displayUrl;
+            
+            // ใส่ค่าลงในช่อง URL ด้วย เพื่อให้แอดมินเห็นว่าลิงก์เดิมคืออะไร
+            document.getElementById('announcement-image-url-input').value = displayUrl;
         }
     } catch (e) { 
         console.error("Load Announcement Error:", e); 
@@ -1578,14 +1518,16 @@ async function handleSaveAnnouncement(e) {
         }
         // กรณีที่ 3: ถ้าไม่มีทั้งคู่ ให้เป็น null (ลบรูปออก)
 
-        await db.collection('settings').doc('announcement').set({
+        const result = await apiCall('POST', 'saveAnnouncementSetting', {
             isActive,
             title,
             message,
-            imageUrl, // บันทึกลิงก์ที่แปลงแล้วลงฐานข้อมูล
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            imageUrl,
             updatedBy: getCurrentUser().username
-        }, { merge: true });
+        });
+        if (result?.status !== 'success') {
+            throw new Error(result?.message || 'บันทึกประกาศไม่สำเร็จ');
+        }
 
         showAlert('สำเร็จ', 'บันทึกประกาศเรียบร้อยแล้ว');
         
@@ -2891,23 +2833,19 @@ async function loadHeadsManagement() {
     if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="3" class="p-8 text-center text-gray-400">กำลังโหลด...</td></tr>';
 
-    // โหลด override จาก Firestore (ถ้ามี)
     let savedNames = {};
     let savedUsernames = {};
-    if (typeof db !== 'undefined') {
-        try {
-            const snap = await db.collection('systemConfig').doc('signerPositions').get();
-            if (snap.exists) {
-                const data = snap.data();
-                savedNames = data.names || {};
-                savedUsernames = data.usernames || {};
-            }
-        } catch (e) {
-            console.warn('loadHeadsManagement Firestore error:', e);
+    try {
+        const result = await apiCall('GET', 'getSignerPositions');
+        if (result?.status === 'success' && result?.data) {
+            savedNames = result.data.names || {};
+            savedUsernames = result.data.usernames || {};
         }
+    } catch (e) {
+        console.warn('loadHeadsManagement API error:', e);
     }
 
-    // สร้าง rows จาก specialPositionMap (ฐาน) + override จาก Firestore
+    // สร้าง rows จาก specialPositionMap (ฐาน) + override จาก Supabase
     const positions = Object.keys(specialPositionMap);
     tbody.innerHTML = '';
     positions.forEach(pos => {
@@ -2949,31 +2887,20 @@ async function saveHeadsConfig() {
             if (pos && input.value.trim()) usernames[pos] = input.value.trim();
         });
 
-        if (typeof db !== 'undefined') {
-            await db.collection('systemConfig').doc('signerPositions').set(
-                { names, usernames, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
-                { merge: true }
-            );
+        const result = await apiCall('POST', 'saveSignerPositions', {
+            names,
+            usernames,
+            updatedBy: getCurrentUser()?.username || ''
+        });
+        if (result?.status !== 'success') {
+            throw new Error(result?.message || 'บันทึกข้อมูลหัวหน้าส่วนไม่สำเร็จ');
         }
 
         // อัปเดต specialPositionMap ในหน่วยความจำทันที
         Object.assign(specialPositionMap, names);
         if (typeof refreshSignerPositionOptions === 'function') refreshSignerPositionOptions();
 
-        // อัปเดต role ของ user ใน Firestore ตาม username ที่ assign
-        if (typeof db !== 'undefined' && typeof POSITION_TO_ROLE !== 'undefined') {
-            const roleUpdates = Object.entries(usernames).map(async ([pos, uname]) => {
-                const headRole = POSITION_TO_ROLE[pos];
-                if (!headRole || !uname) return;
-                try {
-                    const snap = await db.collection('users').where('username', '==', uname).limit(1).get();
-                    if (!snap.empty) await snap.docs[0].ref.update({ role: headRole });
-                } catch (e) { console.warn(`Role update failed for ${uname}:`, e); }
-            });
-            await Promise.allSettled(roleUpdates);
-        }
-
-        showAlert('สำเร็จ', 'บันทึกการตั้งค่าหัวหน้าส่วนเรียบร้อยแล้ว\n(role ของ user ที่กำหนดถูกอัปเดตแล้ว)');
+        showAlert('สำเร็จ', 'บันทึกการตั้งค่าหัวหน้าส่วนเรียบร้อยแล้ว');
     } catch (e) {
         console.error('saveHeadsConfig error:', e);
         showAlert('ผิดพลาด', 'ไม่สามารถบันทึกได้: ' + e.message);

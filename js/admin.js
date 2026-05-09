@@ -2567,27 +2567,25 @@ async function loadAdminAnnouncementSettings() {
     document.getElementById('current-announcement-img-preview').classList.add('hidden');
 
     try {
-        const doc = await db.collection('settings').doc('announcement').get();
-        if (doc.exists) {
-            const data = doc.data();
-            document.getElementById('announcement-active').checked = data.isActive || false;
-            document.getElementById('announcement-title-input').value = data.title || '';
-            document.getElementById('announcement-message-input').value = data.message || '';
+        const result = await apiCall('GET', 'getAnnouncementSetting');
+        const data = result?.status === 'success' ? (result.data || {}) : {};
+        document.getElementById('announcement-active').checked = data.isActive || false;
+        document.getElementById('announcement-title-input').value = data.title || '';
+        document.getElementById('announcement-message-input').value = data.message || '';
+        
+        if (data.imageUrl) {
+            const preview = document.getElementById('current-announcement-img-preview');
+            preview.classList.remove('hidden');
             
-            if (data.imageUrl) {
-                const preview = document.getElementById('current-announcement-img-preview');
-                preview.classList.remove('hidden');
-                
-                // ★★★ แก้ไขตรงนี้: แปลงลิงก์ก่อนแสดงผล ★★★
-                let displayUrl = data.imageUrl;
-                if (displayUrl.includes('drive.google.com') && displayUrl.includes('/d/')) {
-                    // ดึง File ID ออกมาแล้วสร้างลิงก์แบบ Direct
-                    const fileId = displayUrl.split('/d/')[1].split('/')[0];
-                    displayUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
-                }
-                
-                preview.querySelector('img').src = displayUrl;
+            // ★★★ แก้ไขตรงนี้: แปลงลิงก์ก่อนแสดงผล ★★★
+            let displayUrl = data.imageUrl;
+            if (displayUrl.includes('drive.google.com') && displayUrl.includes('/d/')) {
+                // ดึง File ID ออกมาแล้วสร้างลิงก์แบบ Direct
+                const fileId = displayUrl.split('/d/')[1].split('/')[0];
+                displayUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
             }
+            
+            preview.querySelector('img').src = displayUrl;
         }
     } catch (e) { 
         console.error("Load Announcement Error:", e);
@@ -2625,15 +2623,16 @@ async function handleSaveAnnouncement(e) {
             }
         }
 
-        // บันทึกลง Firestore Collection 'settings' Document 'announcement'
-        await db.collection('settings').doc('announcement').set({
+        const result = await apiCall('POST', 'saveAnnouncementSetting', {
             isActive,
             title,
             message,
             imageUrl,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             updatedBy: getCurrentUser()?.username || 'admin'
-        }, { merge: true });
+        });
+        if (result?.status !== 'success') {
+            throw new Error(result?.message || 'บันทึกประกาศไม่สำเร็จ');
+        }
 
         showAlert('สำเร็จ', 'บันทึกประกาศเรียบร้อยแล้ว');
         

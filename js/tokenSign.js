@@ -101,7 +101,7 @@ function _generateTokenId() {
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-// --- 2. สร้าง Approval Token ใน Firestore และคืนค่า URL ---
+// --- 2. สร้าง Approval Token ผ่าน GAS/Supabase และคืนค่า URL ---
 async function generateApprovalToken(requestId, nextDocStatus, docMeta) {
     if (!requestId || !nextDocStatus) return null;
 
@@ -121,35 +121,11 @@ async function generateApprovalToken(requestId, nextDocStatus, docMeta) {
         return `${base}?sign=${tokenValue}`;
     };
 
-    if (typeof db === 'undefined') {
-        try {
-            return await createViaGas();
-        } catch (e) {
-            console.warn("generateApprovalToken GAS fallback error:", e);
-            return null;
-        }
-    }
-
     try {
-        await db.collection('approvalLinks').doc(token).set({
-            requestId:  requestId,
-            safeId:     safeId,
-            docStatus:  nextDocStatus,
-            docTitle:   docMeta?.purpose || docMeta?.docTitle || '',
-            requester:  docMeta?.requesterName || '',
-            createdAt:  firebase.firestore.FieldValue.serverTimestamp(),
-            expiresAt:  new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 วัน
-            used:       false,
-        });
-        return `${base}?sign=${token}`;
+        return await createViaGas();
     } catch (e) {
         console.warn("generateApprovalToken error:", e);
-        try {
-            return await createViaGas();
-        } catch (fallbackError) {
-            console.warn("generateApprovalToken GAS fallback error:", fallbackError);
-            return null;
-        }
+        return null;
     }
 }
 
@@ -245,18 +221,9 @@ async function markCurrentTokenUsed() {
     const token = window._currentSignToken;
     if (!token) return;
     try {
-        if (typeof db !== 'undefined') {
-            await db.collection('approvalLinks').doc(token).update({ used: true });
-        } else {
-            await apiCall('POST', 'markApprovalLinkTokenUsed', { token });
-        }
+        await apiCall('POST', 'markApprovalLinkTokenUsed', { token });
     } catch (e) {
         console.warn("markCurrentTokenUsed error:", e);
-        try {
-            await apiCall('POST', 'markApprovalLinkTokenUsed', { token });
-        } catch (fallbackError) {
-            console.warn("markCurrentTokenUsed GAS fallback error:", fallbackError);
-        }
     }
     window._currentSignToken     = null;
     window._currentSignTokenData = null;
@@ -272,29 +239,12 @@ function _approvalTokenExpiryDate(tokenData) {
 }
 
 async function _fetchApprovalTokenData(token) {
-    if (typeof db !== 'undefined') {
-        try {
-            const tokenDoc = await db.collection('approvalLinks').doc(token).get();
-            if (tokenDoc.exists) return tokenDoc.data();
-        } catch (e) {
-            console.warn('fetchApprovalTokenData firestore error:', e);
-        }
-    }
     const result = await apiCall('GET', 'getApprovalLinkToken', { token });
     return result?.data || null;
 }
 
 async function _fetchApprovalRequestData(tokenData) {
     if (!tokenData) return null;
-
-    if (typeof db !== 'undefined' && tokenData.safeId) {
-        try {
-            const reqDoc = await db.collection('requests').doc(tokenData.safeId).get();
-            if (reqDoc.exists) return reqDoc.data();
-        } catch (e) {
-            console.warn('fetchApprovalRequestData firestore error:', e);
-        }
-    }
 
     if (tokenData.requestId) {
         try {

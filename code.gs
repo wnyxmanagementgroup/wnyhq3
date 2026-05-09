@@ -141,6 +141,71 @@ function supabaseDeleteWhere_(tableName, filterQuery) {
   assertSupabaseResponseOk_(response, "ลบข้อมูลจาก " + tableName + " ไม่สำเร็จ");
 }
 
+function supabaseSelectSingle_(tableName, queryString) {
+  const rows = supabaseSelectAll_(tableName, queryString + "&limit=1", 1);
+  return rows.length ? rows[0] : null;
+}
+
+function getAppSettingValue_(key) {
+  const safeKey = String(key || "").trim();
+  if (!safeKey) return null;
+  const row = supabaseSelectSingle_(
+    "app_settings",
+    "select=*&key=eq." + encodeURIComponent(safeKey),
+  );
+  return row ? row.value || null : null;
+}
+
+function saveAppSettingValue_(key, value, updatedBy) {
+  const safeKey = String(key || "").trim();
+  if (!safeKey) {
+    throw new Error("ไม่พบ key สำหรับ app_settings");
+  }
+  supabaseUpsert_(
+    "app_settings",
+    {
+      key: safeKey,
+      value: value || {},
+      updated_by: String(updatedBy || "").trim() || null,
+    },
+    "key",
+  );
+  return {
+    key: safeKey,
+    value: value || {},
+  };
+}
+
+function getSystemConfigValue_(key) {
+  const safeKey = String(key || "").trim();
+  if (!safeKey) return null;
+  const row = supabaseSelectSingle_(
+    "system_config",
+    "select=*&key=eq." + encodeURIComponent(safeKey),
+  );
+  return row ? row.value || null : null;
+}
+
+function saveSystemConfigValue_(key, value, updatedBy) {
+  const safeKey = String(key || "").trim();
+  if (!safeKey) {
+    throw new Error("ไม่พบ key สำหรับ system_config");
+  }
+  supabaseUpsert_(
+    "system_config",
+    {
+      key: safeKey,
+      value: value || {},
+      updated_by: String(updatedBy || "").trim() || null,
+    },
+    "key",
+  );
+  return {
+    key: safeKey,
+    value: value || {},
+  };
+}
+
 function parseBooleanParam_(value) {
   if (value === true || value === false) return value;
   const normalized = String(value || "").trim().toLowerCase();
@@ -1002,6 +1067,15 @@ function doGet(e) {
       case "getAllDraftRequests":
         data = getAllDraftRequests();
         break;
+      case "getAnnouncementSetting":
+        data = getAnnouncementSetting();
+        break;
+      case "getWorkflowSettings":
+        data = getWorkflowSettings();
+        break;
+      case "getSignerPositions":
+        data = getSignerPositionsSetting();
+        break;
       case "getApprovalLinkToken":
         data = getApprovalLinkToken(params.token);
         break;
@@ -1169,6 +1243,15 @@ function doPost(e) {
       case "markApprovalLinkTokenUsed":
         result = markApprovalLinkTokenUsed(payload);
         break;
+      case "saveAnnouncementSetting":
+        result = saveAnnouncementSetting(payload);
+        break;
+      case "saveWorkflowSettings":
+        result = saveWorkflowSettingsToSupabase(payload);
+        break;
+      case "saveSignerPositions":
+        result = saveSignerPositionsSetting(payload);
+        break;
 
       // --- System ---
       case "doSystemBackup":
@@ -1234,6 +1317,98 @@ function _safeParseApprovalLinkRecord_(rawValue) {
   }
 }
 
+function getAnnouncementSetting() {
+  return (
+    getAppSettingValue_("announcement") || {
+      isActive: false,
+      title: "",
+      message: "",
+      imageUrl: "",
+    }
+  );
+}
+
+function saveAnnouncementSetting(payload) {
+  const announcement = {
+    isActive: toSupabaseBoolean_(payload?.isActive) === true,
+    title: String(payload?.title || "").trim(),
+    message: String(payload?.message || "").trim(),
+    imageUrl: String(payload?.imageUrl || "").trim(),
+    updatedBy: String(payload?.updatedBy || "").trim(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveAppSettingValue_("announcement", announcement, announcement.updatedBy);
+  return {
+    status: "success",
+    data: announcement,
+    message: "บันทึกประกาศเรียบร้อยแล้ว",
+  };
+}
+
+function getWorkflowSettings() {
+  return (
+    getSystemConfigValue_("workflowSettings") || {
+      forceMemoUploadForAll: false,
+      requiredMemoUploads: {
+        refDoc: true,
+        exchange: false,
+      },
+    }
+  );
+}
+
+function saveWorkflowSettingsToSupabase(payload) {
+  const workflowSettings = {
+    forceMemoUploadForAll:
+      toSupabaseBoolean_(payload?.forceMemoUploadForAll) === true,
+    requiredMemoUploads: {
+      refDoc: payload?.requiredMemoUploads?.refDoc !== false,
+      exchange:
+        toSupabaseBoolean_(payload?.requiredMemoUploads?.exchange) === true,
+    },
+    updatedBy: String(payload?.updatedBy || "").trim(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveSystemConfigValue_(
+    "workflowSettings",
+    workflowSettings,
+    workflowSettings.updatedBy,
+  );
+  return {
+    status: "success",
+    data: workflowSettings,
+    message: "บันทึกการตั้งค่า workflow เรียบร้อยแล้ว",
+  };
+}
+
+function getSignerPositionsSetting() {
+  return getSystemConfigValue_("signerPositions") || { names: {}, usernames: {} };
+}
+
+function saveSignerPositionsSetting(payload) {
+  const names = payload?.names || {};
+  const usernames = payload?.usernames || {};
+  const signerPositions = {
+    names: names,
+    usernames: usernames,
+    updatedBy: String(payload?.updatedBy || "").trim(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveSystemConfigValue_(
+    "signerPositions",
+    signerPositions,
+    signerPositions.updatedBy,
+  );
+  return {
+    status: "success",
+    data: signerPositions,
+    message: "บันทึกข้อมูลหัวหน้าส่วนเรียบร้อยแล้ว",
+  };
+}
+
 function createApprovalLinkToken(payload) {
   const token = String(payload?.token || Utilities.getUuid().replace(/-/g, "")).trim();
   const requestId = String(payload?.requestId || "").trim();
@@ -1257,10 +1432,36 @@ function createApprovalLinkToken(payload) {
     storage: "gas",
   };
 
-  PropertiesService.getScriptProperties().setProperty(
-    _getApprovalLinkPropertyKey_(token),
-    JSON.stringify(record),
-  );
+  try {
+    supabaseUpsert_(
+      "approval_links",
+      {
+        token: token,
+        request_id: requestId,
+        safe_id: safeId,
+        role: docStatus,
+        used: false,
+        created_by: String(payload?.createdBy || "").trim() || null,
+        created_at: new Date(now).toISOString(),
+        used_at: null,
+        expires_at: new Date(record.expiresAtMs).toISOString(),
+        extra: {
+          docStatus: docStatus,
+          docTitle: record.docTitle,
+          requester: record.requester,
+          storage: "supabase",
+        },
+      },
+      "token",
+    );
+    record.storage = "supabase";
+  } catch (error) {
+    Logger.log("createApprovalLinkToken fallback to ScriptProperties: " + error.message);
+    PropertiesService.getScriptProperties().setProperty(
+      _getApprovalLinkPropertyKey_(token),
+      JSON.stringify(record),
+    );
+  }
 
   return {
     status: "success",
@@ -1274,21 +1475,67 @@ function getApprovalLinkToken(token) {
   if (!tokenValue) {
     return { status: "error", message: "ไม่พบ token" };
   }
-  const record = _safeParseApprovalLinkRecord_(
+
+  try {
+    const row = supabaseSelectSingle_(
+      "approval_links",
+      "select=*&token=eq." + encodeURIComponent(tokenValue),
+    );
+    if (row) {
+      const extra = row.extra || {};
+      return {
+        token: row.token,
+        requestId: row.request_id || "",
+        safeId: row.safe_id || "",
+        docStatus: extra.docStatus || row.role || "",
+        docTitle: extra.docTitle || "",
+        requester: extra.requester || "",
+        createdAtMs: row.created_at ? new Date(row.created_at).getTime() : null,
+        expiresAtMs: row.expires_at ? new Date(row.expires_at).getTime() : null,
+        used: row.used === true,
+        usedAtMs: row.used_at ? new Date(row.used_at).getTime() : null,
+        storage: extra.storage || "supabase",
+      };
+    }
+  } catch (error) {
+    Logger.log("getApprovalLinkToken fallback to ScriptProperties: " + error.message);
+  }
+
+  const fallbackRecord = _safeParseApprovalLinkRecord_(
     PropertiesService.getScriptProperties().getProperty(
       _getApprovalLinkPropertyKey_(tokenValue),
     ),
   );
-  if (!record) {
+  if (!fallbackRecord) {
     return { status: "error", message: "ไม่พบ approval link token" };
   }
-  return record;
+  return fallbackRecord;
 }
 
 function markApprovalLinkTokenUsed(payload) {
   const tokenValue = String(payload?.token || "").trim();
   if (!tokenValue) {
     return { status: "error", message: "ไม่พบ token" };
+  }
+
+  try {
+    supabaseUpsert_(
+      "approval_links",
+      {
+        token: tokenValue,
+        used: true,
+        used_at: new Date().toISOString(),
+      },
+      "token",
+    );
+    const record = getApprovalLinkToken(tokenValue);
+    return {
+      status: "success",
+      data: record,
+      message: "อัปเดตสถานะ approval link token เรียบร้อยแล้ว",
+    };
+  } catch (error) {
+    Logger.log("markApprovalLinkTokenUsed fallback to ScriptProperties: " + error.message);
   }
 
   const key = _getApprovalLinkPropertyKey_(tokenValue);
