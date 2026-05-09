@@ -142,7 +142,18 @@ function supabaseDeleteWhere_(tableName, filterQuery) {
 }
 
 function supabaseSelectSingle_(tableName, queryString) {
-  const rows = supabaseSelectAll_(tableName, queryString + "&limit=1", 1);
+  const separator = queryString ? "&" : "";
+  const response = supabaseFetch_(
+    "/rest/v1/" + tableName + "?" + queryString + separator + "limit=1",
+    {
+      method: "get",
+      headers: {
+        Prefer: "count=exact",
+      },
+    },
+  );
+  assertSupabaseResponseOk_(response, "อ่านข้อมูล " + tableName + " จาก Supabase ไม่สำเร็จ");
+  const rows = Array.isArray(response.jsonBody) ? response.jsonBody : [];
   return rows.length ? rows[0] : null;
 }
 
