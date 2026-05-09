@@ -57,23 +57,23 @@ function getSarabanNumberingLabels(docType) {
     };
 }
 
-function buildSarabanFirestoreUpdate(newPdfUrl, user, docNum = '', docDate = '') {
+function buildSarabanRequestUpdate(newPdfUrl, user, docNum = '', docDate = '') {
     const update = {
         docStatus:        'waiting_director',
         docType:          sarabanState.docType,
         activeApprovalDocType: sarabanState.docType,
         currentPdfUrl:    newPdfUrl,
-        lastUpdated:      firebase.firestore.FieldValue.serverTimestamp(),
+        lastUpdated:      new Date().toISOString(),
     };
 
     if (docNum) update.sarabanDocNum = docNum;
     if (docDate) update.sarabanDocDate = docDate;
 
     if (sarabanNeedsNumbering(sarabanState.docType)) {
-        update.sarabanStampedAt = firebase.firestore.FieldValue.serverTimestamp();
+        update.sarabanStampedAt = new Date().toISOString();
         update.sarabanStampedBy = user?.name || user?.username || 'saraban';
     } else {
-        update.sarabanVerifiedAt = firebase.firestore.FieldValue.serverTimestamp();
+        update.sarabanVerifiedAt = new Date().toISOString();
         update.sarabanVerifiedBy = user?.name || user?.username || 'saraban';
     }
 
@@ -543,20 +543,12 @@ async function _confirmSarabanUpload() {
             `saraban_${safeId}.pdf`
         );
 
-        if (typeof db !== 'undefined') {
-            const sarabanUpdate = buildSarabanFirestoreUpdate(newPdfUrl, user, docNum, docDate);
-            // คำนวณ base64 จาก previewBlob เพื่อ cache ให้ผู้อำนวยการโหลดได้เร็ว
-            try {
-                const sarabanBase64 = await blobToBase64(sarabanState.previewBlob);
-                if (typeof sarabanBase64 === 'string' && sarabanBase64.length > 0 && sarabanBase64.length <= 900_000) {
-                    sarabanUpdate.pdfBase64 = sarabanBase64;
-                }
-            } catch (_) { /* ไม่ cache ถ้า encode ไม่ได้ */ }
-            await db.collection('requests').doc(safeId).set(sarabanUpdate, { merge: true });
-        }
-
-        apiCall('POST', 'updateRequest', buildSarabanSheetPayload(newPdfUrl, docNum, docDate))
-            .catch(e => console.warn('Sheet update error:', e));
+        const sarabanUpdate = buildSarabanRequestUpdate(newPdfUrl, user, docNum, docDate);
+        await apiCall('POST', 'updateRequest', {
+            requestId: sarabanState.docId,
+            ...sarabanUpdate,
+            ...buildSarabanSheetPayload(newPdfUrl, docNum, docDate),
+        });
 
         document.getElementById('alert-modal').style.display = 'none';
         closeSarabanModal();
@@ -672,16 +664,11 @@ async function _applySarabanCommandStamps() {
             `saraban_${safeId}.pdf`
         );
 
-        if (typeof db !== 'undefined') {
-            const sarabanUpdate = buildSarabanFirestoreUpdate(newPdfUrl, user, docNum, docDate);
-            if (typeof sarabanBase64 === 'string' && sarabanBase64.length > 0 && sarabanBase64.length <= 900_000) {
-                sarabanUpdate.pdfBase64 = sarabanBase64;
-            }
-            await db.collection('requests').doc(safeId).set(sarabanUpdate, { merge: true });
-        }
-
-        apiCall('POST', 'updateRequest', buildSarabanSheetPayload(newPdfUrl, docNum, docDate))
-            .catch(e => console.warn('Sheet update error:', e));
+        await apiCall('POST', 'updateRequest', {
+            requestId: sarabanState.docId,
+            ...buildSarabanRequestUpdate(newPdfUrl, user, docNum, docDate),
+            ...buildSarabanSheetPayload(newPdfUrl, docNum, docDate),
+        });
 
         document.getElementById('alert-modal').style.display = 'none';
         closeSarabanModal();
@@ -716,21 +703,15 @@ async function _applySarabanMemoForward() {
         const user   = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
         const safeId = sarabanState.docId.replace(/[\/\\:\.]/g, '-');
 
-        if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(safeId).set({
-                docStatus:          'waiting_director',
-                docType:            'memo',
-                activeApprovalDocType: 'memo',
-                sarabanVerifiedAt:  firebase.firestore.FieldValue.serverTimestamp(),
-                sarabanVerifiedBy:  user?.name || user?.username || 'saraban',
-                lastUpdated:        firebase.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
-        }
-
-        apiCall('POST', 'updateRequest', {
+        await apiCall('POST', 'updateRequest', {
             requestId: sarabanState.docId,
             docStatus: 'waiting_director',
-        }).catch(e => console.warn('Sheet update error:', e));
+            docType: 'memo',
+            activeApprovalDocType: 'memo',
+            sarabanVerifiedAt: new Date().toISOString(),
+            sarabanVerifiedBy: user?.name || user?.username || 'saraban',
+            lastUpdated: new Date().toISOString(),
+        });
 
         document.getElementById('alert-modal').style.display = 'none';
         closeSarabanModal();

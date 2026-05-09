@@ -2,6 +2,7 @@
 
 let notificationUnsubscribe = null;
 let notificationFallbackUsed = false;
+const NOTIFICATION_POLL_INTERVAL_MS = 60000;
 const WORKFLOW_SETTINGS_CACHE_KEY = 'wny_workflow_settings_cache_v1';
 const WORKFLOW_SETTINGS_OWNER_USERNAMES = ['admin', 'admin2'];
 const DEFAULT_WORKFLOW_SETTINGS = {
@@ -317,42 +318,28 @@ function setupVehicleOptions() {
 // [เพิ่มฟังก์ชัน Real-time Notification]
 function startRealtimeNotifications() {
     const user = getCurrentUser();
-    if (!user || typeof db === 'undefined') return;
+    if (!user) return;
 
-    // ถ้าเคยฟังอยู่แล้ว ให้ยกเลิกก่อนกันซ้ำ
     if (notificationUnsubscribe) {
         notificationUnsubscribe();
     }
     notificationFallbackUsed = false;
 
-    console.log("🔔 Starting Real-time Notification Listener...");
+    console.log("🔔 Starting notification polling via GAS/Supabase...");
 
-    // ใช้ onSnapshot เพื่อฟังการเปลี่ยนแปลงข้อมูลแบบทันที
-    notificationUnsubscribe = db.collection('requests')
-        .where('username', '==', user.username)
-        .onSnapshot((snapshot) => {
-            const requests = [];
+    const pollNotifications = async () => {
+        if (typeof fetchUserRequests !== 'function') return;
+        try {
+            notificationFallbackUsed = true;
+            await fetchUserRequests(true);
+        } catch (error) {
+            console.warn('Notification polling error:', error);
+        }
+    };
 
-            // วนลูปเช็คเอกสารทุกตัวที่มีการเปลี่ยนแปลง
-            snapshot.forEach((doc) => {
-                requests.push({ id: doc.id, ...doc.data() });
-            });
-
-            // อัปเดต UI ทันที
-            renderNotificationUI(buildUserRequestBadgeSummary(requests));
-        }, (error) => {
-            const message = String(error?.message || error || '');
-            if (/Missing or insufficient permissions/i.test(message)) {
-                if (!notificationFallbackUsed && typeof fetchUserRequests === 'function') {
-                    notificationFallbackUsed = true;
-                    fetchUserRequests(true).catch((fallbackError) => {
-                        console.warn('Notification fallback fetch error:', fallbackError);
-                    });
-                }
-                return;
-            }
-            console.warn("Real-time Notification Error:", error);
-        });
+    pollNotifications();
+    const intervalId = window.setInterval(pollNotifications, NOTIFICATION_POLL_INTERVAL_MS);
+    notificationUnsubscribe = () => window.clearInterval(intervalId);
 
     refreshApprovalInboxBadge();
 }
@@ -436,23 +423,8 @@ async function refreshApprovalInboxBadge() {
     }
 
     try {
-        let count = 0;
-        if (typeof db !== 'undefined' && db) {
-            try {
-                const snapshot = await db.collection('requests')
-                    .where('docStatus', '==', targetStatus)
-                    .get();
-                count = snapshot.size;
-            } catch (firestoreError) {
-                const message = String(firestoreError?.message || firestoreError || '');
-                if (!/Missing or insufficient permissions/i.test(message)) throw firestoreError;
-                const docs = await getApprovalDocsFallback(targetStatus);
-                count = docs.length;
-            }
-        } else {
-            const docs = await getApprovalDocsFallback(targetStatus);
-            count = docs.length;
-        }
+        const docs = await getApprovalDocsFallback(targetStatus);
+        const count = docs.length;
         setNavBadgeState('approval-badge', count, 'danger');
     } catch (error) {
         console.warn('refreshApprovalInboxBadge error:', error);
@@ -1749,38 +1721,11 @@ async function loadPendingApprovals() {
 
         let docs = [];
 
-        if (user.role === 'admin') {
-            docs = await getApprovalDocsFallback(targetStatus);
-            window._approvalDocs = {};
-            docs.forEach(doc => {
-                if (doc.docId) window._approvalDocs[doc.docId] = doc;
-            });
-        } else {
-            try {
-                // ใช้ where อย่างเดียว (ไม่ orderBy) เพื่อไม่ต้องการ composite index
-                // และไม่ตัดเอกสารที่ไม่มี timestamp field ออกจากผลลัพธ์
-                const snapshot = await db.collection('requests')
-                    .where('docStatus', '==', targetStatus)
-                    .get();
-
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    docs.push({ docId: doc.id, ...data });
-                    window._approvalDocs[doc.id] = data;
-                });
-            } catch (firestoreError) {
-                const message = String(firestoreError?.message || firestoreError || '');
-                const isPermissionError = /Missing or insufficient permissions/i.test(message);
-                if (!isPermissionError) throw firestoreError;
-
-                console.warn('⚠️ Firestore approval query blocked, fallback to GAS:', message);
-                docs = await getApprovalDocsFallback(targetStatus);
-                window._approvalDocs = {};
-                docs.forEach(doc => {
-                    if (doc.docId) window._approvalDocs[doc.docId] = doc;
-                });
-            }
-        }
+        docs = await getApprovalDocsFallback(targetStatus);
+        window._approvalDocs = {};
+        docs.forEach(doc => {
+            if (doc.docId) window._approvalDocs[doc.docId] = doc;
+        });
 
         if (docs.length === 0) {
             container.innerHTML = `
@@ -2541,29 +2486,6 @@ async function handleEditUserSubmit(e) {
             throw new Error(result.message || 'ไม่สามารถอัปเดตข้อมูลใน Google Sheets ได้');
         }
 
-        // 2. อัปเดตใน Firebase ควบคู่ไปด้วย
-        if (typeof db !== 'undefined') {
-            try {
-                const snapshot = await db.collection('users').where('username', '==', username).get();
-                if (!snapshot.empty) {
-                    const batch = db.batch();
-                    snapshot.forEach(doc => {
-                        batch.update(doc.ref, {
-                            loginName:  newLoginName,
-                            fullName:   newName,
-                            position:   newPosition,
-                            department: newDepartment,
-                            role:       newRole,
-                            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    });
-                    await batch.commit();
-                }
-            } catch (fbError) {
-                console.warn("Firebase update warning:", fbError);
-            }
-        }
-        
         showAlert('สำเร็จ', 'อัปเดตข้อมูลผู้ใช้เรียบร้อยแล้ว');
         document.getElementById('edit-user-modal').style.display = 'none';
         

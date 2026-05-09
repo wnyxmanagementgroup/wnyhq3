@@ -99,7 +99,7 @@ async function openSignatureSystem(pdfUrl, documentId, title = '✍️ ลงน
 
         let pdfBytes = null;
 
-        // 🚀 เส้นทาง 0: Firestore pdfBase64 (เร็วที่สุด — ไม่ต้อง network request ไป Drive)
+        // 🚀 เส้นทาง 0: cache ในหน่วยความจำ (เร็วที่สุด — ไม่ต้อง network request ไป Drive)
         // ตรวจจาก window._approvalDocs cache ก่อน (dashboard flow)
         const _safeDocId  = documentId ? documentId.replace(/[\/\\:\.]/g, '-') : '';
         const _cachedDoc  = (documentId && window._approvalDocs?.[_safeDocId])
@@ -109,24 +109,9 @@ async function openSignatureSystem(pdfUrl, documentId, title = '✍️ ลงน
                 const buf = decodeBase64ToBuf(_cachedDoc.pdfBase64);
                 if (isPdfBuffer(buf)) {
                     pdfBytes = buf;
-                    console.log('🚀 PDF loaded from Firestore cache (window._approvalDocs) — instant!');
+                    console.log('🚀 PDF loaded from cached approval docs — instant!');
                 }
-            } catch (e) { console.warn('Firestore cache decode error:', e.message); }
-        }
-        // ถ้ายังไม่ได้ → ลอง query Firestore โดยตรง (token flow หรือ reload page)
-        if (!pdfBytes && typeof db !== 'undefined' && documentId) {
-            try {
-                const safeId = _safeDocId;
-                const snap   = await db.collection('requests').doc(safeId).get();
-                const fbBase64 = snap.exists ? snap.data()?.pdfBase64 : null;
-                if (fbBase64) {
-                    const buf = decodeBase64ToBuf(fbBase64);
-                    if (isPdfBuffer(buf)) {
-                        pdfBytes = buf;
-                        console.log('🚀 PDF loaded from Firestore (direct query) — fast!');
-                    }
-                }
-            } catch (e) { console.warn('Firestore direct query error:', e.message); }
+            } catch (e) { console.warn('cached pdfBase64 decode error:', e.message); }
         }
 
         // ⚠️ เส้นทาง 1: GAS base64 proxy (ถ้า Drive URL และไม่มี Firestore cache)
@@ -468,12 +453,18 @@ async function applySignatureToPdf() {
         const nextStatus  = getNextDocStatus(sigState.currentDocStatus);
 
         // ── 3. อ่าน docType เพื่อแยกการอัพเดตบันทึก vs คำสั่ง ──
-        let existingDocType = 'memo';
-        if (typeof db !== 'undefined') {
+        let existingDocType =
+            window._approvalDocs?.[safeId]?.activeApprovalDocType ||
+            window._approvalDocs?.[safeId]?.docType ||
+            window._approvalDocs?.[docId]?.activeApprovalDocType ||
+            window._approvalDocs?.[docId]?.docType ||
+            'memo';
+        if (!existingDocType || existingDocType === 'memo') {
             try {
-                const snap = await db.collection('requests').doc(safeId).get();
-                existingDocType = snap.data()?.activeApprovalDocType || snap.data()?.docType || 'memo';
-            } catch(_) {}
+                const requestResult = await apiCall('GET', 'getDraftRequest', { requestId: docId });
+                const requestData = requestResult?.data || {};
+                existingDocType = requestData.activeApprovalDocType || requestData.docType || existingDocType;
+            } catch (_) {}
         }
         const isCommandDoc = existingDocType === 'command';
         const isDispatchDoc = existingDocType === 'dispatch';
@@ -484,7 +475,7 @@ async function applySignatureToPdf() {
                 currentPdfUrl: newPdfUrl,
                 docStatus: 'waiting_admin_final',
                 activeApprovalDocType: existingDocType,
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+                lastUpdated: new Date().toISOString(),
             };
 
             if (isCommandDoc) {
@@ -500,14 +491,12 @@ async function applySignatureToPdf() {
                 updateForAdminFinal.completedMemoUrl = newPdfUrl;
             }
 
-            // Update Firestore with Firebase Storage URL
-            await db.collection('requests').doc(safeId).set(updateForAdminFinal, { merge: true });
-
-            // Sync กลับ Google Sheets ด้วย เพื่อไม่ให้ docStatus ระหว่าง Firestore/Sheets หลุดกัน
             const adminFinalPayload = {
                 requestId:        docId,
                 docStatus:        'waiting_admin_final',
                 activeApprovalDocType: existingDocType,
+                currentPdfUrl: newPdfUrl,
+                lastUpdated: new Date().toISOString(),
             };
             if (isCommandDoc) {
                 adminFinalPayload.commandPdfUrl = newPdfUrl;
@@ -520,7 +509,7 @@ async function applySignatureToPdf() {
                 adminFinalPayload.pdfUrl = newPdfUrl;
                 adminFinalPayload.completedMemoUrl = newPdfUrl;
             }
-            apiCall('POST', 'updateRequest', adminFinalPayload).catch(e => console.warn('Sheet update error:', e));
+            await apiCall('POST', 'updateRequest', { ...updateForAdminFinal, ...adminFinalPayload });
 
             // Notify
             if (window._currentSignToken) {
@@ -533,66 +522,56 @@ async function applySignatureToPdf() {
             return; // End processing, not final approval yet
         }
 
-        // ── 4. อัปเดต Firestore ──
-        if (typeof db !== 'undefined') {
-            const effectiveRole = user?._approverRole || user?.role || '';
-            const update = {
-                currentPdfUrl:    newPdfUrl,
-                activeApprovalDocType: existingDocType,
-                lastUpdated:      firebase.firestore.FieldValue.serverTimestamp(),
-            };
-            if (isCommandDoc) {
-                update.commandPdfUrl = newPdfUrl;
-            } else if (isDispatchDoc) {
-                update.dispatchBookUrl = newPdfUrl;
-                update.dispatchBookPdfUrl = newPdfUrl;
-            } else {
-                update.pdfUrl = newPdfUrl;
-                update.memoPdfUrl = newPdfUrl;
-                update.completedMemoUrl = newPdfUrl;   // sync ให้ผู้อนุมัติถัดไปเห็นไฟล์รวมล่าสุด
-            }
-            if (nextStatus) update.docStatus = nextStatus;
-            if (effectiveRole) {
-                update[`signedBy_${effectiveRole}`] = user?.name || user?.username || '';
-                update[`signedAt_${effectiveRole}`] = firebase.firestore.FieldValue.serverTimestamp();
-            }
-
-            // 💾 อัปเดต pdfBase64 ใน Firestore (PDF ล่าสุดหลังลงนาม)
-            if (nextStatus === 'อนุมัติ') {
-                // ✅ ขั้นตอนสุดท้าย: ลบ cache ออก (ประหยัด Firestore space, Drive ยังเก็บครบ)
-                update.pdfBase64 = firebase.firestore.FieldValue.delete();
-                // ★ แยก field ตามประเภทเอกสาร ไม่ปนกัน
-                if (isCommandDoc) {
-                    update.commandStatus       = 'รับไฟล์กลับไปใช้งาน';
-                    update.completedCommandUrl = newPdfUrl;
-                } else if (isDispatchDoc) {
-                    update.dispatchStatus = 'รับไฟล์กลับไปใช้งาน';
-                    update.completedDispatchBookUrl = newPdfUrl;
-                    update.dispatchBookUrl = newPdfUrl;
-                    update.dispatchBookPdfUrl = newPdfUrl;
-                } else {
-                    update.status           = 'รับไฟล์กลับไปใช้งาน';
-                    update.completedMemoUrl = newPdfUrl;
-                }
-                console.log(`✅ ${(isDispatchDoc ? 'Dispatch' : (isCommandDoc ? 'Command' : 'Memo'))} fully approved — file URL returned to user`);
-            } else {
-                // 📦 ขั้นตอนกลาง: cache PDF ที่มีลายเซ็นแล้วเพื่อให้ผู้ลงนามคนถัดไปโหลดได้เร็ว
-                try {
-                    const base64Data = btoa(
-                        finalBytes.reduce((acc, byte) => acc + String.fromCharCode(byte), '')
-                    );
-                    if (base64Data.length <= 900_000) {
-                        update.pdfBase64 = base64Data;
-                    }
-                } catch (_) { /* ถ้า convert ไม่ได้ก็ไม่ cache — ยังทำงานได้จาก Storage */ }
-            }
-
-            await db.collection('requests').doc(safeId).set(update, { merge: true });
+        const effectiveRole = user?._approverRole || user?.role || '';
+        const requestUpdate = {
+            requestId: docId,
+            currentPdfUrl: newPdfUrl,
+            activeApprovalDocType: existingDocType,
+            lastUpdated: new Date().toISOString(),
+        };
+        if (isCommandDoc) {
+            requestUpdate.commandPdfUrl = newPdfUrl;
+        } else if (isDispatchDoc) {
+            requestUpdate.dispatchBookUrl = newPdfUrl;
+            requestUpdate.dispatchBookPdfUrl = newPdfUrl;
+        } else {
+            requestUpdate.pdfUrl = newPdfUrl;
+            requestUpdate.memoPdfUrl = newPdfUrl;
+            requestUpdate.completedMemoUrl = newPdfUrl;
+        }
+        if (nextStatus) requestUpdate.docStatus = nextStatus;
+        if (effectiveRole) {
+            requestUpdate[`signedBy_${effectiveRole}`] = user?.name || user?.username || '';
+            requestUpdate[`signedAt_${effectiveRole}`] = new Date().toISOString();
         }
 
-        // ── 5. อัปเดต Google Sheet (non-blocking) ──
+        if (nextStatus === 'อนุมัติ') {
+            if (isCommandDoc) {
+                requestUpdate.commandStatus = 'รับไฟล์กลับไปใช้งาน';
+                requestUpdate.completedCommandUrl = newPdfUrl;
+            } else if (isDispatchDoc) {
+                requestUpdate.dispatchStatus = 'รับไฟล์กลับไปใช้งาน';
+                requestUpdate.completedDispatchBookUrl = newPdfUrl;
+                requestUpdate.dispatchBookUrl = newPdfUrl;
+                requestUpdate.dispatchBookPdfUrl = newPdfUrl;
+            } else {
+                requestUpdate.status = 'รับไฟล์กลับไปใช้งาน';
+                requestUpdate.completedMemoUrl = newPdfUrl;
+            }
+            console.log(`✅ ${(isDispatchDoc ? 'Dispatch' : (isCommandDoc ? 'Command' : 'Memo'))} fully approved — file URL returned to user`);
+        } else {
+            try {
+                const base64Data = btoa(
+                    finalBytes.reduce((acc, byte) => acc + String.fromCharCode(byte), '')
+                );
+                if (base64Data.length <= 900_000) {
+                    requestUpdate.pdfBase64 = base64Data;
+                }
+            } catch (_) { /* ถ้า convert ไม่ได้ก็ไม่ cache — ยังทำงานได้จาก Storage */ }
+        }
+
+        // ── 5. อัปเดตข้อมูลหลักผ่าน GAS / Supabase ──
         const sheetPayload = {
-            requestId: docId,
             docStatus: nextStatus || sigState.currentDocStatus,
             activeApprovalDocType: existingDocType,
         };
@@ -618,7 +597,7 @@ async function applySignatureToPdf() {
                 sheetPayload.completedMemoUrl = newPdfUrl;
             }
         }
-        apiCall('POST', 'updateRequest', sheetPayload).catch(e => console.warn('Sheet update error:', e));
+        await apiCall('POST', 'updateRequest', { ...requestUpdate, ...sheetPayload });
 
         document.getElementById('alert-modal').style.display = 'none';
 

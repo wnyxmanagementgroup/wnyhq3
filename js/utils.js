@@ -33,7 +33,7 @@ async function getFirebaseIdToken() {
 
         const auth = firebase.auth();
         if (!auth.currentUser) {
-            await auth.signInAnonymously();
+            return null;
         }
         const token = await auth.currentUser.getIdToken();
         _cachedIdToken = token;

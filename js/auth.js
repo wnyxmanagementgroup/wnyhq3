@@ -16,58 +16,12 @@ async function handleLogin(e) {
     document.getElementById('login-error').classList.add('hidden');
     
     try {
-        const email = `${usernameInput}@wny.app`; 
-        const firebasePassword = adjustPasswordForFirebase(password);
-        
-        let firebaseUser = null;
-        let userData = null;
-
-        // 1. ลอง Login Firebase
-        try {
-            if (typeof firebase !== 'undefined') {
-                const userCredential = await firebase.auth().signInWithEmailAndPassword(email, firebasePassword);
-                firebaseUser = userCredential.user;
-            }
-        } catch (firebaseError) { /* ข้าม */ }
-
-       // 2. เรียกตรวจสอบกับ Google Sheet (Hybrid Check)
+       // 1. เรียกตรวจสอบกับ Google Sheet / GAS
         // เพื่อดึง "ตัวตนที่แท้จริง" (Real Identity)
         const result = await apiCall('POST', 'verifyCredentials', { username: usernameInput, password: password });
 
         if (result.status === 'success') {
             const realUser = result.user; // ข้อมูลที่ถูกต้องจาก Sheet
-
-            // ★★★ แก้ไข: ใช้ ID จริง (realUser.username) แทนสิ่งที่พิมพ์ (usernameInput) ★★★
-            // เช่น พิมพ์ 'kong' แต่ realUser.username คือ 'admin' -> เราจะใช้ 'admin'
-            
-            // ★ ต้อง ensureFirebaseAuth ก่อน เพื่อให้มี Firebase UID (email หรือ anonymous)
-            if (typeof ensureFirebaseAuth === 'function') await ensureFirebaseAuth();
-
-            const _fbUser = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
-            if (_fbUser) {
-                const userDocRef = firebase.firestore().collection('users').doc(_fbUser.uid);
-                const payload = {
-                    username:  realUser.username,
-                    loginName: realUser.loginName || usernameInput,
-                    fullName:  realUser.fullName,
-                    role:      realUser.role,
-                    lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-                };
-                try {
-                    // ลอง write ทั้ง role (สำเร็จถ้า doc ใหม่ หรือ role ไม่เปลี่ยน)
-                    await userDocRef.set(payload, { merge: true });
-                } catch (_roleErr) {
-                    // ถ้า blocked (role ต่างจากเดิม) → write แค่ field ที่ไม่ใช่ role
-                    try {
-                        await userDocRef.set({
-                            username:  realUser.username,
-                            loginName: realUser.loginName || usernameInput,
-                            fullName:  realUser.fullName,
-                            lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-                        }, { merge: true });
-                    } catch (_) { /* ไม่ทำให้ login หยุด */ }
-                }
-            }
 
             // บันทึกลง Session Browser
             sessionStorage.setItem('currentUser', JSON.stringify(realUser));
@@ -114,9 +68,6 @@ function loadProfileData() {
 
 // ✅ [แก้ไข] ฟังก์ชันตั้งค่า Session และแสดงปุ่ม Admin ให้ถูกต้อง
 async function initializeUserSession(user) {
-    // sign in anonymously เพื่อให้ Firestore rules ผ่าน (ก่อน listener ทุกตัว)
-    if (typeof ensureFirebaseAuth === 'function') await ensureFirebaseAuth();
-
     // 1. สลับหน้าจอ
     const loginScreen = document.getElementById('login-screen');
     const mainApp = document.getElementById('main-app');
@@ -214,12 +165,12 @@ async function initializeUserSession(user) {
 
     // Non-blocking: โหลด signerPositions เพื่ออัปเดต specialPositionMap
     // และตรวจ approver ผ่าน username (กรณีแอดมิน assign แต่ยังไม่ได้ reload)
-    if (!isAdmin && typeof db !== 'undefined') {
+    if (!isAdmin && typeof apiCall === 'function') {
         (async () => {
             try {
-                const snap = await db.collection('systemConfig').doc('signerPositions').get();
-                if (!snap.exists) return;
-                const data = snap.data();
+                const result = await apiCall('GET', 'getSignerPositions');
+                const data = result?.status === 'success' ? (result.data || {}) : null;
+                if (!data) return;
                 // อัปเดต specialPositionMap
                 if (data.names && typeof specialPositionMap !== 'undefined') {
                     Object.assign(specialPositionMap, data.names);
@@ -263,17 +214,14 @@ async function initializeUserSession(user) {
 
 // โหลดจำนวนรายการที่รอ Admin ดำเนินการ แสดงเป็น badge ที่เมนูจัดการบันทึก/คำสั่ง
 async function loadAdminCommandBadge() {
-    if (typeof db === 'undefined') return;
     try {
-        const snap = await db.collection('requests')
-            .where('docStatus', '==', 'waiting_admin_review')
-            .get();
+        const docs = await getApprovalDocsFallback('waiting_admin_review');
         const badge = document.getElementById('admin-command-badge');
         if (!badge) return;
-        if (snap.empty) {
+        if (!docs.length) {
             badge.classList.add('hidden');
         } else {
-            badge.textContent = snap.size;
+            badge.textContent = docs.length;
             badge.classList.remove('hidden');
         }
     } catch (e) {
@@ -470,35 +418,29 @@ function closeAnnouncement() {
 // --- ในไฟล์ js/auth.js ---
 
 async function checkAndShowAnnouncement() {
-    if (typeof db === 'undefined') return;
-
     try {
-        const doc = await db.collection('settings').doc('announcement').get();
-        if (doc.exists) {
-            const data = doc.data();
-            
-            if (data.isActive) {
-                document.getElementById('announcement-title').textContent = data.title || 'ประกาศ';
-                document.getElementById('announcement-message').textContent = data.message || '';
-                
-                const img = document.getElementById('announcement-image');
-                if (data.imageUrl) {
-                    // ★★★ แก้ไขตรงนี้: แปลงลิงก์ก่อนแสดงผล ★★★
-                    let displayUrl = data.imageUrl;
-                    if (displayUrl.includes('drive.google.com') && displayUrl.includes('/d/')) {
-                        const fileId = displayUrl.split('/d/')[1].split('/')[0];
-                        displayUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
-                    }
-                    
-                    img.src = displayUrl;
-                    img.classList.remove('hidden');
-                } else {
-                    img.classList.add('hidden');
-                }
-                
-                document.getElementById('announcement-modal').style.display = 'flex';
+        const result = await apiCall('GET', 'getAnnouncementSetting');
+        const data = result?.status === 'success' ? (result.data || {}) : null;
+        if (!data?.isActive) return;
+
+        document.getElementById('announcement-title').textContent = data.title || 'ประกาศ';
+        document.getElementById('announcement-message').textContent = data.message || '';
+        
+        const img = document.getElementById('announcement-image');
+        if (data.imageUrl) {
+            let displayUrl = data.imageUrl;
+            if (displayUrl.includes('drive.google.com') && displayUrl.includes('/d/')) {
+                const fileId = displayUrl.split('/d/')[1].split('/')[0];
+                displayUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
             }
+            
+            img.src = displayUrl;
+            img.classList.remove('hidden');
+        } else {
+            img.classList.add('hidden');
         }
+        
+        document.getElementById('announcement-modal').style.display = 'flex';
     } catch (e) {
         console.warn("Announcement Error:", e);
     }

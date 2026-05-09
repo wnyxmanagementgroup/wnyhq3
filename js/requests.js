@@ -351,16 +351,7 @@ async function handleDeleteRequest(requestId) {
         );
         if (!confirmed) return;
 
-        const safeId = requestId.replace(/[\/\\:\.]/g, '-');
-        if (typeof db !== 'undefined') {
-            await Promise.all([
-                db.collection('requests').doc(safeId).delete().catch(() => {}),
-                db.collection('memos').doc(safeId).delete().catch(() => {})
-            ]);
-        }
-        // Sync ไป GAS (background)
-        apiCall('POST', 'deleteRequest', { requestId, username: user.username })
-            .catch(e => console.warn('GAS delete sync warn:', e));
+        await apiCall('POST', 'deleteRequest', { requestId, username: user.username });
 
         showAlert('สำเร็จ', `ลบคำขอ ${requestId} ออกจากระบบเรียบร้อยแล้ว`);
         clearRequestsCache();
@@ -419,32 +410,7 @@ async function fetchUserRequests(forceRefresh = false) {
             username: user.username
         });
         let requests = (result.status === 'success') ? (result.data || []) : [];
-        console.log(`📋 Loaded ${requests.length} requests from GAS Sheets`);
-
-        if (typeof db !== 'undefined') {
-            try {
-                const fbSnapshot = await db.collection('requests').where('username', '==', user.username).get();
-                const fbMap = {};
-                fbSnapshot.forEach(doc => {
-                    const data = doc.data() || {};
-                    fbMap[doc.id] = data;
-                    if (data.id) fbMap[data.id] = data;
-                });
-                requests = requests.map(req => {
-                    const rawId = req.id || req.requestId || '';
-                    const safeId = rawId.replace(/[\/\\:\.]/g, '-');
-                    const fb = fbMap[safeId] || fbMap[rawId] || {};
-                    return {
-                        ...req,
-                        ...fb,
-                        id: req.id || fb.id || rawId,
-                        requestId: req.requestId || fb.requestId || req.id || fb.id || rawId
-                    };
-                });
-            } catch (firestoreError) {
-                console.warn('⚠️ Firestore enrich skipped in fetchUserRequests:', firestoreError?.message || firestoreError);
-            }
-        }
+        console.log(`📋 Loaded ${requests.length} requests from GAS/Supabase`);
 
         // ── 3. เรียงลำดับ (ใหม่ -> เก่า) ──
         if (requests.length > 0) {
@@ -1113,48 +1079,7 @@ async function openEditPage(requestId) {
         let requestData = null;
 
         // ------------------------------------------------------------------
-        // STEP 1: ลองดึงจาก Firebase (ข้อมูลสด/เร็ว)
-        // ------------------------------------------------------------------
-        if (typeof db !== 'undefined' && typeof USE_FIREBASE !== 'undefined' && USE_FIREBASE) {
-            try {
-                // แปลง ID ให้เป็น Format ของ Document (เช่น บค/ -> บค-)
-                const docId = requestId.replace(/[\/\\\:\.]/g, '-');
-                const docRef = db.collection('requests').doc(docId);
-                const docSnap = await docRef.get();
-
-                if (docSnap.exists) {
-                    const fbData = docSnap.data();
-                    
-                    // แปลงรายชื่อให้เป็น Array ถ้ามันถูกเก็บเป็น String
-                    let attendeesCheck = [];
-                    if (fbData.attendees) {
-                        if (Array.isArray(fbData.attendees)) {
-                            attendeesCheck = fbData.attendees;
-                        } else if (typeof fbData.attendees === 'string') {
-                            try { attendeesCheck = JSON.parse(fbData.attendees); } catch (e) {}
-                        }
-                    }
-
-                    // ★★★ จุดตัดสินใจสำคัญ ★★★
-                    // ถ้าใน Firebase มีรายชื่อ > ใช้ข้อมูล Firebase
-                    // ถ้าใน Firebase ไม่มีรายชื่อ (แต่ควรจะมี) > ถือว่าข้อมูลไม่ครบ ให้ข้ามไปดึงจาก Google Sheets
-                    if (attendeesCheck && attendeesCheck.length > 0) {
-                        console.log("✅ พบข้อมูลใน Firebase และมีรายชื่อครบถ้วน");
-                        requestData = fbData;
-                        // แปลงกลับเป็น Object สมบูรณ์ถ้าจำเป็น
-                        requestData.attendees = attendeesCheck; 
-                    } else {
-                        console.warn("⚠️ พบข้อมูลใน Firebase แต่ 'ไม่มีรายชื่อ' -> จะทำการดึงใหม่จาก Google Sheets");
-                        requestData = null; // บังคับให้เป็น null เพื่อให้เข้า Step 3
-                    }
-                }
-            } catch (firebaseError) {
-                console.warn("Firebase Error:", firebaseError);
-            }
-        }
-
-        // ------------------------------------------------------------------
-        // STEP 2: ลองดูใน Cache (ถ้า Firebase พลาด)
+        // STEP 1: ลองดูใน Cache ก่อน
         // ★ ตรวจ user cache ก่อน (window.userRequestsCache) แล้วค่อยดู admin cache
         // ------------------------------------------------------------------
         if (!requestData && window.userRequestsCache) {
@@ -1173,11 +1098,10 @@ async function openEditPage(requestId) {
         }
 
         // ------------------------------------------------------------------
-        // STEP 3: ไม้ตายสุดท้าย -> ดึงจาก Google Sheets (Master Data)
-        // ★ เรียก GAS เฉพาะเมื่อไม่มีข้อมูลเลย (ถ้ามีจาก Firebase/Cache ให้ใช้ไปก่อน)
+        // STEP 2: ไม้ตายสุดท้าย -> ดึงจาก GAS / Supabase
         // ------------------------------------------------------------------
         if (!requestData) {
-            console.log("🔄 กำลังดึงข้อมูลต้นฉบับจาก Google Sheets (GAS)...");
+            console.log("🔄 กำลังดึงข้อมูลต้นฉบับจาก GAS / Supabase...");
             document.getElementById('edit-attendees-list').innerHTML = `
                 <div class="text-center p-4"><div class="loader mx-auto"></div><p class="mt-2 text-blue-600">กำลังดึงรายชื่อจากฐานข้อมูลหลัก...</p></div>`;
 
@@ -1190,23 +1114,7 @@ async function openEditPage(requestId) {
             if (result.status === 'success' && result.data) {
                 // รองรับโครงสร้างข้อมูลที่อาจซ้อนกัน
                 requestData = result.data.data || result.data;
-                console.log("✅ ได้รับข้อมูลจาก Google Sheets เรียบร้อย");
-                
-                // [แถม] อัปเดตข้อมูลที่ถูกต้องกลับลง Firebase ทันที เพื่อให้ครั้งหน้าเร็วขึ้น
-                if (requestData && typeof db !== 'undefined') {
-                    const docId = requestId.replace(/[\/\\\:\.]/g, '-');
-                    // แปลงรายชื่อเป็น JSON String หรือ Array ตามที่ระบบคุณชอบ (แนะนำ Array สำหรับ Firebase)
-                    let attendeesToSave = requestData.attendees || [];
-                    if (typeof attendeesToSave === 'string') {
-                        try { attendeesToSave = JSON.parse(attendeesToSave); } catch(e) { attendeesToSave = []; }
-                    }
-                    
-                    db.collection('requests').doc(docId).set({
-                        ...requestData,
-                        attendees: attendeesToSave, // บันทึกรายชื่อที่ถูกต้องลงไป
-                        lastSyncedWithSheet: firebase.firestore.FieldValue.serverTimestamp()
-                    }, { merge: true }).catch(e => console.warn("Auto-sync error:", e));
-                }
+                console.log("✅ ได้รับข้อมูลจาก GAS / Supabase เรียบร้อย");
             }
         }
 
@@ -1408,23 +1316,16 @@ async function generateDocumentFromDraft() {
         formData.memoPdfUrl = newFileUrl;
         if (signatureBase64) formData.signatureBase64 = signatureBase64;
 
-        if (typeof db !== 'undefined') {
-            const firestoreUpdate = {
-                ...formData,
-                fileUrl: newFileUrl,
-                pdfUrl: newFileUrl,
-                memoPdfUrl: newFileUrl,
-                pdfBase64: pdfBase64ForFirestore, // ให้ signature.js โหลดได้โดยไม่ต้อง fetch ข้าม CORS
-                docStatus: 'draft',
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-            };
-            if (signatureBase64) firestoreUpdate.signatureBase64 = signatureBase64;
-            Object.keys(firestoreUpdate).forEach(key => firestoreUpdate[key] === undefined && delete firestoreUpdate[key]);
-            await db.collection('requests').doc(safeId).set(firestoreUpdate, { merge: true });
-        }
-
-        // Step 7: อัปเดต Sheet (background — ไม่บล็อก UI)
-        apiCall('POST', 'updateRequest', formData).catch(e => console.warn('⚠️ Sheet update warn:', e));
+        await apiCall('POST', 'updateRequest', {
+            ...formData,
+            fileUrl: newFileUrl,
+            pdfUrl: newFileUrl,
+            memoPdfUrl: newFileUrl,
+            pdfBase64: pdfBase64ForFirestore,
+            docStatus: 'draft',
+            lastUpdated: new Date().toISOString(),
+            ...(signatureBase64 ? { signatureBase64 } : {})
+        });
 
         // Step 8: เสร็จสิ้น — นำผู้ใช้ไปส่งเอกสารทันทีพร้อมแนบไฟล์ที่เซ็นแล้ว
         setBtnStatus('✅ บันทึกสำเร็จ', false);
@@ -2132,22 +2033,6 @@ async function handleRequestFormSubmit(e) {
         finalFileUrl = await uploadPdfToFirebaseStorage(pdfBlob, user.username, safeFilename);
         console.log('✅ PDF uploaded to Firebase Storage:', finalFileUrl);
 
-        if (typeof db !== 'undefined') {
-            const docId = realId.replace(/[\/\\:\.]/g, '-');
-            await db.collection('requests').doc(docId).set({
-                ...formData,
-                id: realId,
-                requestId: realId,
-                username: user.username,
-                fileUrl: finalFileUrl,
-                pdfUrl: finalFileUrl,
-                memoPdfUrl: finalFileUrl,
-                status: formData.status,
-                docStatus: formData.docStatus,
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-        }
-
         // --- Step 4: อัปเดต URL ไฟล์ PDF ลงใน Google Sheets ---
         setBtnStatus('กำลังปรับปรุงฐานข้อมูล...');
         const gasPayload = {
@@ -2641,18 +2526,6 @@ async function saveEditRequest() {
         const result = await apiCall('POST', 'updateRequest', formData);
 
         if (result.status === 'success') {
-            // อัปเดต Firestore
-            if (typeof db !== 'undefined') {
-                const docId = formData.requestId.replace(/[\/\\\:\.]/g, '-');
-                await db.collection('requests').doc(docId).set({
-                    ...formData,
-                    fileUrl: newFileUrl,
-                    pdfUrl: newFileUrl,
-                    memoPdfUrl: newFileUrl,
-                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-            }
-
             // ★★★ ส่วนที่ปรับปรุงตามโจทย์ ★★★
             
             // 1. เปลี่ยนข้อความปุ่มให้รู้ว่าเสร็จแล้ว
@@ -2741,19 +2614,10 @@ async function mergeAndBackfillPDF(requestId, mainPdfUrl, attachments, user) {
             console.log("✅ Merge & Upload Success:", finalUrl);
 
             // 5. อัปเดตลิงก์ในฐานข้อมูล (Update Request)
-            // อัปเดตทั้ง GAS และ Firebase
             await apiCall('POST', 'updateRequest', {
                 requestId: requestId,
                 fileUrl: finalUrl // อัปเดตลิงก์หลักเป็นไฟล์ที่รวมแล้ว
             });
-
-            if (typeof db !== 'undefined') {
-                await db.collection('requests').doc(requestId.replace(/[\/\\\:\.]/g, '-')).set({
-                    fileUrl: finalUrl,
-                    isMerged: true,
-                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-            }
 
             updateToast("รวมไฟล์เอกสารเสร็จสมบูรณ์", true);
         }
@@ -2840,31 +2704,6 @@ async function fetchPendingMemos() {
         // ดึงข้อมูลปีปัจจุบัน
         const resultNow = await apiCall('GET', 'getRequestsByYear', { year: currentYear, username: user.username });
         let requests = (resultNow.status === 'success') ? resultNow.data || [] : [];
-
-        // ผสานข้อมูล Firebase เพื่อสถานะที่แม่นยำ
-        if (typeof db !== 'undefined' && user.role !== 'admin') {
-            try {
-                const snapshot = await db.collection('requests').where('username', '==', user.username).get();
-                const firebaseData = {};
-                snapshot.forEach(doc => { firebaseData[doc.id] = doc.data(); });
-
-                requests = requests.map(req => {
-                    const safeId = req.id.replace(/[\/\\:\.]/g, '-');
-                    const fbDoc = firebaseData[safeId];
-                    if (fbDoc) {
-                        return { ...req, ...fbDoc }; // ใช้ข้อมูลล่าสุดจาก FB
-                    }
-                    return req;
-                });
-            } catch (firestoreError) {
-                const message = String(firestoreError?.message || firestoreError || '');
-                if (/Missing or insufficient permissions/i.test(message)) {
-                    console.warn('⚠️ Firestore pending memo merge blocked, fallback to GAS only:', message);
-                } else {
-                    throw firestoreError;
-                }
-            }
-        }
 
         // ★ กรองเฉพาะรายการที่ต้องส่งบันทึก ★
         // เงื่อนไข: (มีเลขที่เอกสาร) AND (ยังไม่เสร็จสิ้น OR สถานะ = นำกลับไปแก้ไข)
@@ -3005,14 +2844,6 @@ window.openSendMemoFromList = function(requestId, departmentName = null) {
         preSignedDisplay.classList.add('hidden');
     }
 
-    // โหลด pdfBase64 จาก Firestore (non-blocking) เพื่อใช้ merge กับไฟล์แนบ
-    if (typeof db !== 'undefined') {
-        const safeId = requestId.replace(/[\/\\:\.]/g, '-');
-        db.collection('requests').doc(safeId).get().then(doc => {
-            window._memoAutoBase64 = doc.data()?.pdfBase64 || null;
-        }).catch(() => { window._memoAutoBase64 = null; });
-    }
-
     if (typeof applyMemoSourceModeUI === 'function') applyMemoSourceModeUI();
     document.getElementById('send-memo-modal').style.display = 'flex';
 };
@@ -3026,14 +2857,6 @@ window.openSendMemoWithPreSignedDoc = function(requestId, signedUrl, departmentN
     window._memoUploadOrder = {};
     window._memoAutoBase64  = null;
     window._memoSourceMode = 'auto';
-
-    // โหลด pdfBase64 จาก Firestore (non-blocking) เพื่อใช้ merge กับไฟล์แนบ
-    if (typeof db !== 'undefined') {
-        const safeId = requestId.replace(/[\/\\:\.]/g, '-');
-        db.collection('requests').doc(safeId).get().then(doc => {
-            window._memoAutoBase64 = doc.data()?.pdfBase64 || null;
-        }).catch(() => { window._memoAutoBase64 = null; });
-    }
 
     const forceUploadMode = typeof isUnifiedMemoUploadEnabled === 'function' && isUnifiedMemoUploadEnabled();
 
@@ -3208,14 +3031,6 @@ async function handleMemoSubmitFromModal(e) {
         }
 
         await apiCall('POST', 'updateRequest', updatePayload);
-
-        if (typeof db !== 'undefined') {
-            const docId = requestId.replace(/[\/\\:\.]/g, '-');
-            await db.collection('requests').doc(docId).set({
-                ...updatePayload,
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-        }
 
         // ── 6. แจ้งผลและรีเฟรช ──
         showAlert('สำเร็จ', memoType === 'reimburse'
@@ -3434,15 +3249,6 @@ async function finalizeDocumentSubmission(pdfBlob) {
             formData.action = 'updateRequest'; 
             await apiCall('POST', 'updateRequest', formData);
             
-            // อัปเดตใน Firebase ควบคู่ (ใช้ merge เพื่อป้องกันข้อมูลอื่นถูกล้าง)
-            if (typeof db !== 'undefined') {
-                const safeId = formData.id.replace(/[\/\\:\.]/g, '-');
-                await db.collection('requests').doc(safeId).set({
-                    ...formData,
-                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-            }
-            
             document.getElementById('alert-modal').style.display = 'none'; // ปิดแจ้งเตือนกำลังโหลด
             showAlert('สำเร็จ', 'บันทึกการแก้ไขและสร้างเอกสารใหม่เรียบร้อยแล้ว');
         } else {
@@ -3451,15 +3257,6 @@ async function finalizeDocumentSubmission(pdfBlob) {
             const gasRes = await apiCall('POST', 'createRequest', formData);
             
             if (gasRes.data && gasRes.data.id) formData.id = gasRes.data.id;
-
-            if (typeof db !== 'undefined') {
-                const safeId = formData.id.replace(/[\/\\:\.]/g, '-');
-                await db.collection('requests').doc(safeId).set({
-                    ...formData,
-                    status: 'Pending',
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            }
 
             document.getElementById('alert-modal').style.display = 'none';
             showAlert('สำเร็จ', 'สร้างคำขอไปราชการเรียบร้อยแล้ว');
