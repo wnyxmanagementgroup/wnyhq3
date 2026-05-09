@@ -1699,10 +1699,8 @@ function updateSidebarForRole(user) {
 window._approvalDocs = {};
 
 async function getApprovalDocsFallback(targetStatus) {
-    const result = await apiCall('GET', 'getApprovalRequests', { docStatus: targetStatus });
-    const requests = (result.status === 'success') ? (result.data || []) : [];
-
-    return requests
+    const buildDocs = (requests) => (requests || [])
+        .filter(req => String(req.docStatus || '').trim() === String(targetStatus || '').trim())
         .map(req => {
             const safeDocId = (req.id || req.requestId || '').replace(/[\/\\:\.]/g, '-');
             return {
@@ -1710,6 +1708,40 @@ async function getApprovalDocsFallback(targetStatus) {
                 ...req
             };
         });
+
+    const params = new URLSearchParams({
+        action: 'getApprovalRequests',
+        docStatus: targetStatus,
+        cacheBust: String(Date.now())
+    });
+    try {
+        const idToken = (typeof getFirebaseIdToken === 'function') ? await getFirebaseIdToken() : null;
+        if (idToken) params.set('idToken', idToken);
+        const response = await fetch(`${SCRIPT_URL}?${params.toString()}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        if (result.status === 'success') {
+            return buildDocs(result.data || []);
+        }
+
+        const msg = String(result.message || '');
+        if (!msg.includes('Invalid GET action specified')) {
+            throw new Error(msg || 'ไม่สามารถโหลดข้อมูลอนุมัติได้');
+        }
+        console.warn('getApprovalRequests ยังไม่พร้อมบน GAS ตัวนี้ กำลัง fallback ไป getAllRequests');
+    } catch (error) {
+        const msg = String(error?.message || '');
+        if (!msg.includes('Invalid GET action specified')) {
+            console.warn('getApprovalRequests direct fetch error, fallback to getAllRequests:', error);
+        }
+    }
+
+    const fallbackResult = await apiCall('GET', 'getAllRequests');
+    const fallbackRequests = (fallbackResult.status === 'success') ? (fallbackResult.data || []) : [];
+    return buildDocs(fallbackRequests);
 }
 
 // 1. ฟังก์ชันโหลดรายการเอกสารที่รอเซ็น
