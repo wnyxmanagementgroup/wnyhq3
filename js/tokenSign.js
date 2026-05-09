@@ -513,25 +513,26 @@ async function tokenAdminForward() {
     }
     try {
         showAlert('กำลังดำเนินการ', 'กำลังส่งเอกสารไปงานสารบรรณ...', false);
-        let firestoreUpdated = false;
-        if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(td.safeId).set({
-                docStatus:       'waiting_saraban',
-                adminReviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
-            firestoreUpdated = true;
-        }
-        if (!firestoreUpdated) {
-            console.warn('tokenAdminForward proceeding with GAS-only update');
-        }
-        apiCall('POST', 'updateRequest', { requestId: td.requestId, docStatus: 'waiting_saraban' }).catch(e => console.warn(e));
+        await apiCall('POST', 'updateRequest', {
+            requestId: td.requestId,
+            docStatus: 'waiting_saraban',
+            adminReviewedAt: new Date().toISOString(),
+            adminReviewedBy: getCurrentUser()?.name || getCurrentUser()?.username || 'admin',
+            lastUpdated: new Date().toISOString()
+        });
         await markCurrentTokenUsed();
 
         document.getElementById('alert-modal').style.display = 'none';
         showTokenSignSuccess('waiting_saraban', null);
     } catch (e) {
         try {
-            await apiCall('POST', 'updateRequest', { requestId: td.requestId, docStatus: 'waiting_saraban' });
+            await apiCall('POST', 'updateRequest', {
+                requestId: td.requestId,
+                docStatus: 'waiting_saraban',
+                adminReviewedAt: new Date().toISOString(),
+                adminReviewedBy: getCurrentUser()?.name || getCurrentUser()?.username || 'admin',
+                lastUpdated: new Date().toISOString()
+            });
             await markCurrentTokenUsed();
             document.getElementById('alert-modal').style.display = 'none';
             showTokenSignSuccess('waiting_saraban', null);
@@ -743,62 +744,14 @@ async function loadApprovalLinkManagement() {
     if (!container) return;
     container.innerHTML = '<div class="flex justify-center py-10"><div class="loader"></div></div>';
 
-    if (typeof db === 'undefined') {
-        try {
-            const fallbackDocs = await _loadApprovalDocsFromGasFallback();
-            _renderApprovalLinkManagementDocs(container, fallbackDocs, 'Google Sheets / GAS');
-        } catch (e) {
-            container.innerHTML = '<p class="text-center text-red-500 py-8">ไม่สามารถเชื่อมต่อฐานข้อมูลได้</p>';
-        }
-        return;
-    }
-
-    // Firestore "in" query รองรับสูงสุด 10 ค่า — แบ่ง 3 batch
-    const batch1 = [
-        'waiting_head_thai',     'waiting_head_foreign',  'waiting_head_science',
-        'waiting_head_art',      'waiting_head_social',   'waiting_head_health',
-        'waiting_head_career',   'waiting_head_math',
-        'waiting_head_guidance', 'waiting_head_general',
-    ];
-    const batch2 = [
-        'waiting_head_personnel','waiting_head_budget',   'waiting_head_acad',
-        'waiting_deputy_personnel', 'waiting_deputy_acad',
-        'waiting_deputy_general',   'waiting_deputy_budget',
-    ];
-    const batch3 = ['waiting_admin_review', 'waiting_saraban', 'waiting_director', 'waiting_admin_final'];
-
     try {
-        const [snap1, snap2, snap3] = await Promise.all([
-            db.collection('requests').where('docStatus', 'in', batch1).get(),
-            db.collection('requests').where('docStatus', 'in', batch2).get(),
-            db.collection('requests').where('docStatus', 'in', batch3).get(),
-        ]);
-
-        const allDocs = [];
-        [snap1, snap2, snap3].forEach(snap => {
-            snap.docs.forEach(doc => {
-                const data = doc.data();
-                allDocs.push({ safeId: doc.id, id: data.id || data.requestId || doc.id, ...data });
-            });
-        });
-        _renderApprovalLinkManagementDocs(container, allDocs);
-
+        const docs = await _loadApprovalDocsFromGasFallback();
+        _renderApprovalLinkManagementDocs(container, docs, 'Supabase / GAS');
     } catch (e) {
         console.error("loadApprovalLinkManagement error:", e);
-        const message = String(e?.message || e || '');
-        const isPermissionError = /Missing or insufficient permissions/i.test(message);
-        if (isPermissionError) {
-            try {
-                const fallbackDocs = await _loadApprovalDocsFromGasFallback();
-                _renderApprovalLinkManagementDocs(container, fallbackDocs, 'Google Sheets / GAS');
-                return;
-            } catch (fallbackError) {
-                console.error('loadApprovalLinkManagement fallback error:', fallbackError);
-            }
-        }
         const errP = document.createElement('p');
         errP.className = 'text-center text-red-500 py-8';
-        errP.textContent = '⚠️ เกิดข้อผิดพลาด: ' + message;
+        errP.textContent = '⚠️ เกิดข้อผิดพลาด: ' + String(e?.message || e || '');
         container.innerHTML = '';
         container.appendChild(errP);
     }
@@ -860,7 +813,6 @@ async function adminSkipStep(docId, currentStatus) {
     )) return;
 
     const user      = getCurrentUser();
-    const safeId    = docId.replace(/[\/\\:\.]/g, '-');
     // roleKey = waiting_head_thai → head_thai  (ตัดคำนำหน้า waiting_)
     const roleKey   = currentStatus.replace(/^waiting_/, '');
     // original ID (อาจมี / หรือ . ซึ่ง GAS ต้องการ) ดึงจาก cache
@@ -874,22 +826,19 @@ async function adminSkipStep(docId, currentStatus) {
             docStatus:                      'waiting_admin_review',
             [`skippedStep_${roleKey}`]:     true,
             [`skippedBy_${roleKey}`]:       user?.name || user?.username || 'admin',
-            [`skippedAt_${roleKey}`]:       firebase.firestore.FieldValue.serverTimestamp(),
-            lastUpdated:                    firebase.firestore.FieldValue.serverTimestamp(),
+            [`skippedAt_${roleKey}`]:       new Date().toISOString(),
+            lastUpdated:                    new Date().toISOString(),
         };
 
-        if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(safeId).set(updateData, { merge: true });
-        }
-
-        apiCall('POST', 'updateRequest', {
+        await apiCall('POST', 'updateRequest', {
             requestId: origDocId,
             docStatus: 'waiting_admin_review',
-        }).catch(err => console.warn('Sheet update error (skip):', err));
+            ...updateData,
+        });
 
         // sync ข้อมูลเข้า _approvalDocs เพื่อให้ adminRouteDocument อ่านได้
         window._approvalDocs = window._approvalDocs || {};
-        window._approvalDocs[safeId] = {
+        window._approvalDocs[docId] = {
             ...docMeta,
             docStatus: 'waiting_admin_review',
             [`skippedStep_${roleKey}`]: true,
@@ -905,7 +854,7 @@ async function adminSkipStep(docId, currentStatus) {
 
         // เปิด route modal ให้แอดมินเลือกส่งต่อทันที
         if (typeof adminRouteDocument === 'function') {
-            adminRouteDocument(safeId);
+            adminRouteDocument(docId);
         } else {
             if (typeof showAlert === 'function')
                 showAlert('✅ ข้ามสำเร็จ',

@@ -398,6 +398,50 @@ function buildSupabaseRequestRecordFromSheet_(requestRow) {
     qty5: requestRow.qty5 || "",
     qty6: requestRow.qty6 || "",
     qty7: requestRow.qty7 || "",
+    activeApprovalDocType:
+      requestRow.activeapprovaldoctype || requestRow.activeApprovalDocType || "",
+    currentPdfUrl: requestRow.currentpdfurl || requestRow.currentPdfUrl || "",
+    adminReviewedAt: requestRow.adminreviewedat || requestRow.adminReviewedAt || "",
+    adminReviewedBy: requestRow.adminreviewedby || requestRow.adminReviewedBy || "",
+    adminRoutedAt: requestRow.adminroutedat || requestRow.adminRoutedAt || "",
+    adminRoutedBy: requestRow.adminroutedby || requestRow.adminRoutedBy || "",
+    terminatedAt: requestRow.terminatedat || requestRow.terminatedAt || "",
+    terminatedBy: requestRow.terminatedby || requestRow.terminatedBy || "",
+    terminationReason:
+      requestRow.terminationreason || requestRow.terminationReason || "",
+    rejectedAt: requestRow.rejectedat || requestRow.rejectedAt || "",
+    rejectedBy: requestRow.rejectedby || requestRow.rejectedBy || "",
+    sarabanDocNum: requestRow.sarabandocnum || requestRow.sarabanDocNum || "",
+    sarabanDocDate: requestRow.sarabandocdate || requestRow.sarabanDocDate || "",
+    sarabanStampedAt:
+      requestRow.sarabanstampedat || requestRow.sarabanStampedAt || "",
+    sarabanStampedBy:
+      requestRow.sarabanstampedby || requestRow.sarabanStampedBy || "",
+    travelSchedule: parseJsonSafely_(
+      requestRow.travelschedule || requestRow.travelSchedule,
+      null,
+    ),
+    travelScheduleStatus:
+      requestRow.travelschedulestatus || requestRow.travelScheduleStatus || "",
+    travelScheduleUpdatedBy:
+      requestRow.travelscheduleupdatedby ||
+      requestRow.travelScheduleUpdatedBy ||
+      "",
+    travelScheduleUpdatedAt:
+      requestRow.travelscheduleupdatedat ||
+      requestRow.travelScheduleUpdatedAt ||
+      "",
+    travelSchedulePdfUrl:
+      requestRow.travelschedulepdfurl || requestRow.travelSchedulePdfUrl || "",
+    travelScheduleGeneratedAt:
+      requestRow.travelschedulegeneratedat ||
+      requestRow.travelScheduleGeneratedAt ||
+      "",
+    finalizedAt: requestRow.finalizedat || requestRow.finalizedAt || "",
+    dispatchMeta: parseJsonSafely_(
+      requestRow.dispatchmeta || requestRow.dispatchMeta,
+      null,
+    ),
   };
 
   return {
@@ -914,6 +958,29 @@ function mapSupabaseRequestRow_(row, attendeeCount, memoRow) {
     commandTemplateType: row.command_template_type || "",
     attendeeCount: attendeeCount,
     totalPeople: attendeeCount + 1,
+    activeApprovalDocType: row.extra?.activeApprovalDocType || "",
+    currentPdfUrl: row.extra?.currentPdfUrl || "",
+    adminReviewedAt: row.extra?.adminReviewedAt || "",
+    adminReviewedBy: row.extra?.adminReviewedBy || "",
+    adminRoutedAt: row.extra?.adminRoutedAt || "",
+    adminRoutedBy: row.extra?.adminRoutedBy || "",
+    terminatedAt: row.extra?.terminatedAt || "",
+    terminatedBy: row.extra?.terminatedBy || "",
+    terminationReason: row.extra?.terminationReason || "",
+    rejectedAt: row.extra?.rejectedAt || "",
+    rejectedBy: row.extra?.rejectedBy || "",
+    sarabanDocNum: row.extra?.sarabanDocNum || "",
+    sarabanDocDate: row.extra?.sarabanDocDate || "",
+    sarabanStampedAt: row.extra?.sarabanStampedAt || "",
+    sarabanStampedBy: row.extra?.sarabanStampedBy || "",
+    travelSchedule: row.extra?.travelSchedule || null,
+    travelScheduleStatus: row.extra?.travelScheduleStatus || "",
+    travelScheduleUpdatedBy: row.extra?.travelScheduleUpdatedBy || "",
+    travelScheduleUpdatedAt: row.extra?.travelScheduleUpdatedAt || "",
+    travelSchedulePdfUrl: row.extra?.travelSchedulePdfUrl || "",
+    travelScheduleGeneratedAt: row.extra?.travelScheduleGeneratedAt || "",
+    finalizedAt: row.extra?.finalizedAt || "",
+    dispatchMeta: row.extra?.dispatchMeta || null,
   };
 }
 
@@ -4344,6 +4411,16 @@ function updateRequest(payload) {
   }
 
   const rowNum = rowIndex + 1;
+  const serializedPayload = Object.assign({}, payload);
+  ["travelSchedule", "dispatchMeta"].forEach((key) => {
+    if (
+      serializedPayload[key] !== undefined &&
+      serializedPayload[key] !== null &&
+      typeof serializedPayload[key] === "object"
+    ) {
+      serializedPayload[key] = JSON.stringify(serializedPayload[key]);
+    }
+  });
 
   // 2. สร้าง Map ของ Headers เพื่อความแม่นยำ (Key เป็นตัวเล็กหมด)
   const headerMap = {};
@@ -4359,12 +4436,39 @@ function updateRequest(payload) {
     }
   };
 
+  const skipDynamicColumns = new Set([
+    "id",
+    "requestId",
+    "action",
+    "pdfUrl",
+    "docUrl",
+    "fileUrl",
+    "skipPdfUrlUpdate",
+    "preGeneratedPdfUrl",
+    "preGeneratedDocUrl",
+    "attendees",
+  ]);
+  const dynamicColumnsToEnsure = Object.keys(serializedPayload).filter((key) => {
+    if (skipDynamicColumns.has(key)) return false;
+    const val = serializedPayload[key];
+    return val !== undefined && val !== null && typeof val !== "object";
+  });
+  if (dynamicColumnsToEnsure.length) {
+    ensureSheetColumns(sheet, dynamicColumnsToEnsure);
+    const refreshedHeaders = sheet
+      .getRange(1, 1, 1, sheet.getLastColumn())
+      .getValues()[0];
+    refreshedHeaders.forEach((h, i) => {
+      headerMap[h.toLowerCase().replace(/\s+/g, "")] = i + 1;
+    });
+  }
+
   // --- 3. อัปเดตข้อมูลตาม Payload ---
 
   // A. ข้อมูลทั่วไป (วนลูป Key ใน Payload เพื่อความยืดหยุ่น)
   // วิธีนี้จะช่วยให้อัปเดตฟิลด์ไหนก็ได้ที่ส่งมา ถ้าชื่อตรงกับ Header
-  for (const key in payload) {
-    if (payload.hasOwnProperty(key)) {
+  for (const key in serializedPayload) {
+    if (serializedPayload.hasOwnProperty(key)) {
       // ข้าม keys พิเศษที่จัดการแยกด้านล่าง
       if (
         ["id", "requestId", "action", "pdfUrl", "docUrl", "fileUrl"].includes(
@@ -4374,7 +4478,7 @@ function updateRequest(payload) {
         continue;
 
       // ✅ แก้ไข GAS-BUG-007: ข้าม Array/Object เพื่อป้องกันการบันทึก "[object Object]" ลงชีท
-      let val = payload[key];
+      let val = serializedPayload[key];
       if (typeof val === "object" && val !== null) continue;
       if (key.toLowerCase() === "province") {
         val = normalizeProvinceLabel_(val);

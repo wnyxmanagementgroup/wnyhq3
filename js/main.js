@@ -2096,23 +2096,18 @@ function openApprovalDocument(docId) {
 // 4. แอดมินตรวจสอบแล้ว → ส่งต่อให้งานสารบรรณ (ไม่ต้องเซ็น)
 async function adminForwardToSaraban(docId) {
     if (!confirm('ยืนยันการส่งเอกสารไปยังงานสารบรรณ?')) return;
-    const safeId    = docId.replace(/[\/\\:\.]/g, '-');
     const docMeta   = window._approvalDocs?.[docId] || {};
     const origDocId = docMeta.id || docMeta.requestId || docId; // original ID สำหรับ Sheet
     try {
         showAlert('กำลังดำเนินการ', 'กำลังส่งเอกสารไปยังงานสารบรรณ...', false);
         const user = getCurrentUser();
-        if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(safeId).set({
-                docStatus:       'waiting_saraban',
-                adminReviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                adminReviewedBy: user?.name || user?.username || 'admin'
-            }, { merge: true });
-        }
-        apiCall('POST', 'updateRequest', {
+        await apiCall('POST', 'updateRequest', {
             requestId: origDocId,
-            docStatus: 'waiting_saraban'
-        }).catch(err => console.warn("Sheet update error:", err));
+            docStatus: 'waiting_saraban',
+            adminReviewedAt: new Date().toISOString(),
+            adminReviewedBy: user?.name || user?.username || 'admin',
+            lastUpdated: new Date().toISOString()
+        });
 
         document.getElementById('alert-modal').style.display = 'none';
         // แอดมินจะสร้างลิงก์ให้งานสารบรรณผ่านหน้า "จัดการลิงก์ลงนาม" เอง
@@ -2275,7 +2270,6 @@ window.confirmAdminRoute = async function() {
     const labelEl = selected.closest('label')?.querySelector('span.text-sm');
     const targetLabel = labelEl ? labelEl.textContent : targetStatus;
 
-    const safeId    = docId.replace(/[\/\\:\.]/g, '-');
     const user      = getCurrentUser();
     const docMeta   = window._approvalDocs?.[docId] || {};
     const origDocId = docMeta.id || docMeta.requestId || docId; // original ID สำหรับ Sheet
@@ -2287,19 +2281,13 @@ window.confirmAdminRoute = async function() {
     showAlert('กำลังดำเนินการ', `กำลังส่งเอกสารไปยัง "${targetLabel}"...`, false);
 
     try {
-        if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(safeId).set({
-                docStatus:       targetStatus,
-                adminRoutedAt:   firebase.firestore.FieldValue.serverTimestamp(),
-                adminRoutedBy:   user?.name || user?.username || 'admin',
-                lastUpdated:     firebase.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
-        }
-
-        apiCall('POST', 'updateRequest', {
+        await apiCall('POST', 'updateRequest', {
             requestId: origDocId,
             docStatus: targetStatus,
-        }).catch(err => console.warn('Sheet update error:', err));
+            adminRoutedAt: new Date().toISOString(),
+            adminRoutedBy: user?.name || user?.username || 'admin',
+            lastUpdated: new Date().toISOString(),
+        });
 
         document.getElementById('alert-modal').style.display = 'none';
         showAlert('✅ ส่งต่อสำเร็จ', `ส่งเอกสาร "${docId}" ไปยัง "${targetLabel}" เรียบร้อยแล้ว`);
@@ -2336,25 +2324,18 @@ async function adminTerminateProcess(docId) {
     )) return;
 
     const user   = getCurrentUser();
-    const safeId = docId.replace(/[\/\\:\.]/g, '-');
     try {
         showAlert('กำลังดำเนินการ', 'กำลังสิ้นสุดกระบวนการ...', false);
 
-        if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(safeId).set({
-                docStatus:         'สิ้นสุดกระบวนการ',
-                terminatedAt:      firebase.firestore.FieldValue.serverTimestamp(),
-                terminatedBy:      user?.name || user?.username || 'admin',
-                terminationReason: reason.trim(),
-                lastUpdated:       firebase.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
-        }
-
-        apiCall('POST', 'updateRequest', {
+        await apiCall('POST', 'updateRequest', {
             requestId:         docId,
             docStatus:         'สิ้นสุดกระบวนการ',
+            status:            'สิ้นสุดกระบวนการ',
+            terminatedAt:      new Date().toISOString(),
+            terminatedBy:      user?.name || user?.username || 'admin',
             terminationReason: reason.trim(),
-        }).catch(e => console.warn('Sheet update error:', e));
+            lastUpdated:       new Date().toISOString(),
+        });
 
         document.getElementById('alert-modal').style.display = 'none';
         showAlert('🚫 สิ้นสุดแล้ว',
@@ -2373,37 +2354,25 @@ async function rejectDocument(docId) {
     if (reason === null) return; // กด Cancel
 
     const user   = getCurrentUser();
-    const safeId = docId.replace(/[\/\\:\.]/g, '-');
     const rejectedBy = user?.name || user?.username || 'ผู้ตรวจสอบ';
 
     try {
         showAlert('กำลังดำเนินการ', 'กำลังส่งกลับเอกสาร...', false);
 
-        if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(safeId).set({
-                status:           'นำกลับไปแก้ไข',       // ★ ให้ isFixing ตรวจเจอ
-                docStatus:        'waiting_admin_review',
-                wasRejected:      true,
-                rejectedAt:       firebase.firestore.FieldValue.serverTimestamp(),
-                rejectedBy:       rejectedBy,
-                rejectionReason:  reason.trim() || 'ไม่ระบุเหตุผล',
-                lastUpdated:      firebase.firestore.FieldValue.serverTimestamp(),
-                // ล้างเลขที่สารบรรณที่เคยออกไว้ (ถ้ามี)
-                sarabanDocNum:    firebase.firestore.FieldValue.delete(),
-                sarabanDocDate:   firebase.firestore.FieldValue.delete(),
-                sarabanStampedAt: firebase.firestore.FieldValue.delete(),
-                sarabanStampedBy: firebase.firestore.FieldValue.delete(),
-            }, { merge: true });
-        }
-
-        // อัปเดต GAS Sheet ด้วย (fire-and-forget)
-        apiCall('POST', 'updateRequest', {
+        await apiCall('POST', 'updateRequest', {
             requestId:       docId,
             status:          'นำกลับไปแก้ไข',
             docStatus:       'waiting_admin_review',
             wasRejected:     'true',
+            rejectedAt:      new Date().toISOString(),
+            rejectedBy:      rejectedBy,
             rejectionReason: reason.trim() || 'ไม่ระบุเหตุผล',
-        }).catch(e => console.warn('Sheet update error:', e));
+            lastUpdated:     new Date().toISOString(),
+            sarabanDocNum:   '',
+            sarabanDocDate:  '',
+            sarabanStampedAt: '',
+            sarabanStampedBy: ''
+        });
 
         document.getElementById('alert-modal').style.display = 'none';
         showAlert('↩️ ส่งกลับแล้ว',
@@ -2735,14 +2704,14 @@ async function reUploadSignedDocument(signedBlob) {
             `memo_signed_${safeId}.pdf`
         );
 
-        // อัปเดต Firestore ด้วย URL ใหม่
-        if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(safeId).set({
-                memoPdfUrl: newUrl,
-                pdfUrl: newUrl,
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-        }
+        await apiCall('POST', 'updateRequest', {
+            requestId: docId,
+            memoPdfUrl: newUrl,
+            pdfUrl: newUrl,
+            currentPdfUrl: newUrl,
+            lastUpdated: new Date().toISOString()
+        });
+        window._lastCreatedDoc.pdfUrl = newUrl;
 
         document.getElementById('alert-modal').style.display = 'none';
         showAlert('สำเร็จ', 'ลงนามเอกสารเรียบร้อยแล้ว!');
@@ -3085,7 +3054,6 @@ window.confirmAdminRoute = async function() {
     const labelEl = selected.closest('label')?.querySelector('span.text-sm');
     const targetLabel = labelEl ? labelEl.textContent : targetStatus;
 
-    const safeId    = docId.replace(/[\/\\:\.]/g, '-');
     const user      = getCurrentUser();
     const docMeta   = window._approvalDocs?.[docId] || {};
     const origDocId = docMeta.id || docMeta.requestId || docId;
@@ -3115,19 +3083,13 @@ window.confirmAdminRoute = async function() {
     if (alertModal) alertModal.style.display = 'flex';
 
     try {
-        if (typeof db !== 'undefined') {
-            await db.collection('requests').doc(safeId).set({
-                docStatus:       targetStatus,
-                adminRoutedAt:   firebase.firestore.FieldValue.serverTimestamp(),
-                adminRoutedBy:   user?.name || user?.username || 'admin',
-                lastUpdated:     firebase.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
-        }
-
-        apiCall('POST', 'updateRequest', {
+        await apiCall('POST', 'updateRequest', {
             requestId: origDocId,
             docStatus: targetStatus,
-        }).catch(err => console.warn('Sheet update error:', err));
+            adminRoutedAt: new Date().toISOString(),
+            adminRoutedBy: user?.name || user?.username || 'admin',
+            lastUpdated: new Date().toISOString(),
+        });
 
         // ★ สร้างลิงก์ Token ให้ผู้รับคนต่อไป (โค้ดส่วนที่หายไป)
         if (typeof generateApprovalToken === 'function') {
