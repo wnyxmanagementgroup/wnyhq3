@@ -144,6 +144,7 @@
 
 <div class="controls">
   <select id="year-select"></select>
+  <select id="month-select"></select>
   <input type="text" id="search-input" placeholder="🔍 ค้นหา (ชื่อ / เลขที่ / สถานที่ / วัตถุประสงค์)...">
   <select id="status-filter">
     <option value="">— สถานะทั้งหมด —</option>
@@ -249,14 +250,39 @@ const GAS_URL = (typeof SCRIPT_URL !== 'undefined' && SCRIPT_URL)
   : 'https://script.google.com/macros/s/AKfycbxRK-XX8Kk4TdMPRSa1Wy9fu9obubLQ1uPmBmd-S4QTQiAe2zKgU6v3_i1UtTpIjpJW/exec';
 let allData = [];
 const ARCHIVE_CACHE_TTL_MS = 5 * 60 * 1000;
+const THAI_MONTH_OPTIONS = [
+  { value: 'latest', label: 'เดือนล่าสุด' },
+  { value: '1', label: 'มกราคม' },
+  { value: '2', label: 'กุมภาพันธ์' },
+  { value: '3', label: 'มีนาคม' },
+  { value: '4', label: 'เมษายน' },
+  { value: '5', label: 'พฤษภาคม' },
+  { value: '6', label: 'มิถุนายน' },
+  { value: '7', label: 'กรกฎาคม' },
+  { value: '8', label: 'สิงหาคม' },
+  { value: '9', label: 'กันยายน' },
+  { value: '10', label: 'ตุลาคม' },
+  { value: '11', label: 'พฤศจิกายน' },
+  { value: '12', label: 'ธันวาคม' }
+];
 
-function getArchiveCacheKey(year) {
-  return 'wny_archive_cache_' + year;
+function getSelectedArchiveFilters() {
+  const year = document.getElementById('year-select').value;
+  const month = document.getElementById('month-select').value || 'latest';
+  return {
+    year,
+    month,
+    latestMonth: month === 'latest'
+  };
 }
 
-function readArchiveCache(year) {
+function getArchiveCacheKey(year, month) {
+  return 'wny_archive_cache_' + year + '_' + (month || 'latest');
+}
+
+function readArchiveCache(year, month) {
   try {
-    const raw = sessionStorage.getItem(getArchiveCacheKey(year));
+    const raw = sessionStorage.getItem(getArchiveCacheKey(year, month));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.data)) return null;
@@ -266,9 +292,9 @@ function readArchiveCache(year) {
   }
 }
 
-function writeArchiveCache(year, data) {
+function writeArchiveCache(year, month, data) {
   try {
-    sessionStorage.setItem(getArchiveCacheKey(year), JSON.stringify({
+    sessionStorage.setItem(getArchiveCacheKey(year, month), JSON.stringify({
       savedAt: Date.now(),
       data: data
     }));
@@ -284,6 +310,7 @@ function applyArchiveData(data) {
 // ====== INIT ======
 (function init() {
   const sel = document.getElementById('year-select');
+  const monthSel = document.getElementById('month-select');
   const curBE = new Date().getFullYear() + 543;
   for (let y = curBE; y >= curBE - 6; y--) {
     const o = document.createElement('option');
@@ -291,18 +318,43 @@ function applyArchiveData(data) {
     if (y === curBE) o.selected = true;
     sel.appendChild(o);
   }
+  THAI_MONTH_OPTIONS.forEach(item => {
+    const o = document.createElement('option');
+    o.value = item.value;
+    o.textContent = item.label;
+    if (item.value === 'latest') o.selected = true;
+    monthSel.appendChild(o);
+  });
   const urlYear = new URLSearchParams(window.location.search).get('year');
-  if (urlYear) { sel.value = urlYear; loadData(); }
+  const urlMonth = new URLSearchParams(window.location.search).get('month');
+  if (urlYear) {
+    sel.value = urlYear;
+  }
+  if (urlMonth && THAI_MONTH_OPTIONS.some(item => item.value === urlMonth)) {
+    monthSel.value = urlMonth;
+  }
+  if (urlYear || urlMonth) { loadData(); }
   document.getElementById('search-input').addEventListener('input', renderTable);
   document.getElementById('status-filter').addEventListener('change', renderTable);
+  document.getElementById('year-select').addEventListener('change', () => {
+    if (document.getElementById('month-select').dataset.userChanged !== 'true') {
+      document.getElementById('month-select').value = 'latest';
+    }
+  });
+  document.getElementById('month-select').addEventListener('change', () => {
+    document.getElementById('month-select').dataset.userChanged =
+      document.getElementById('month-select').value === 'latest' ? 'false' : 'true';
+  });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 })();
 
 // ====== LOAD ======
 async function loadData(forceRefresh = false) {
-  const year = document.getElementById('year-select').value;
+  const filters = getSelectedArchiveFilters();
+  const year = filters.year;
+  const month = filters.month;
   const btn  = document.getElementById('load-btn');
-  const cached = !forceRefresh ? readArchiveCache(year) : null;
+  const cached = !forceRefresh ? readArchiveCache(year, month) : null;
   const hasFreshCache = cached && (Date.now() - cached.savedAt) < ARCHIVE_CACHE_TTL_MS;
 
   if (hasFreshCache) {
@@ -323,10 +375,20 @@ async function loadData(forceRefresh = false) {
     document.getElementById('count-badge').style.display = 'none';
   }
   try {
-    const res  = await fetch(GAS_URL + '?action=getArchiveRequests&year=' + year + '&t=' + Date.now(), { redirect: 'follow' });
+    const params = new URLSearchParams({
+      action: 'getArchiveRequests',
+      year: year,
+      t: String(Date.now())
+    });
+    if (filters.latestMonth) {
+      params.set('latestMonth', 'true');
+    } else if (month) {
+      params.set('month', month);
+    }
+    const res  = await fetch(GAS_URL + '?' + params.toString(), { redirect: 'follow' });
     const json = await res.json();
     if (json.status !== 'success') throw new Error(json.message || 'โหลดข้อมูลไม่สำเร็จ');
-    writeArchiveCache(year, json.data || []);
+    writeArchiveCache(year, month, json.data || []);
     applyArchiveData(json.data || []);
   } catch(e) {
     if (!cached) {

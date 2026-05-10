@@ -1482,7 +1482,11 @@ function doGet(e) {
 
       // ★ คลังข้อมูล: ดึงข้อมูลทั้งหมดตามปี (สำหรับ archive page — ไม่ต้อง login)
       case "getArchiveRequests":
-        data = getArchiveRequests(params.year);
+        data = getArchiveRequests({
+          year: params.year,
+          month: params.month,
+          latestMonth: params.latestMonth,
+        });
         break;
       case "getPublicWeeklySnapshot":
         data = getPublicWeeklySnapshot();
@@ -6092,11 +6096,21 @@ function runMonthlyBackupEmail() {
  * ดึงข้อมูลทั้งหมดในปี (พ.ศ.) จาก Google Sheets สำหรับ archive page
  * ไม่ต้อง login — ข้อมูลเฉพาะ field ที่จำเป็น (ไม่ส่ง personal data เกิน)
  */
-function getArchiveRequests(yearParam) {
-  const yearBE = yearParam
-    ? parseInt(yearParam)
+function getArchiveRequests(options) {
+  const rawOptions = typeof options === "object" && options !== null
+    ? options
+    : { year: options };
+  const yearBE = rawOptions.year
+    ? parseInt(rawOptions.year, 10)
     : new Date().getFullYear() + 543;
-  const cacheKey = buildCacheKey_(["archive-requests", String(yearBE)]);
+  const requestedMonth = rawOptions.month ? parseInt(rawOptions.month, 10) : null;
+  const useLatestMonth = parseBooleanParam_(rawOptions.latestMonth);
+  const cacheKey = buildCacheKey_([
+    "archive-requests",
+    String(yearBE),
+    useLatestMonth ? "latest" : "fixed",
+    requestedMonth ? String(requestedMonth) : "all",
+  ]);
   const cached = readJsonCache_(cacheKey);
   if (cached) return cached;
 
@@ -6106,6 +6120,13 @@ function getArchiveRequests(yearParam) {
 
   const yearAD = yearBE - 543;
   const yearStr = String(yearBE);
+
+  const parseDateSafely_ = function (value) {
+    if (!value) return null;
+    const safeDate = new Date(value);
+    if (isNaN(safeDate.getTime())) return null;
+    return safeDate;
+  };
 
   // --- JOIN กับ Memos sheet เหมือน getAllRequests() ---
   // เพื่อดึง URL ไฟล์ที่แอดมินอัพโหลด (adminMemoUrl / completedCommandUrl / dispatchBookUrl)
@@ -6120,13 +6141,59 @@ function getArchiveRequests(yearParam) {
   }
 
   const rows = sheetToObject(sheet);
-  const result = rows
+  const yearRows = rows
     .filter((r) => {
       // กรองตามปี พ.ศ. จาก id (บค001/2568) หรือ docDate (2025-xx-xx)
       if (r.id && String(r.id).includes("/" + yearStr)) return true;
       if (r.docDate && String(r.docDate).startsWith(String(yearAD)))
         return true;
       return false;
+    });
+
+  const detectMonthFromRow_ = function (row) {
+    const dateCandidates = [
+      row.docDate,
+      row.docdate,
+      row.startDate,
+      row.startdate,
+      row.endDate,
+      row.enddate,
+    ];
+    for (var i = 0; i < dateCandidates.length; i++) {
+      var safeDate = parseDateSafely_(dateCandidates[i]);
+      if (safeDate) return safeDate.getMonth() + 1;
+    }
+    return null;
+  };
+
+  let effectiveMonth = requestedMonth;
+  if (useLatestMonth) {
+    let latestDate = null;
+    yearRows.forEach(function (row) {
+      const dateCandidates = [
+        row.docDate,
+        row.docdate,
+        row.startDate,
+        row.startdate,
+        row.endDate,
+        row.enddate,
+      ];
+      for (var i = 0; i < dateCandidates.length; i++) {
+        var safeDate = parseDateSafely_(dateCandidates[i]);
+        if (!safeDate) continue;
+        if (!latestDate || safeDate.getTime() > latestDate.getTime()) {
+          latestDate = safeDate;
+        }
+        break;
+      }
+    });
+    effectiveMonth = latestDate ? latestDate.getMonth() + 1 : null;
+  }
+
+  const result = yearRows
+    .filter(function (r) {
+      if (!effectiveMonth) return true;
+      return detectMonthFromRow_(r) === effectiveMonth;
     })
     .map((r) => {
       // --- เติม URL จาก Memos sheet ถ้า Requests sheet ยังไม่มี ---
