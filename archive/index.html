@@ -333,7 +333,7 @@ function applyArchiveData(data) {
   if (urlMonth && THAI_MONTH_OPTIONS.some(item => item.value === urlMonth)) {
     monthSel.value = urlMonth;
   }
-  if (urlYear || urlMonth) { loadData(); }
+  loadData();
   document.getElementById('search-input').addEventListener('input', renderTable);
   document.getElementById('status-filter').addEventListener('change', renderTable);
   document.getElementById('year-select').addEventListener('change', () => {
