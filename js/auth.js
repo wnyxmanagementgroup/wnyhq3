@@ -192,7 +192,10 @@ async function initializeUserSession(user) {
     );
     if (isAdmin || hasApproverRole) {
         const inboxNav = document.getElementById('nav-approval-inbox');
-        if (inboxNav) inboxNav.style.display = '';
+        if (inboxNav) {
+            inboxNav.classList.remove('hidden');
+            inboxNav.style.display = '';
+        }
         if (typeof refreshApprovalInboxBadge === 'function') refreshApprovalInboxBadge();
     }
 
@@ -211,6 +214,7 @@ async function initializeUserSession(user) {
                 <h3 class="font-bold text-indigo-700">📥 เอกสารรอลงนาม</h3>
                 <p class="text-xs text-gray-500">รายการที่ต้องดำเนินการ</p>
                 <span id="approval-badge" class="inline-block mt-1 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full hidden">0</span>`;
+            inboxNav.classList.remove('hidden');
             inboxNav.style.display = '';
         }
         // นำทางไปหน้าเอกสารรอลงนามทันที (switchPage จะเรียก loadPendingApprovals อัตโนมัติ)
@@ -241,7 +245,10 @@ async function initializeUserSession(user) {
                         const headRole = (typeof POSITION_TO_ROLE !== 'undefined') ? POSITION_TO_ROLE[posEntry[0]] : null;
                         if (headRole) user._approverRole = headRole;
                         const inboxNav = document.getElementById('nav-approval-inbox');
-                        if (inboxNav) inboxNav.style.display = '';
+                        if (inboxNav) {
+                            inboxNav.classList.remove('hidden');
+                            inboxNav.style.display = '';
+                        }
                         if (typeof refreshApprovalInboxBadge === 'function') refreshApprovalInboxBadge();
                     }
                 }

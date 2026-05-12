@@ -3069,6 +3069,16 @@ async function handleMemoSubmitFromModal(e) {
         }
 
         await apiCall('POST', 'updateRequest', updatePayload);
+        if (forwardToStatus && typeof ensureRoleScriptsForUser === 'function') {
+            try {
+                await ensureRoleScriptsForUser(user, { pageId: 'approval-page' });
+                if (typeof generateApprovalToken === 'function') {
+                    await generateApprovalToken(requestId, forwardToStatus, request || {});
+                }
+            } catch (tokenError) {
+                console.warn('generate approval token after memo submit failed:', tokenError);
+            }
+        }
 
         // ── 6. แจ้งผลและรีเฟรช ──
         showAlert('สำเร็จ', memoType === 'reimburse'
