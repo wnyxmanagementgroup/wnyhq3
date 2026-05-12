@@ -1456,11 +1456,26 @@ function getAdminUploadedMemoFiles(record = {}) {
         if (!url || files.some(item => item.url === url)) return;
         files.push({ key, label, url, className });
     };
+    const firstUrl = (...values) => values.find(value => typeof value === 'string' && value.trim()) || '';
 
     // แสดงเฉพาะไฟล์ที่แอดมินอัปโหลดเอง ไม่รวมไฟล์ที่ระบบ generate / archive อัตโนมัติ
-    pushFile('adminMemo', '📄 บันทึก', record.adminMemoUrl, 'bg-blue-100 text-blue-700 border border-blue-300 hover:bg-blue-200');
-    pushFile('command', '📋 คำสั่ง', record.completedCommandUrl, 'bg-indigo-100 text-indigo-700 border border-indigo-300 hover:bg-indigo-200');
-    pushFile('dispatch', '📦 หนังสือส่ง', record.dispatchBookUrl, 'bg-purple-100 text-purple-700 border border-purple-300 hover:bg-purple-200');
+    pushFile('adminMemo', '📄 บันทึก', firstUrl(
+        record.adminMemoUrl,
+        record.completedMemoUrl,
+        record.adminmemourl,
+        record.completedmemourl
+    ), 'bg-blue-100 text-blue-700 border border-blue-300 hover:bg-blue-200');
+    pushFile('command', '📋 คำสั่ง', firstUrl(
+        record.completedCommandUrl,
+        record.commandPdfUrl,
+        record.completedcommandurl
+    ), 'bg-indigo-100 text-indigo-700 border border-indigo-300 hover:bg-indigo-200');
+    pushFile('dispatch', '📦 หนังสือส่ง', firstUrl(
+        record.dispatchBookUrl,
+        record.completedDispatchBookUrl,
+        record.dispatchBookPdfUrl,
+        record.dispatchbookurl
+    ), 'bg-purple-100 text-purple-700 border border-purple-300 hover:bg-purple-200');
 
     return files;
 }
