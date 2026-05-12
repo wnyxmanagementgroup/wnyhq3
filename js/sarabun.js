@@ -300,16 +300,16 @@ function _createSarabanTextOverlay(type, text) {
         'position:absolute',
         `left:${initLeft}px`,
         `top:${initTop}px`,
-        'background:rgba(255,255,220,0.95)',
+        'background:transparent',
         `border:2px dashed ${borderColor}`,
         'border-radius:4px',
-        'padding:3px 10px',
+        'padding:1px 4px',
         'cursor:grab',
         'user-select:none',
         'z-index:20',
         'touch-action:none',
         'white-space:nowrap',
-        'box-shadow:0 2px 6px rgba(0,0,0,0.15)',
+        'box-shadow:none',
     ].join(';');
 
     el.innerHTML = `

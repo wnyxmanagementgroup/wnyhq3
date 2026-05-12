@@ -255,25 +255,29 @@ async function _fetchApprovalTokenData(token) {
 }
 
 async function _fetchApprovalRequestData(tokenData) {
-    if (!tokenData) return null;
+    if (!tokenData?.requestId) return null;
 
-    if (tokenData.requestId) {
-        try {
-            const result = await apiCall('GET', 'getDraftRequest', { requestId: tokenData.requestId });
-            if (result?.data) return result.data;
-            if (result && !result.status) return result;
-        } catch (e) {
-            console.warn('fetchApprovalRequestData draft fallback error:', e);
-        }
+    let requestData = null;
+    let draftData = null;
 
-        try {
-            const result = await apiCall('GET', 'getRequestById', { requestId: tokenData.requestId });
-            if (result?.status === 'success' && result?.data) return result.data;
-        } catch (e) {
-            console.warn('fetchApprovalRequestData requestById fallback error:', e);
-        }
+    try {
+        const result = await apiCall('GET', 'getRequestById', { requestId: tokenData.requestId });
+        if (result?.data) requestData = result.data;
+        else if (result && !result.status) requestData = result;
+    } catch (e) {
+        console.warn('fetchApprovalRequestData requestById fallback error:', e);
     }
-    return null;
+
+    try {
+        const result = await apiCall('GET', 'getDraftRequest', { requestId: tokenData.requestId });
+        if (result?.data) draftData = result.data;
+        else if (result && !result.status) draftData = result;
+    } catch (e) {
+        console.warn('fetchApprovalRequestData draft fallback error:', e);
+    }
+
+    if (requestData && draftData) return { ...draftData, ...requestData };
+    return requestData || draftData || null;
 }
 
 // --- 5. แสดงผลสำเร็จบน Token Page พร้อมลิงก์ขั้นถัดไป ---
