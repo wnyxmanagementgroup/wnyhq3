@@ -861,6 +861,24 @@ async function handleDispatchFormSubmit(e) {
         
         });
 
+        if (typeof ensureRoleScriptsForUser === 'function') {
+            try {
+                await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'approval-page' });
+                if (typeof generateApprovalToken === 'function') {
+                    await generateApprovalToken(requestId, 'waiting_saraban', {
+                        ...requestData,
+                        docType: 'dispatch',
+                        activeApprovalDocType: 'dispatch',
+                        currentPdfUrl: permanentPdfUrl,
+                        dispatchBookUrl: permanentPdfUrl,
+                        dispatchBookPdfUrl: permanentPdfUrl,
+                    });
+                }
+            } catch (tokenError) {
+                console.warn('generate approval token after dispatch creation failed:', tokenError);
+            }
+        }
+
         // --- 6. เสร็จสิ้น: ล้างสถานะและปิดหน้าต่าง ---
         const msg = document.getElementById('dispatch-saving-msg');
         if(msg) msg.remove();

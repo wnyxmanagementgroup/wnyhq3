@@ -46,6 +46,17 @@ function _getApprovalDocTypeLabel(docType) {
     return 'บันทึกข้อความ';
 }
 
+function _getApprovalPdfUrlForType(req = {}, tokenData = {}) {
+    const docType = _getApprovalManagedDocType(req, tokenData.docStatus || req.docStatus);
+    if (docType === 'dispatch') {
+        return req.currentPdfUrl || req.completedDispatchBookUrl || req.dispatchBookUrl || req.dispatchBookPdfUrl || req.pdfUrl || '';
+    }
+    if (docType === 'command') {
+        return req.currentPdfUrl || req.completedCommandUrl || req.commandPdfUrl || req.commandBookUrl || req.pdfUrl || '';
+    }
+    return req.currentPdfUrl || req.completedMemoUrl || req.pdfUrl || req.memoPdfUrl || '';
+}
+
 function _buildApprovalNotifyMessage(url, recipientLabel, docMeta = {}, currentStatus = '') {
     const docType = _getApprovalManagedDocType(docMeta, currentStatus);
     const requestId = _getApprovalOriginalId(docMeta);
@@ -347,11 +358,7 @@ async function handleTokenSignFlow(token) {
 
         const req = await _fetchApprovalRequestData(td);
         if (!req) throw new Error("ไม่พบเอกสารในระบบ");
-        // ★ ลำดับความสำคัญ:
-        //   1. completedMemoUrl = ไฟล์รวมทุกเอกสาร (บันทึก + แนบ) — อัปเดตทุกรอบลงนาม
-        //   2. currentPdfUrl   = ไฟล์ล่าสุดหลังเซ็น (fallback ถ้า completedMemoUrl ยังไม่มี)
-        //   3. pdfUrl / memoPdfUrl = Cloud Run สร้าง (fallback สุดท้าย)
-        const pdfUrl = req.completedMemoUrl || req.currentPdfUrl || req.pdfUrl || req.memoPdfUrl || '';
+        const pdfUrl = _getApprovalPdfUrlForType(req, td);
         if (!pdfUrl) throw new Error("ไม่พบไฟล์ PDF ของเอกสาร");
 
         // แสดงข้อมูลเอกสาร
@@ -419,14 +426,16 @@ async function handleTokenSignFlow(token) {
             window._tokenPdfBytes = pdfBuffer;
             window._tokenPdfUrl   = pdfUrl;
 
-            // ตรวจสอบประเภทเอกสาร: command หรือ memo
-            const docType = req.docType || (req.commandPdfUrl ? 'command' : 'memo');
+            const docType = _getApprovalManagedDocType(req, td.docStatus);
 
-            if (docType === 'command') {
+            if (docType === 'command' || docType === 'dispatch') {
+                const buttonText = docType === 'dispatch'
+                    ? '📦 เปิดระบบออกเลขหนังสือส่งและวันที่'
+                    : '📝 เปิดระบบออกเลขที่และวันที่';
                 contentEl.innerHTML = `
-                  <button onclick="openSarabanModal(window._tokenPdfBytes, '${td.requestId}', 'command', '${pdfUrl}')"
+                  <button onclick="openSarabanModal(window._tokenPdfBytes, '${td.requestId}', '${docType}', '${pdfUrl}')"
                     class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex justify-center items-center gap-2 text-lg shadow-md">
-                    📝 เปิดระบบออกเลขที่และวันที่
+                    ${buttonText}
                   </button>`;
             } else {
                 contentEl.innerHTML = `
