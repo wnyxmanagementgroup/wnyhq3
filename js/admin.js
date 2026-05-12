@@ -236,20 +236,39 @@ async function handleAdminGenerateCommand() {
         if (pdfUploadUrl) {
             requestData.preGeneratedPdfUrl = pdfUploadUrl;
             requestData.preGeneratedDocUrl = docUploadUrl || '';
-            let keptAtAdminReview = false;
             
             // ส่งข้อมูลไป GAS (เพื่อบันทึกใน Sheet)
             await apiCall('POST', 'approveCommand', requestData);
-            
-            const existingData = allRequestsCache.find(r => r.id === requestId || r.requestId === requestId) || {};
-            const keepAtAdminReview = existingData.docStatus === 'waiting_admin_review'
-                && existingData.activeApprovalDocType !== 'command'
-                && existingData.activeApprovalDocType !== 'dispatch';
-            keptAtAdminReview = keepAtAdminReview;
+            await apiCall('POST', 'updateRequest', {
+                requestId,
+                activeApprovalDocType: 'command',
+                docStatus: 'waiting_saraban',
+                commandStatus: 'waiting_saraban',
+                commandPdfUrl: pdfUploadUrl,
+                completedCommandUrl: pdfUploadUrl,
+                currentPdfUrl: pdfUploadUrl,
+                commandDocUrl: docUploadUrl || '',
+                lastUpdated: new Date().toISOString(),
+            });
 
-            const successMessage = keptAtAdminReview
-                ? 'สร้างเอกสารคำสั่งเรียบร้อยแล้ว ✅\nคำสั่งถูกสร้างไว้แล้ว และเรื่องยังรอแอดมินส่งต่อพร้อมบันทึกข้อความ'
-                : 'สร้างเอกสารคำสั่งเรียบร้อยแล้ว ✅\nเอกสารถูกส่งไปยังงานสารบรรณเพื่อออกเลขที่และวันที่';
+            if (typeof ensureRoleScriptsForUser === 'function') {
+                try {
+                    await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'approval-page' });
+                    if (typeof generateApprovalToken === 'function') {
+                        await generateApprovalToken(requestId, 'waiting_saraban', {
+                            ...requestData,
+                            activeApprovalDocType: 'command',
+                            commandPdfUrl: pdfUploadUrl,
+                            completedCommandUrl: pdfUploadUrl,
+                            currentPdfUrl: pdfUploadUrl,
+                        });
+                    }
+                } catch (tokenError) {
+                    console.warn('generate approval token after command creation failed:', tokenError);
+                }
+            }
+            
+            const successMessage = 'สร้างเอกสารคำสั่งเรียบร้อยแล้ว ✅\nเอกสารถูกส่งไปยังงานสารบรรณเพื่อออกเลขที่และวันที่';
             showAlert('สำเร็จ', successMessage);
             await fetchAllRequestsForCommand();
         }

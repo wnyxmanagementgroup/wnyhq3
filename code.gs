@@ -3891,7 +3891,14 @@ function approveCommand(payload) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const requestSheet = ss.getSheetByName("Requests");
   const attendeesSheet = ss.getSheetByName("Attendees");
-  ensureSheetColumns(requestSheet, ["Province", "CommandTemplateType"]);
+  ensureSheetColumns(requestSheet, [
+    "Province",
+    "CommandTemplateType",
+    "ActiveApprovalDocType",
+    "DocStatus",
+    "CurrentPdfUrl",
+    "CompletedCommandUrl",
+  ]);
 
   const data = requestSheet.getDataRange().getValues();
   const headers = data[0];
@@ -4052,9 +4059,6 @@ function approveCommand(payload) {
 
   // --- 4. บันทึก URL และสถานะลง Sheet Requests ---
   if (selectedUrl) {
-    const statusCol = findColumnIndex(headers, "CommandStatus");
-    const finalUrlCol = findColumnIndex(headers, "CommandPdfUrl");
-
     // เลือกคอลัมน์ที่จะบันทึกตามประเภท Template
     const typeUrlColName =
       templateType === "solo"
@@ -4070,24 +4074,45 @@ function approveCommand(payload) {
           : "CommandDocUrlGroupLarge";
 
     // ตรวจสอบว่ามีคอลัมน์หรือไม่ ถ้าไม่มีให้สร้าง
-    ensureSheetColumns(requestSheet, [typeUrlColName, typeDocUrlColName]);
+    ensureSheetColumns(requestSheet, [
+      typeUrlColName,
+      typeDocUrlColName,
+      "ActiveApprovalDocType",
+      "DocStatus",
+      "CurrentPdfUrl",
+      "CompletedCommandUrl",
+    ]);
 
     // โหลด Headers ใหม่เพราะอาจมีการเพิ่มคอลัมน์
     const headersNew = requestSheet
       .getRange(1, 1, 1, requestSheet.getLastColumn())
       .getValues()[0];
+    const statusColNew = findColumnIndex(headersNew, "CommandStatus");
+    const finalUrlColNew = findColumnIndex(headersNew, "CommandPdfUrl");
     const typeUrlCol = findColumnIndex(headersNew, typeUrlColName);
     const typeDocUrlCol = findColumnIndex(headersNew, typeDocUrlColName);
+    const activeDocTypeCol = findColumnIndex(headersNew, "ActiveApprovalDocType");
+    const docStatusCol = findColumnIndex(headersNew, "DocStatus");
+    const currentPdfCol = findColumnIndex(headersNew, "CurrentPdfUrl");
+    const completedCommandCol = findColumnIndex(headersNew, "CompletedCommandUrl");
 
     const rowNum = rowIndex + 1;
 
     // อัปเดตสถานะและ URL หลัก
-    if (statusCol > -1)
+    if (statusColNew > -1)
       requestSheet
-        .getRange(rowNum, statusCol + 1)
-        .setValue("รอตรวจสอบและออกคำสั่งไปราชการ");
-    if (finalUrlCol > -1)
-      requestSheet.getRange(rowNum, finalUrlCol + 1).setValue(selectedUrl);
+        .getRange(rowNum, statusColNew + 1)
+        .setValue("waiting_saraban");
+    if (finalUrlColNew > -1)
+      requestSheet.getRange(rowNum, finalUrlColNew + 1).setValue(selectedUrl);
+    if (activeDocTypeCol > -1)
+      requestSheet.getRange(rowNum, activeDocTypeCol + 1).setValue("command");
+    if (docStatusCol > -1)
+      requestSheet.getRange(rowNum, docStatusCol + 1).setValue("waiting_saraban");
+    if (currentPdfCol > -1)
+      requestSheet.getRange(rowNum, currentPdfCol + 1).setValue(selectedUrl);
+    if (completedCommandCol > -1)
+      requestSheet.getRange(rowNum, completedCommandCol + 1).setValue(selectedUrl);
 
     // บันทึกลงคอลัมน์เฉพาะประเภท (แยกเก็บ)
     if (typeUrlCol > -1)
