@@ -556,6 +556,7 @@ function renderAdminRequestsList(requests) {
                     ${dispatchBtn}
                     ${travelScheduleUrl ? `<a href="${sanitizeUrl(travelScheduleUrl)}" target="_blank" class="btn btn-xs" style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;">📅 ดูกำหนดการ</a>` : ''}
                     ${isEligibleForTravelSchedule(request) ? `<button onclick="openTravelScheduleByReqId('${safeId}')" class="btn btn-xs" style="background:linear-gradient(135deg,#7dd3fc,#f9a8d4);color:#075985;">${travelScheduleUrl ? '✏️ แก้กำหนดการ' : '📅 กำหนดการเดินทาง'}</button>` : ''}
+                    <button onclick="openSendToSarabanModal('${safeId}')" class="btn btn-xs btn--full" style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;">📬 ส่งสารบรรณ</button>
                     <button onclick="openCustomStatusModal('${safeId}', '${safeStatus}', '${safeDocStatus}')" class="btn btn-xs btn--full" style="background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;">✏️ เปลี่ยนสถานะ</button>
                     <button onclick="deleteRequestByAdmin('${safeId}')" class="btn btn-xs btn--full" style="background:#fff1f2;color:#e11d48;border:1px solid #fecdd3;">🗑️ ลบ</button>
                 </div>
@@ -572,7 +573,7 @@ function renderAdminRequestsList(requests) {
             <td class="text-center"><span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold" style="background:#eef2ff;color:#4338ca;">${totalPeople}</span></td>
             <td class="text-center">${expenseCell}</td>
             <td><div class="flex flex-wrap gap-1 mb-1.5">${statusBadge}${dispatchBadge}${travelScheduleBadge}</div><div class="flex flex-wrap gap-1 mb-1">${mainStatusBadge}</div><div class="flex flex-wrap gap-1 items-center">${docStatusBadge}${draftPdfBtn}</div></td>
-            <td><div class="flex flex-col gap-1.5 items-stretch" style="min-width:138px">${commandActionBtn}${dispatchBtn}${travelScheduleUrl ? `<a href="${sanitizeUrl(travelScheduleUrl)}" target="_blank" class="btn btn-xs w-full" style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;">📅 ดูกำหนดการ</a>` : ''}${isEligibleForTravelSchedule(request) ? `<button onclick="openTravelScheduleByReqId('${safeId}')" class="btn btn-xs w-full" style="background:linear-gradient(135deg,#7dd3fc,#f9a8d4);color:#075985;">${travelScheduleUrl ? '✏️ แก้กำหนดการ' : '📅 กำหนดการเดินทาง'}</button>` : ''}<button onclick="openCustomStatusModal('${safeId}', '${safeStatus}', '${safeDocStatus}')" class="btn btn-xs w-full" style="background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;">✏️ เปลี่ยนสถานะ</button><button onclick="deleteRequestByAdmin('${safeId}')" class="btn btn-xs w-full mt-0.5" style="background:#fff1f2;color:#e11d48;border:1px solid #fecdd3;">🗑️ ลบ</button></div></td>
+            <td><div class="flex flex-col gap-1.5 items-stretch" style="min-width:138px">${commandActionBtn}${dispatchBtn}${travelScheduleUrl ? `<a href="${sanitizeUrl(travelScheduleUrl)}" target="_blank" class="btn btn-xs w-full" style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;">📅 ดูกำหนดการ</a>` : ''}${isEligibleForTravelSchedule(request) ? `<button onclick="openTravelScheduleByReqId('${safeId}')" class="btn btn-xs w-full" style="background:linear-gradient(135deg,#7dd3fc,#f9a8d4);color:#075985;">${travelScheduleUrl ? '✏️ แก้กำหนดการ' : '📅 กำหนดการเดินทาง'}</button>` : ''}<button onclick="openSendToSarabanModal('${safeId}')" class="btn btn-xs w-full" style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;">📬 ส่งสารบรรณ</button><button onclick="openCustomStatusModal('${safeId}', '${safeStatus}', '${safeDocStatus}')" class="btn btn-xs w-full" style="background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;">✏️ เปลี่ยนสถานะ</button><button onclick="deleteRequestByAdmin('${safeId}')" class="btn btn-xs w-full mt-0.5" style="background:#fff1f2;color:#e11d48;border:1px solid #fecdd3;">🗑️ ลบ</button></div></td>
         </tr>`;
 
         if (compactView) cardItems.push(cardHtml);
@@ -2825,6 +2826,191 @@ function _getSelectedIds() {
     return [...document.querySelectorAll('.bulk-checkbox:checked')].map(cb => cb.value);
 }
 
+function _findAdminRequestById(requestId) {
+    return (allRequestsCache || []).find(r =>
+        r.id === requestId || r.requestId === requestId || r.refNumber === requestId
+    ) || null;
+}
+
+function _getSarabanRouteOptions(request = {}) {
+    const options = [];
+    const activeType = request.activeApprovalDocType || request.docType || '';
+    const pushOption = (type, label, url) => {
+        if (!url || options.some(opt => opt.type === type)) return;
+        options.push({ type, label, url });
+    };
+
+    pushOption(
+        'command',
+        'คำสั่งไปราชการ',
+        (activeType === 'command' ? request.currentPdfUrl : '')
+            || request.completedCommandUrl
+            || request.commandPdfUrl
+            || request.commandBookUrl
+            || ''
+    );
+    pushOption(
+        'dispatch',
+        'หนังสือส่ง',
+        (activeType === 'dispatch' ? request.currentPdfUrl : '')
+            || request.completedDispatchBookUrl
+            || request.dispatchBookUrl
+            || request.dispatchBookPdfUrl
+            || ''
+    );
+    pushOption(
+        'memo',
+        'บันทึกข้อความ',
+        (activeType === 'memo' ? request.currentPdfUrl : '')
+            || request.completedMemoUrl
+            || request.adminMemoUrl
+            || request.pdfUrl
+            || request.memoPdfUrl
+            || ''
+    );
+
+    return options;
+}
+
+function _pickDefaultSarabanRouteOption(request = {}) {
+    const options = _getSarabanRouteOptions(request);
+    if (options.length === 0) return null;
+    const activeType = request.activeApprovalDocType || request.docType || '';
+    const activeOption = activeType ? options.find(opt => opt.type === activeType) : null;
+    if (activeOption) return activeOption;
+    if (options.length === 1) return options[0];
+    return null;
+}
+
+async function _sendRequestToSaraban(requestId, routeOption) {
+    const request = _findAdminRequestById(requestId);
+    if (!request) throw new Error(`ไม่พบรายการ ${requestId}`);
+    if (!routeOption?.type || !routeOption?.url) throw new Error(`ยังไม่มีไฟล์พร้อมส่งสารบรรณสำหรับ ${requestId}`);
+
+    const originalId = request.id || request.requestId || requestId;
+    const payload = {
+        requestId: originalId,
+        docStatus: 'waiting_saraban',
+        activeApprovalDocType: routeOption.type,
+        docType: routeOption.type,
+        currentPdfUrl: routeOption.url,
+        lastUpdated: new Date().toISOString(),
+        adminRoutedAt: new Date().toISOString(),
+        adminRoutedBy: getCurrentUser()?.name || getCurrentUser()?.username || 'admin',
+    };
+
+    if (routeOption.type === 'command') {
+        payload.commandPdfUrl = routeOption.url;
+        payload.completedCommandUrl = routeOption.url;
+        payload.commandStatus = 'waiting_saraban';
+    } else if (routeOption.type === 'dispatch') {
+        payload.dispatchBookUrl = routeOption.url;
+        payload.dispatchBookPdfUrl = routeOption.url;
+        payload.dispatchStatus = 'waiting_saraban';
+    } else {
+        payload.completedMemoUrl = routeOption.url;
+    }
+
+    await apiCall('POST', 'updateRequest', payload);
+
+    if (typeof ensureRoleScriptsForUser === 'function') {
+        try {
+            await ensureRoleScriptsForUser(getCurrentUser(), { pageId: 'approval-page' });
+            if (typeof generateApprovalToken === 'function') {
+                await generateApprovalToken(originalId, 'waiting_saraban', {
+                    ...request,
+                    ...payload,
+                    purpose: request.purpose || routeOption.label,
+                });
+            }
+        } catch (tokenError) {
+            console.warn('generate approval token after manual saraban route failed:', tokenError);
+        }
+    }
+
+    const cached = _findAdminRequestById(requestId);
+    if (cached) {
+        cached.docStatus = 'waiting_saraban';
+        cached.activeApprovalDocType = routeOption.type;
+        cached.docType = routeOption.type;
+        cached.currentPdfUrl = routeOption.url;
+        if (routeOption.type === 'command') cached.commandStatus = 'waiting_saraban';
+        if (routeOption.type === 'dispatch') cached.dispatchStatus = 'waiting_saraban';
+    }
+}
+
+window.openSendToSarabanModal = function(requestId) {
+    const request = _findAdminRequestById(requestId);
+    if (!request) return showAlert('ผิดพลาด', 'ไม่พบรายการที่เลือก');
+
+    const options = _getSarabanRouteOptions(request);
+    if (!options.length) {
+        return showAlert('ยังไม่มีไฟล์พร้อมส่ง', 'รายการนี้ยังไม่มีไฟล์คำสั่ง หนังสือส่ง หรือบันทึกข้อความที่พร้อมส่งให้สารบรรณ');
+    }
+
+    let modal = document.getElementById('send-to-saraban-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'send-to-saraban-modal';
+        modal.className = 'modal-overlay hidden';
+        modal.style.zIndex = '1000';
+        modal.innerHTML = `
+            <div class="modal-box max-w-md">
+                <h3 class="font-bold text-lg mb-2">ส่งงานไปสารบรรณ</h3>
+                <p class="text-sm text-gray-500 mb-4">เลือกเอกสารที่ต้องการส่งให้สารบรรณดำเนินการ</p>
+                <div id="send-to-saraban-options" class="space-y-2 mb-4"></div>
+                <div class="flex justify-end gap-2">
+                    <button onclick="closeSendToSarabanModal()" class="btn bg-gray-200 text-gray-700">ยกเลิก</button>
+                    <button onclick="confirmSendToSaraban()" class="btn bg-sky-600 hover:bg-sky-700 text-white">📬 ส่งสารบรรณ</button>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+    }
+
+    window._sendToSarabanRequestId = requestId;
+    const optionBox = document.getElementById('send-to-saraban-options');
+    optionBox.innerHTML = options.map((opt, index) => `
+        <label class="flex items-start gap-3 rounded-xl border border-sky-100 bg-sky-50/50 p-3 cursor-pointer hover:border-sky-300">
+            <input type="radio" name="send-to-saraban-doc-type" value="${opt.type}" class="mt-1" ${index === 0 ? 'checked' : ''}>
+            <span>
+                <span class="block font-bold text-gray-800">${escapeHtml(opt.label)}</span>
+                <span class="block text-xs text-gray-500 break-all">${escapeHtml(opt.url)}</span>
+            </span>
+        </label>
+    `).join('');
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+};
+
+window.closeSendToSarabanModal = function() {
+    const modal = document.getElementById('send-to-saraban-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    }
+    window._sendToSarabanRequestId = null;
+};
+
+window.confirmSendToSaraban = async function() {
+    const requestId = window._sendToSarabanRequestId;
+    const request = _findAdminRequestById(requestId);
+    const selectedType = document.querySelector('input[name="send-to-saraban-doc-type"]:checked')?.value;
+    const routeOption = _getSarabanRouteOptions(request || {}).find(opt => opt.type === selectedType);
+    if (!requestId || !routeOption) return showAlert('ผิดพลาด', 'กรุณาเลือกเอกสารที่ต้องการส่ง');
+
+    closeSendToSarabanModal();
+    showAlert('กำลังดำเนินการ', 'กำลังส่งงานไปสารบรรณ...', false);
+    try {
+        await _sendRequestToSaraban(requestId, routeOption);
+        document.getElementById('alert-modal').style.display = 'none';
+        showAlert('สำเร็จ', `ส่ง${routeOption.label}ของรายการ ${requestId} ไปสารบรรณเรียบร้อยแล้ว`);
+        await fetchAllRequestsForCommand();
+    } catch (error) {
+        document.getElementById('alert-modal').style.display = 'none';
+        showAlert('ผิดพลาด', error.message);
+    }
+};
+
 function bulkExportCSV() {
     const ids = _getSelectedIds();
     if (!ids.length) return;
@@ -2891,6 +3077,51 @@ async function bulkGenerateCommand() {
 
     clearBulkSelection();
     openAdminGenerateCommand(ids[0]);
+}
+
+async function bulkSendToSaraban() {
+    const ids = _getSelectedIds();
+    if (!ids.length) return;
+
+    const routePlan = [];
+    const skipped = [];
+    ids.forEach(id => {
+        const request = _findAdminRequestById(id);
+        const option = request ? _pickDefaultSarabanRouteOption(request) : null;
+        if (option) routePlan.push({ id, option });
+        else skipped.push(id);
+    });
+
+    if (!routePlan.length) {
+        return showAlert('ยังส่งไม่ได้', 'รายการที่เลือกยังไม่มีไฟล์พร้อมส่ง หรือมีหลายประเภทเอกสารให้เลือก กรุณาใช้ปุ่ม “ส่งสารบรรณ” รายแถวเพื่อเลือกเอง');
+    }
+
+    const confirmed = await showConfirm(
+        'ส่งสารบรรณ',
+        `ระบบจะส่งงานไปสารบรรณ ${routePlan.length} รายการ${skipped.length ? `\n\nข้าม ${skipped.length} รายการที่ต้องเลือกชนิดเอกสารเอง: ${skipped.join(', ')}` : ''}\n\nต้องการดำเนินการต่อหรือไม่`
+    );
+    if (!confirmed) return;
+
+    showAlert('กำลังดำเนินการ', 'กำลังส่งงานที่เลือกไปสารบรรณ...', false);
+    let done = 0;
+    const failed = [];
+    for (const item of routePlan) {
+        try {
+            await _sendRequestToSaraban(item.id, item.option);
+            done++;
+        } catch (error) {
+            failed.push(`${item.id}: ${error.message}`);
+        }
+    }
+
+    document.getElementById('alert-modal').style.display = 'none';
+    clearBulkSelection();
+    await fetchAllRequestsForCommand();
+    const extra = [
+        skipped.length ? `ข้าม ${skipped.length} รายการที่ต้องเลือกเอกสารเอง` : '',
+        failed.length ? `ล้มเหลว ${failed.length} รายการ\n${failed.slice(0, 3).join('\n')}` : ''
+    ].filter(Boolean).join('\n\n');
+    showAlert('สำเร็จ', `ส่งสารบรรณแล้ว ${done} รายการ${extra ? `\n\n${extra}` : ''}`);
 }
 
 function filterByStatus(statusValue) {
