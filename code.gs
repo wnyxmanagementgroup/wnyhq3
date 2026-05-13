@@ -1169,17 +1169,22 @@ function mapSupabaseMemoRow_(row, requestRow) {
     timestamp: row.created_at_source || "",
     fileId: row.file_id || "",
     fileURL: row.file_url || "",
-    completedMemoUrl: row.completed_memo_url || "",
+    completedMemoUrl:
+      row.completed_memo_url ||
+      (requestRow ? requestRow.completedMemoUrl || "" : ""),
     completedCommandUrl: row.completed_command_url || "",
     dispatchBookUrl:
       row.dispatch_book_url ||
       (requestRow ? requestRow.dispatchBookPdfUrl || requestRow.dispatchBookUrl || "" : ""),
-    adminMemoUrl: row.admin_memo_url || "",
-    memoPdfUrl: row.memo_pdf_url || "",
-    currentPdfUrl: row.current_pdf_url || "",
+    adminMemoUrl: row.admin_memo_url || (requestRow ? requestRow.adminMemoUrl || "" : ""),
+    memoPdfUrl:
+      row.memo_pdf_url ||
+      (requestRow ? requestRow.memoPdfUrl || requestRow.pdfUrl || "" : ""),
+    currentPdfUrl: row.current_pdf_url || (requestRow ? requestRow.currentPdfUrl || "" : ""),
     dispatchStatus: row.dispatch_status || "",
     completedDispatchBookUrl: row.completed_dispatch_book_url || "",
-    docStatus: row.doc_status || "",
+    docStatus: row.doc_status || (requestRow ? requestRow.docStatus || "" : ""),
+    activeApprovalDocType: requestRow ? requestRow.activeApprovalDocType || "" : "",
     rejectedAt: row.rejected_at || "",
     finalizedAt: row.finalized_at || "",
     lastUpdatedSource: row.last_updated_source || "",

@@ -1496,12 +1496,19 @@ function getAdminUploadedMemoFiles(record = {}) {
     };
     const firstUrl = (...values) => values.find(value => typeof value === 'string' && value.trim()) || '';
 
-    // แสดงเฉพาะไฟล์ที่แอดมินอัปโหลดเอง ไม่รวมไฟล์ที่ระบบ generate / archive อัตโนมัติ
-    pushFile('adminMemo', '📄 บันทึก', firstUrl(
-        record.adminMemoUrl,
+    // ไฟล์บันทึกที่ผู้ขอส่งเข้าระบบหลังจากรวมไฟล์แนบแล้ว
+    pushFile('userMemo', '📤 บันทึกผู้ขอ', firstUrl(
         record.completedMemoUrl,
-        record.adminmemourl,
-        record.completedmemourl
+        record.completedmemourl,
+        record.activeApprovalDocType === 'memo' ? record.currentPdfUrl : '',
+        record.fileURL,
+        record.fileUrl,
+        record.fileurl
+    ), 'bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200');
+    // ไฟล์บันทึกฉบับสมบูรณ์ที่แอดมินอัปโหลด/ส่งกลับให้ผู้ใช้
+    pushFile('adminMemo', '📄 บันทึกแอดมิน', firstUrl(
+        record.adminMemoUrl,
+        record.adminmemourl
     ), 'bg-blue-100 text-blue-700 border border-blue-300 hover:bg-blue-200');
     pushFile('command', '📋 คำสั่ง', firstUrl(
         record.completedCommandUrl,
