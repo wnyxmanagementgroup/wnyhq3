@@ -14,11 +14,13 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
-    
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
+    
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
     
     <link rel="stylesheet" href="../css/style.css?v=6">
@@ -1292,36 +1294,36 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             <div class="bg-white border border-violet-100 rounded-lg p-5 shadow-sm">
                                 <div class="text-sm font-semibold text-violet-700 mb-2">ฐานข้อมูล</div>
-                                <h3 class="text-lg font-bold text-gray-800 mb-2">Sync ข้อมูลสู่ Supabase</h3>
-                                <p class="text-sm text-gray-500 mb-4">ดึงข้อมูลจาก Google Sheets ไปอัปเดตใน Supabase เมื่อเริ่มระบบหรือใช้ซ่อมข้อมูลกรณีข้อมูลไม่ตรงกัน</p>
-                                <button id="admin-sync-btn" class="btn-sync btn-sync--sky w-full hidden">🔄 Sync ข้อมูลสู่ Supabase</button>
+                                <h3 class="text-lg font-bold text-gray-800 mb-2">ซิงก์ข้อมูลเข้า Web Hosting</h3>
+                                <p class="text-sm text-gray-500 mb-4">ดึงข้อมูลจาก Google Sheets ไปอัปเดตฐาน MySQL บน Web Hosting เมื่อเริ่มระบบหรือใช้ซ่อมข้อมูลกรณีข้อมูลไม่ตรงกัน</p>
+                                <button id="admin-sync-btn" class="btn-sync btn-sync--sky w-full hidden">🔄 ซิงก์ข้อมูลเข้า Web Hosting</button>
                             </div>
 
                             <div class="bg-white border border-indigo-100 rounded-lg p-5 shadow-sm">
                                 <div class="text-sm font-semibold text-indigo-700 mb-2">สำรองข้อมูล</div>
                                 <h3 class="text-lg font-bold text-gray-800 mb-2">สำรองข้อมูลไปยัง Sheets</h3>
-                                <p class="text-sm text-gray-500 mb-4">สำรองข้อมูลจาก Supabase ของปีที่เลือกกลับไปยัง Google Sheets</p>
-                                <button id="admin-backup-btn" onclick="adminBackupSupabaseToSheets()" class="btn-sync btn-sync--indigo w-full hidden">💾 สำรองข้อมูลจาก Supabase → Sheets</button>
+                                <p class="text-sm text-gray-500 mb-4">สำรองข้อมูลจาก Web Hosting/MySQL ของปีที่เลือกกลับไปยัง Google Sheets</p>
+                                <button id="admin-backup-btn" onclick="adminBackupSupabaseToSheets()" class="btn-sync btn-sync--indigo w-full hidden">💾 สำรอง Web Hosting → Sheets</button>
                             </div>
 
                             <div class="bg-white border border-cyan-100 rounded-lg p-5 shadow-sm">
                                 <div class="text-sm font-semibold text-cyan-700 mb-2">ส่งออก</div>
                                 <h3 class="text-lg font-bold text-gray-800 mb-2">ส่ง Email สำรอง</h3>
-                                <p class="text-sm text-gray-500 mb-4">ส่งอีเมลสรุปข้อมูลสำรองจาก Supabase พร้อมลิงก์ดาวน์โหลดไฟล์ทั้งหมด</p>
+                                <p class="text-sm text-gray-500 mb-4">ส่งอีเมลสรุปข้อมูลสำรองจาก Web Hosting พร้อมลิงก์ดาวน์โหลดไฟล์ทั้งหมด</p>
                                 <button id="admin-email-backup-btn" onclick="adminSendYearlyBackupEmail()" class="btn-sync btn-sync--cyan w-full hidden" title="ส่ง Email สำรองข้อมูลพร้อม link ดาวน์โหลดทุกไฟล์">📧 ส่ง Email สำรอง</button>
                             </div>
 
                             <div class="bg-white border border-amber-100 rounded-lg p-5 shadow-sm">
-                                <div class="text-sm font-semibold text-amber-700 mb-2">ป้องกันการหลับ</div>
-                                <h3 class="text-lg font-bold text-gray-800 mb-2">Supabase Keep-Alive</h3>
-                                <p class="text-sm text-gray-500 mb-4">สร้าง trigger ใน Apps Script เพื่อเรียกเช็ก Supabase แบบเบา ๆ ทุก 5 วัน ป้องกันโปรเจกต์ Free ถูก pause จากการไม่ใช้งานนานเกินไป</p>
-                                <div id="supabase-keepalive-status" class="text-xs text-gray-500 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-3 mb-4">
+                                <div class="text-sm font-semibold text-amber-700 mb-2">สำรองอัตโนมัติ</div>
+                                <h3 class="text-lg font-bold text-gray-800 mb-2">สำรองรายสัปดาห์ไป Google Sheets</h3>
+                                <p class="text-sm text-gray-500 mb-4">สร้าง trigger ใน Apps Script เพื่อสำรองข้อมูลจาก Web Hosting/MySQL ไปยัง Google Sheets ทุกสัปดาห์</p>
+                                <div id="weekly-backup-status" class="text-xs text-gray-500 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-3 mb-4">
                                     กำลังโหลดสถานะ...
                                 </div>
                                 <div class="grid grid-cols-1 gap-2">
-                                    <button id="supabase-keepalive-enable-btn" onclick="enableSupabaseKeepAlive()" class="btn-sync btn-sync--amber w-full">🟡 เปิดระบบกันหลับ</button>
-                                    <button id="supabase-keepalive-run-btn" onclick="runSupabaseKeepAliveNowFromAdmin()" class="btn-sync btn-sync--sky w-full">⚡ ทดสอบปลุกทันที</button>
-                                    <button id="supabase-keepalive-disable-btn" onclick="disableSupabaseKeepAlive()" class="btn-sync btn-sync--rose w-full">🛑 ปิดระบบกันหลับ</button>
+                                    <button id="weekly-backup-enable-btn" onclick="enableWeeklySheetsBackup()" class="btn-sync btn-sync--amber w-full">🟡 เปิดสำรองรายสัปดาห์</button>
+                                    <button id="weekly-backup-run-btn" onclick="runWeeklySheetsBackupNowFromAdmin()" class="btn-sync btn-sync--sky w-full">⚡ สำรองทันที</button>
+                                    <button id="weekly-backup-disable-btn" onclick="disableWeeklySheetsBackup()" class="btn-sync btn-sync--rose w-full">🛑 ปิดสำรองรายสัปดาห์</button>
                                 </div>
                             </div>
 

@@ -70,7 +70,15 @@ async function ensureRoleScriptsForUser(user, options = {}) {
     const loaders = [];
 
     const needsUserBundle = roleName === 'user' || roleName.startsWith('head_') || roleName.startsWith('deputy_');
-    const needsAdminBundle = roleName === 'admin';
+    const adminPageIds = [
+        'command-generation-page',
+        'admin-users-page',
+        'admin-system-settings-page',
+        'admin-approval-links-page',
+        'admin-announcement-view',
+        'admin-heads-page'
+    ];
+    const needsAdminBundle = roleName === 'admin' && adminPageIds.includes(pageId);
     const needsStatsBundle = pageId === 'stats-page';
     const needsApprovalBundle = options.signToken === true || ['approval-page', 'admin-approval-links-page'].includes(pageId);
     const needsSignatureBundle = options.signToken === true || pageId === 'approval-page';
@@ -490,7 +498,7 @@ async function switchPage(targetPageId) {
     }
     if (targetPageId === 'admin-system-settings-page') {
         if (typeof loadSystemWorkflowSettings === 'function') loadSystemWorkflowSettings();
-        if (typeof loadSupabaseKeepAliveStatus === 'function') loadSupabaseKeepAliveStatus();
+        if (typeof loadWeeklySheetsBackupStatus === 'function') loadWeeklySheetsBackupStatus();
     }
     if (targetPageId === 'admin-heads-page') {
         // admin-heads-page ถูกรวมเข้า admin-users-page tab แล้ว — redirect ไปหน้านั้นแทน
@@ -1562,14 +1570,14 @@ document.getElementById('edit-user-cancel')?.addEventListener('click', () => { d
     const adminSyncBtn = document.getElementById('admin-sync-btn');
     if (adminSyncBtn) {
         adminSyncBtn.addEventListener('click', async () => {
-            if (!confirm('⚠️ คำเตือน: การ Sync จะดึงข้อมูลจาก Google Sheets ไปซ่อม/อัปเดตใน Supabase\n\nควรทำเมื่อ:\n1. เริ่มระบบครั้งแรก\n2. ข้อมูลใน Supabase ไม่ตรงกับ Sheets\n\nคุณต้องการดำเนินการต่อหรือไม่?')) return;
+            if (!confirm('⚠️ คำเตือน: การ Sync จะดึงข้อมูลจาก Google Sheets ไปซ่อม/อัปเดตใน Web Hosting/MySQL\n\nควรทำเมื่อ:\n1. เริ่มระบบครั้งแรก\n2. ข้อมูลใน Web Hosting ไม่ตรงกับ Sheets\n\nคุณต้องการดำเนินการต่อหรือไม่?')) return;
             
             toggleLoader('admin-sync-btn', true);
             
             try {
                 if (typeof syncAllDataFromSheetToSupabase === 'function') {
                     const syncResult = await syncAllDataFromSheetToSupabase();
-                    console.log('Supabase Sync Result:', syncResult);
+                    console.log('Hosting Sync Result:', syncResult);
                 }
                 
                 // รีโหลดหน้า Admin เพื่อแสดงข้อมูลล่าสุด
@@ -1749,7 +1757,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    if (typeof loadPublicWeeklyData === 'function') loadPublicWeeklyData();
+    if (typeof loadPublicWeeklyData === 'function') {
+        const runPublicWeeklyLoad = () => loadPublicWeeklyData();
+        if ('requestIdleCallback' in window) {
+            window.requestIdleCallback(runPublicWeeklyLoad, { timeout: 2500 });
+        } else {
+            setTimeout(runPublicWeeklyLoad, 1500);
+        }
+    }
     
     // ✅ เรียกใช้ฟังก์ชันตรวจสอบสถานะ PDF Server
     checkPDFServerStatus();

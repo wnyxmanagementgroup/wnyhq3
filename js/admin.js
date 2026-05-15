@@ -2257,8 +2257,8 @@ async function deleteMemoByAdmin(refId, gasId) {
 // --- เพิ่มใน js/admin.js ---
 
 /**
- * ฟังก์ชัน Sync ข้อมูลจาก Google Sheets ลง Supabase
- * ใช้สำหรับกู้คืน/ซ่อมข้อมูลเมื่อข้อมูลฝั่ง Sheets กับ Supabase ไม่ตรงกัน
+ * ฟังก์ชัน Sync ข้อมูลจาก Google Sheets ลง Web Hosting/MySQL
+ * ใช้สำหรับกู้คืน/ซ่อมข้อมูลเมื่อข้อมูลฝั่ง Sheets กับ Web Hosting ไม่ตรงกัน
  */
 async function syncAllDataFromSheetToSupabase() {
     if (!checkAdminAccess()) return;
@@ -2271,20 +2271,20 @@ async function syncAllDataFromSheetToSupabase() {
         const currentYear = new Date().getFullYear() + 543;
         const selectedYear = yearSelect ? parseInt(yearSelect.value) : currentYear;
 
-        console.log("🚀 Starting Supabase repair sync...");
+        console.log("🚀 Starting hosting repair sync...");
 
         const result = await apiCall('POST', 'syncSheetsToSupabase', {
             year: selectedYear
         });
 
         if (result.status !== 'success') {
-            throw new Error(result.message || 'ไม่สามารถซิงก์ข้อมูลไปยัง Supabase ได้');
+            throw new Error(result.message || 'ไม่สามารถซิงก์ข้อมูลไปยัง Web Hosting ได้');
         }
 
         const counts = result.counts || {};
         showAlert(
             'สำเร็จ',
-            `ซิงก์ข้อมูลจาก Google Sheets ไปยัง Supabase เรียบร้อยแล้ว\n` +
+            `ซิงก์ข้อมูลจาก Google Sheets ไปยัง Web Hosting/MySQL เรียบร้อยแล้ว\n` +
             `ปี ${selectedYear}: คำขอ ${counts.requests || 0} รายการ, ผู้ร่วมเดินทาง ${counts.attendees || 0} รายการ, บันทึก ${counts.memos || 0} รายการ, ผู้ใช้ ${counts.users || 0} รายการ`
         );
         
@@ -2294,7 +2294,7 @@ async function syncAllDataFromSheetToSupabase() {
 
         return result;
     } catch (error) {
-        console.error("Supabase Sync Error:", error);
+        console.error("Hosting Sync Error:", error);
         showAlert('ผิดพลาด', 'เกิดข้อผิดพลาดในการซิงค์: ' + error.message);
     } finally {
         if(btn) toggleLoader('admin-sync-btn', false);
@@ -2305,10 +2305,10 @@ async function syncAllDataFromSheetToFirebase() {
     return syncAllDataFromSheetToSupabase();
 }
 
-// --- SUPABASE → SHEETS MONTHLY BACKUP (Admin) ---
+// --- WEB HOSTING → SHEETS BACKUP (Admin) ---
 
 /**
- * สำรองข้อมูลทั้งหมดจาก Supabase ไปยัง Google Sheets
+ * สำรองข้อมูลทั้งหมดจาก Web Hosting/MySQL ไปยัง Google Sheets
  * เรียกจากปุ่ม "สำรองข้อมูล → Google Sheets" ในหน้า Admin
  */
 async function adminBackupSupabaseToSheets() {
@@ -2320,7 +2320,7 @@ async function adminBackupSupabaseToSheets() {
 
     const confirmed = await showConfirm(
         'ยืนยันการสำรองข้อมูล',
-        `ระบบจะส่งข้อมูลทั้งหมดในปี พ.ศ. ${selectedYear} จาก Supabase ไปบันทึกใน Google Sheets\nใช้เวลาสักครู่ กรุณารอ...`
+        `ระบบจะส่งข้อมูลทั้งหมดในปี พ.ศ. ${selectedYear} จาก Web Hosting/MySQL ไปบันทึกใน Google Sheets\nใช้เวลาสักครู่ กรุณารอ...`
     );
     if (!confirmed) return;
 
@@ -2342,7 +2342,7 @@ async function adminBackupSupabaseToSheets() {
         console.error('Backup error:', error);
         showAlert('ผิดพลาด', 'เกิดข้อผิดพลาดในการสำรองข้อมูล: ' + error.message);
     } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '💾 สำรองข้อมูลจาก Supabase → Sheets'; }
+        if (btn) { btn.disabled = false; btn.innerHTML = '💾 สำรอง Web Hosting → Sheets'; }
     }
 }
 
@@ -2416,22 +2416,22 @@ function formatKeepAliveTimeLabel(value) {
     });
 }
 
-function renderSupabaseKeepAliveStatus(data = {}) {
-    const box = document.getElementById('supabase-keepalive-status');
+function renderWeeklySheetsBackupStatus(data = {}) {
+    const box = document.getElementById('weekly-backup-status');
     if (!box) return;
 
     const enabled = data.enabled === true;
     const statusText = enabled ? 'เปิดใช้งานอยู่' : 'ยังไม่ได้เปิดใช้งาน';
     const healthText = data.lastStatus === 'success'
-        ? 'ปลุกล่าสุดสำเร็จ'
-        : (data.lastStatus === 'error' ? 'ปลุกล่าสุดไม่สำเร็จ' : 'ยังไม่เคยปลุก');
-    const intervalText = `${data.intervalDays || 5} วัน`;
+        ? 'สำรองล่าสุดสำเร็จ'
+        : (data.lastStatus === 'error' ? 'สำรองล่าสุดไม่สำเร็จ' : 'ยังไม่เคยสำรองอัตโนมัติ');
+    const scheduleText = `${data.dayOfWeekLabel || data.dayOfWeek || 'วันอาทิตย์'} เวลา ${String(data.hour ?? 2).padStart(2, '0')}:00 น.`;
 
     box.innerHTML = `
         <div class="space-y-1">
             <div><strong>สถานะ:</strong> ${statusText}</div>
-            <div><strong>รอบการปลุก:</strong> ทุก ${intervalText}</div>
-            <div><strong>สุขภาพล่าสุด:</strong> ${healthText}</div>
+            <div><strong>รอบสำรอง:</strong> ${scheduleText}</div>
+            <div><strong>ผลล่าสุด:</strong> ${healthText}</div>
             <div><strong>รันล่าสุด:</strong> ${formatKeepAliveTimeLabel(data.lastRunAt)}</div>
             <div><strong>สำเร็จล่าสุด:</strong> ${formatKeepAliveTimeLabel(data.lastSuccessAt)}</div>
             <div><strong>ข้อความ:</strong> ${data.lastMessage || 'ยังไม่มีข้อความ'}</div>
@@ -2439,17 +2439,17 @@ function renderSupabaseKeepAliveStatus(data = {}) {
     `;
 }
 
-async function loadSupabaseKeepAliveStatus() {
+async function loadWeeklySheetsBackupStatus() {
     if (!checkAdminAccess()) return;
 
-    const box = document.getElementById('supabase-keepalive-status');
+    const box = document.getElementById('weekly-backup-status');
     if (box) box.textContent = 'กำลังโหลดสถานะ...';
 
     try {
-        const result = await apiCall('GET', 'getSupabaseKeepAliveStatus', {}, 2, { silent: true });
-        renderSupabaseKeepAliveStatus(result?.data || {});
+        const result = await apiCall('GET', 'getWeeklySheetsBackupStatus', {}, 2, { silent: true });
+        renderWeeklySheetsBackupStatus(result?.data || {});
     } catch (error) {
-        console.error('Load keep-alive status error:', error);
+        console.error('Load weekly backup status error:', error);
         const message = String(error?.message || '');
         if (box) {
             if (message.includes('ScriptApp.getProjectTriggers') || message.includes('script.scriptapp')) {
@@ -2461,73 +2461,93 @@ async function loadSupabaseKeepAliveStatus() {
                     </div>
                 `;
             } else {
-                box.textContent = 'โหลดสถานะ keep-alive ไม่สำเร็จ';
+                box.textContent = 'โหลดสถานะสำรองรายสัปดาห์ไม่สำเร็จ';
             }
         }
     }
 }
 
-async function enableSupabaseKeepAlive() {
+async function enableWeeklySheetsBackup() {
     if (!checkAdminAccess()) return;
-    const btn = document.getElementById('supabase-keepalive-enable-btn');
-    const intervalDays = 5;
+    const btn = document.getElementById('weekly-backup-enable-btn');
 
-    if (btn) toggleLoader('supabase-keepalive-enable-btn', true);
+    if (btn) toggleLoader('weekly-backup-enable-btn', true);
     try {
-        const result = await apiCall('POST', 'installSupabaseKeepAliveTrigger', {
-            intervalDays
+        const result = await apiCall('POST', 'installWeeklySheetsBackupTrigger', {
+            dayOfWeek: 'SUNDAY',
+            hour: 2
         });
         if (result?.status !== 'success') {
-            throw new Error(result?.message || 'เปิดระบบกันหลับไม่สำเร็จ');
+            throw new Error(result?.message || 'เปิดสำรองรายสัปดาห์ไม่สำเร็จ');
         }
-        renderSupabaseKeepAliveStatus(result.data || {});
-        showAlert('สำเร็จ', 'เปิดใช้งานระบบป้องกัน Supabase หลับแล้ว');
+        renderWeeklySheetsBackupStatus(result.data || {});
+        showAlert('สำเร็จ', 'เปิดใช้งานการสำรองข้อมูลรายสัปดาห์แล้ว');
     } catch (error) {
-        console.error('Enable keep-alive error:', error);
-        showAlert('ผิดพลาด', 'ไม่สามารถเปิดระบบกันหลับได้: ' + error.message);
+        console.error('Enable weekly backup error:', error);
+        showAlert('ผิดพลาด', 'ไม่สามารถเปิดสำรองรายสัปดาห์ได้: ' + error.message);
     } finally {
-        if (btn) toggleLoader('supabase-keepalive-enable-btn', false);
+        if (btn) toggleLoader('weekly-backup-enable-btn', false);
     }
 }
 
-async function disableSupabaseKeepAlive() {
+async function disableWeeklySheetsBackup() {
     if (!checkAdminAccess()) return;
-    const btn = document.getElementById('supabase-keepalive-disable-btn');
+    const btn = document.getElementById('weekly-backup-disable-btn');
 
-    if (btn) toggleLoader('supabase-keepalive-disable-btn', true);
+    if (btn) toggleLoader('weekly-backup-disable-btn', true);
     try {
-        const result = await apiCall('POST', 'removeSupabaseKeepAliveTrigger', {});
+        const result = await apiCall('POST', 'removeWeeklySheetsBackupTrigger', {});
         if (result?.status !== 'success') {
-            throw new Error(result?.message || 'ปิดระบบกันหลับไม่สำเร็จ');
+            throw new Error(result?.message || 'ปิดสำรองรายสัปดาห์ไม่สำเร็จ');
         }
-        renderSupabaseKeepAliveStatus(result.data || {});
-        showAlert('สำเร็จ', 'ปิดระบบป้องกัน Supabase หลับแล้ว');
+        renderWeeklySheetsBackupStatus(result.data || {});
+        showAlert('สำเร็จ', 'ปิดการสำรองข้อมูลรายสัปดาห์แล้ว');
     } catch (error) {
-        console.error('Disable keep-alive error:', error);
-        showAlert('ผิดพลาด', 'ไม่สามารถปิดระบบกันหลับได้: ' + error.message);
+        console.error('Disable weekly backup error:', error);
+        showAlert('ผิดพลาด', 'ไม่สามารถปิดสำรองรายสัปดาห์ได้: ' + error.message);
     } finally {
-        if (btn) toggleLoader('supabase-keepalive-disable-btn', false);
+        if (btn) toggleLoader('weekly-backup-disable-btn', false);
     }
 }
 
-async function runSupabaseKeepAliveNowFromAdmin() {
+async function runWeeklySheetsBackupNowFromAdmin() {
     if (!checkAdminAccess()) return;
-    const btn = document.getElementById('supabase-keepalive-run-btn');
+    const btn = document.getElementById('weekly-backup-run-btn');
 
-    if (btn) toggleLoader('supabase-keepalive-run-btn', true);
+    if (btn) toggleLoader('weekly-backup-run-btn', true);
     try {
-        const result = await apiCall('POST', 'runSupabaseKeepAliveNow', {});
+        const result = await apiCall('POST', 'runWeeklySheetsBackupNow', {});
         if (result?.status !== 'success') {
-            throw new Error(result?.message || 'ปลุก Supabase ไม่สำเร็จ');
+            throw new Error(result?.message || 'สำรองข้อมูลทันทีไม่สำเร็จ');
         }
-        renderSupabaseKeepAliveStatus(result.data || {});
-        showAlert('สำเร็จ', 'ปลุก Supabase สำเร็จแล้ว');
+        renderWeeklySheetsBackupStatus(result.data || {});
+        showAlert('สำเร็จ', result.message || 'สำรองข้อมูลไป Google Sheets สำเร็จแล้ว');
     } catch (error) {
-        console.error('Run keep-alive now error:', error);
-        showAlert('ผิดพลาด', 'ปลุก Supabase ไม่สำเร็จ: ' + error.message);
+        console.error('Run weekly backup now error:', error);
+        showAlert('ผิดพลาด', 'สำรองข้อมูลทันทีไม่สำเร็จ: ' + error.message);
     } finally {
-        if (btn) toggleLoader('supabase-keepalive-run-btn', false);
+        if (btn) toggleLoader('weekly-backup-run-btn', false);
     }
+}
+
+function renderSupabaseKeepAliveStatus(data = {}) {
+    return renderWeeklySheetsBackupStatus(data);
+}
+
+function loadSupabaseKeepAliveStatus() {
+    return loadWeeklySheetsBackupStatus();
+}
+
+function enableSupabaseKeepAlive() {
+    return enableWeeklySheetsBackup();
+}
+
+function disableSupabaseKeepAlive() {
+    return disableWeeklySheetsBackup();
+}
+
+function runSupabaseKeepAliveNowFromAdmin() {
+    return runWeeklySheetsBackupNowFromAdmin();
 }
 
 // --- ANNOUNCEMENT MANAGEMENT ---

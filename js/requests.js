@@ -260,16 +260,24 @@ function setupFormConditions() {
     const vehicleTypeInput = document.getElementById('form-dispatch-vehicle-type');
     const vehicleIdInput = document.getElementById('form-dispatch-vehicle-id');
 
+    const rebindListener = (el, eventName, handler, key) => {
+        if (!el) return;
+        const prop = `_formConditions_${eventName}_${key}`;
+        if (el[prop]) el.removeEventListener(eventName, el[prop]);
+        el[prop] = handler;
+        el.addEventListener(eventName, handler);
+    };
+
     function checkConditions() {
         if (!province) return;
         
         const isNotSaKaeo = stripProvincePrefix(province.value) !== 'สระแก้ว';
 
         // 1. จัดการช่องจังหวัด "อื่นๆ"
-        if(province.value === 'other') {
+        if(provinceOther && province.value === 'other') {
             provinceOther.classList.remove('hidden');
             provinceOther.required = true;
-        } else {
+        } else if (provinceOther) {
             provinceOther.classList.add('hidden');
             provinceOther.required = false;
         }
@@ -277,37 +285,43 @@ function setupFormConditions() {
         // 2. เงื่อนไข: ไม่ใช่สระแก้ว (แสดงและบังคับกรอก)
         if (isNotSaKaeo) {
             // -- ส่วนที่พัก --
-            stayContainer.classList.remove('hidden');
-            stayInput.required = true;
+            stayContainer?.classList.remove('hidden');
+            if (stayInput) stayInput.required = true;
 
             // -- ส่วนยานพาหนะหนังสือส่ง (ใหม่) --
-            vehicleContainer.classList.remove('hidden');
-            vehicleTypeInput.required = true;
-            vehicleIdInput.required = true;
+            vehicleContainer?.classList.remove('hidden');
+            if (vehicleTypeInput) vehicleTypeInput.required = true;
+            if (vehicleIdInput) vehicleIdInput.required = true;
         } else {
             // -- ซ่อนและล้างค่า --
-            stayContainer.classList.add('hidden');
-            stayInput.required = false;
-            stayInput.value = '';
+            stayContainer?.classList.add('hidden');
+            if (stayInput) {
+                stayInput.required = false;
+                stayInput.value = '';
+            }
 
-            vehicleContainer.classList.add('hidden');
-            vehicleTypeInput.required = false;
-            vehicleTypeInput.value = '';
-            vehicleIdInput.required = false;
-            vehicleIdInput.value = '';
+            vehicleContainer?.classList.add('hidden');
+            if (vehicleTypeInput) {
+                vehicleTypeInput.required = false;
+                vehicleTypeInput.value = '';
+            }
+            if (vehicleIdInput) {
+                vehicleIdInput.required = false;
+                vehicleIdInput.value = '';
+            }
         }
         updateRequestFormTravelScheduleSection();
     }
 
     if (province) {
-        province.addEventListener('change', checkConditions);
+        rebindListener(province, 'change', checkConditions, 'province');
         checkConditions(); // เรียกครั้งแรก
     }
-    provinceOther?.addEventListener('input', updateRequestFormTravelScheduleSection);
-    startDateInput?.addEventListener('change', updateRequestFormTravelScheduleSection);
-    endDateInput?.addEventListener('change', updateRequestFormTravelScheduleSection);
-    attendeesList?.addEventListener('input', updateRequestFormTravelScheduleSection);
-    attendeesList?.addEventListener('change', updateRequestFormTravelScheduleSection);
+    rebindListener(provinceOther, 'input', updateRequestFormTravelScheduleSection, 'provinceOther');
+    rebindListener(startDateInput, 'change', updateRequestFormTravelScheduleSection, 'startDate');
+    rebindListener(endDateInput, 'change', updateRequestFormTravelScheduleSection, 'endDate');
+    rebindListener(attendeesList, 'input', updateRequestFormTravelScheduleSection, 'attendeesInput');
+    rebindListener(attendeesList, 'change', updateRequestFormTravelScheduleSection, 'attendeesChange');
 }
 // จัดการปุ่ม Action ต่างๆ (แก้ไข, ลบ, ส่งบันทึก)
 async function handleRequestAction(e) {
@@ -1509,8 +1523,7 @@ async function resetRequestForm() {
     document.getElementById('form-doc-date').value = today;
     document.getElementById('form-start-date').value = today;
     document.getElementById('form-end-date').value = today;
-    populateSignerPositionSelect('form-department');
-    syncSignerHeadName('form-department', 'form-head-name');
+    setupFormConditions();
 }
 
 function addAttendeeField() {

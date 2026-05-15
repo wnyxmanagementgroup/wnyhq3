@@ -1,7 +1,7 @@
 /**
  * firebaseService.js
  * =====================================================================
- * Supabase เป็นฐานข้อมูลหลักผ่าน GAS/API ส่วน Google Sheets ใช้เป็นแหล่งข้อมูลสำรอง
+ * Web Hosting/MySQL เป็นฐานข้อมูลหลักผ่าน GAS/API ส่วน Google Sheets ใช้เป็นแหล่งข้อมูลสำรอง
  * Google Drive (ผ่าน GAS uploadGeneratedFile) เป็นที่เก็บไฟล์หลักของระบบ
  * =====================================================================
  */
@@ -341,17 +341,17 @@ async function generateCommandHybrid(data) {
 }
 
 // -----------------------------------------------------------------------
-// 6. MONTHLY BACKUP — ส่งข้อมูลทั้งหมดจาก Supabase ไป GAS Sheets
+// 6. BACKUP — ส่งข้อมูลทั้งหมดจาก Web Hosting/MySQL ไป GAS Sheets
 // -----------------------------------------------------------------------
 
 /**
- * สำรองข้อมูลทั้งหมดจาก Supabase ไปยัง Google Sheets ผ่าน GAS
- * เรียกใช้โดย Admin เดือนละครั้ง
+ * สำรองข้อมูลทั้งหมดจาก Web Hosting/MySQL ไปยัง Google Sheets ผ่าน GAS
+ * เรียกใช้โดย Admin หรือ trigger รายสัปดาห์
  * @param {number} yearBE - ปี พ.ศ. ที่ต้องการ backup (default: ปีปัจจุบัน)
  */
 async function backupSupabaseToSheets(yearBE) {
     const targetYear = yearBE || (new Date().getFullYear() + 543);
-    console.log(`📦 Starting Supabase backup for year ${targetYear}...`);
+    console.log(`📦 Starting hosting backup for year ${targetYear}...`);
 
     const result = await apiCall('POST', 'backupYearToSheets', {
         year: targetYear

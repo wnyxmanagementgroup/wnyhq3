@@ -13,9 +13,13 @@ const DISPATCH_BOOK_TEMPLATE_ID =
 const PDF_FOLDER_ID = "1pGiVOigsZZqb-jOix2izMMl0AwzfS27Z";
 const ARCHIVE_CACHE_TTL_SEC = 300;
 const PUBLIC_WEEKLY_CACHE_TTL_SEC = 180;
-const DATA_CACHE_VERSION = "v3";
+const DATA_CACHE_VERSION = "v4";
+const WNY_HOSTING_API_DEFAULT_URL = "https://wnyhq.krukong.site/api";
 const SUPABASE_KEEPALIVE_TRIGGER_HANDLER = "runSupabaseKeepAliveTrigger";
 const SUPABASE_KEEPALIVE_DEFAULT_INTERVAL_DAYS = 5;
+const WEEKLY_SHEETS_BACKUP_TRIGGER_HANDLER = "runWeeklySheetsBackupTrigger";
+const WEEKLY_SHEETS_BACKUP_DEFAULT_DAY = "SUNDAY";
+const WEEKLY_SHEETS_BACKUP_DEFAULT_HOUR = 2;
 
 function getScriptCache_() {
   return CacheService.getScriptCache();
@@ -42,14 +46,23 @@ function writeJsonCache_(key, value, ttlSec) {
 
 function getSupabaseConfig_() {
   const props = PropertiesService.getScriptProperties();
-  const url = String(props.getProperty("SUPABASE_URL") || "").trim().replace(/\/+$/, "");
-  const serviceRoleKey = String(props.getProperty("SUPABASE_SERVICE_ROLE_KEY") || "").trim();
+  const url = String(
+    props.getProperty("WNY_HOSTING_API_URL") ||
+      props.getProperty("SUPABASE_URL") ||
+      WNY_HOSTING_API_DEFAULT_URL ||
+      "",
+  ).trim().replace(/\/+$/, "");
+  const serviceRoleKey = String(
+    props.getProperty("WNY_HOSTING_API_KEY") ||
+      props.getProperty("SUPABASE_SERVICE_ROLE_KEY") ||
+      "",
+  ).trim();
 
   if (!url) {
-    throw new Error("ยังไม่ได้ตั้งค่า Script Property: SUPABASE_URL");
+    throw new Error("ยังไม่ได้ตั้งค่า Script Property: WNY_HOSTING_API_URL");
   }
   if (!serviceRoleKey) {
-    throw new Error("ยังไม่ได้ตั้งค่า Script Property: SUPABASE_SERVICE_ROLE_KEY");
+    throw new Error("ยังไม่ได้ตั้งค่า Script Property: WNY_HOSTING_API_KEY");
   }
 
   return {
@@ -65,6 +78,7 @@ function supabaseFetch_(path, options) {
     {
       apikey: cfg.serviceRoleKey,
       Authorization: "Bearer " + cfg.serviceRoleKey,
+      "X-API-Key": cfg.serviceRoleKey,
       Accept: "application/json",
     },
     requestOptions.headers || {},
@@ -114,7 +128,7 @@ function getSupabaseHeader_(headers, headerName) {
 function assertSupabaseResponseOk_(response, actionLabel) {
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(
-      (actionLabel || "เรียกใช้ Supabase ไม่สำเร็จ") +
+      (actionLabel || "เรียกใช้ Web Hosting/MySQL ไม่สำเร็จ") +
         " (" +
         response.statusCode +
         "): " +
@@ -165,7 +179,7 @@ function supabaseSelectSingle_(tableName, queryString) {
       },
     },
   );
-  assertSupabaseResponseOk_(response, "อ่านข้อมูล " + tableName + " จาก Supabase ไม่สำเร็จ");
+  assertSupabaseResponseOk_(response, "อ่านข้อมูล " + tableName + " จาก Web Hosting/MySQL ไม่สำเร็จ");
   const rows = Array.isArray(response.jsonBody) ? response.jsonBody : [];
   return rows.length ? rows[0] : null;
 }
@@ -181,7 +195,7 @@ function supabaseCount_(tableName, queryString) {
   });
   assertSupabaseResponseOk_(
     response,
-    "นับข้อมูล " + tableName + " จาก Supabase ไม่สำเร็จ",
+    "นับข้อมูล " + tableName + " จาก Web Hosting/MySQL ไม่สำเร็จ",
   );
 
   const contentRange = String(
@@ -424,6 +438,11 @@ function toSupabaseNumericOrNull_(value) {
   return isNaN(numericValue) ? null : numericValue;
 }
 
+function toSupabaseTextOrNull_(value) {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
 function toSupabaseBoolean_(value) {
   if (value === true || value === "true" || value === 1 || value === "1")
     return true;
@@ -496,7 +515,7 @@ function buildSupabaseRequestRecordFromSheet_(requestRow) {
 
   return {
     request_id: requestRow.id || "",
-    created_by: requestRow.username || "",
+    created_by: toSupabaseTextOrNull_(requestRow.username),
     doc_date: requestRow.docDate || null,
     requester_name: requestRow.requesterName || "",
     requester_position: requestRow.requesterPosition || "",
@@ -568,7 +587,7 @@ function syncRequestByIdToSupabase_(requestId, options) {
   );
 
   if (!requestRow) {
-    throw new Error("ไม่พบคำขอ " + requestId + " ในชีต Requests เพื่อ sync ไป Supabase");
+    throw new Error("ไม่พบคำขอ " + requestId + " ในชีต Requests เพื่อ sync ไป Web Hosting/MySQL");
   }
 
   supabaseUpsert_(
@@ -695,7 +714,7 @@ function syncSheetsToSupabase(payload) {
   return {
     status: "success",
     message:
-      "ซิงก์ข้อมูลจาก Google Sheets ไปยัง Supabase เรียบร้อยแล้ว" +
+      "ซิงก์ข้อมูลจาก Google Sheets ไปยัง Web Hosting/MySQL เรียบร้อยแล้ว" +
       (yearBE ? " สำหรับปี " + yearBE : ""),
     counts: {
       users: userRecords.length,
@@ -847,7 +866,7 @@ function testSupabaseConnection() {
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(
-      "เชื่อมต่อ Supabase ไม่สำเร็จ (" +
+      "เชื่อมต่อ Web Hosting/MySQL ไม่สำเร็จ (" +
         response.statusCode +
         "): " +
         (response.bodyText || "Unknown error"),
@@ -859,7 +878,7 @@ function testSupabaseConnection() {
     projectRef: projectRef,
     supabaseUrl: cfg.url,
     statusCode: response.statusCode,
-    message: "เชื่อมต่อ Supabase สำเร็จ",
+    message: "เชื่อมต่อ Web Hosting/MySQL สำเร็จ",
   };
 }
 
@@ -985,6 +1004,162 @@ function removeSupabaseKeepAliveTrigger() {
       message: "ปิดระบบป้องกัน Supabase หลับแล้ว",
     }),
     message: "ปิดระบบป้องกัน Supabase หลับแล้ว",
+  };
+}
+
+function getWeeklyBackupWeekdayMap_() {
+  return {
+    SUNDAY: { enumValue: ScriptApp.WeekDay.SUNDAY, label: "วันอาทิตย์" },
+    MONDAY: { enumValue: ScriptApp.WeekDay.MONDAY, label: "วันจันทร์" },
+    TUESDAY: { enumValue: ScriptApp.WeekDay.TUESDAY, label: "วันอังคาร" },
+    WEDNESDAY: { enumValue: ScriptApp.WeekDay.WEDNESDAY, label: "วันพุธ" },
+    THURSDAY: { enumValue: ScriptApp.WeekDay.THURSDAY, label: "วันพฤหัสบดี" },
+    FRIDAY: { enumValue: ScriptApp.WeekDay.FRIDAY, label: "วันศุกร์" },
+    SATURDAY: { enumValue: ScriptApp.WeekDay.SATURDAY, label: "วันเสาร์" },
+  };
+}
+
+function normalizeWeeklyBackupDay_(value) {
+  const day = String(value || WEEKLY_SHEETS_BACKUP_DEFAULT_DAY).trim().toUpperCase();
+  const map = getWeeklyBackupWeekdayMap_();
+  return map[day] ? day : WEEKLY_SHEETS_BACKUP_DEFAULT_DAY;
+}
+
+function normalizeWeeklyBackupHour_(value) {
+  const hour = parseInt(value, 10);
+  return hour >= 0 && hour <= 23 ? hour : WEEKLY_SHEETS_BACKUP_DEFAULT_HOUR;
+}
+
+function getWeeklySheetsBackupStatus_() {
+  const props = PropertiesService.getScriptProperties();
+  const triggers = ScriptApp.getProjectTriggers().filter(
+    (trigger) => trigger.getHandlerFunction() === WEEKLY_SHEETS_BACKUP_TRIGGER_HANDLER,
+  );
+  const dayOfWeek = normalizeWeeklyBackupDay_(
+    props.getProperty("WEEKLY_SHEETS_BACKUP_DAY"),
+  );
+  const hour = normalizeWeeklyBackupHour_(
+    props.getProperty("WEEKLY_SHEETS_BACKUP_HOUR"),
+  );
+  const map = getWeeklyBackupWeekdayMap_();
+
+  return {
+    enabled: triggers.length > 0,
+    triggerCount: triggers.length,
+    dayOfWeek: dayOfWeek,
+    dayOfWeekLabel: map[dayOfWeek].label,
+    hour: hour,
+    lastRunAt: props.getProperty("WEEKLY_SHEETS_BACKUP_LAST_RUN_AT") || "",
+    lastSuccessAt: props.getProperty("WEEKLY_SHEETS_BACKUP_LAST_SUCCESS_AT") || "",
+    lastStatus: props.getProperty("WEEKLY_SHEETS_BACKUP_LAST_STATUS") || "",
+    lastMessage: props.getProperty("WEEKLY_SHEETS_BACKUP_LAST_MESSAGE") || "",
+    lastYear: props.getProperty("WEEKLY_SHEETS_BACKUP_LAST_YEAR") || "",
+  };
+}
+
+function getWeeklySheetsBackupStatus() {
+  return getWeeklySheetsBackupStatus_();
+}
+
+function runWeeklySheetsBackupCore_() {
+  const props = PropertiesService.getScriptProperties();
+  const nowIso = new Date().toISOString();
+  const yearBE = new Date().getFullYear() + 543;
+  props.setProperty("WEEKLY_SHEETS_BACKUP_LAST_RUN_AT", nowIso);
+  props.setProperty("WEEKLY_SHEETS_BACKUP_LAST_YEAR", String(yearBE));
+
+  try {
+    const result = backupYearToSheets({ year: yearBE });
+    const message =
+      (result && result.message) ||
+      "สำรองข้อมูลจาก Web Hosting/MySQL ไป Google Sheets สำเร็จ";
+    props.setProperty("WEEKLY_SHEETS_BACKUP_LAST_SUCCESS_AT", nowIso);
+    props.setProperty("WEEKLY_SHEETS_BACKUP_LAST_STATUS", "success");
+    props.setProperty("WEEKLY_SHEETS_BACKUP_LAST_MESSAGE", message);
+
+    return Object.assign({}, result || {}, {
+      ok: true,
+      lastRunAt: nowIso,
+      lastSuccessAt: nowIso,
+      year: yearBE,
+      message: message,
+    });
+  } catch (error) {
+    props.setProperty("WEEKLY_SHEETS_BACKUP_LAST_STATUS", "error");
+    props.setProperty(
+      "WEEKLY_SHEETS_BACKUP_LAST_MESSAGE",
+      String(error && error.message ? error.message : error),
+    );
+    throw error;
+  }
+}
+
+function runWeeklySheetsBackupNow() {
+  const result = runWeeklySheetsBackupCore_();
+  return {
+    status: "success",
+    data: Object.assign({}, getWeeklySheetsBackupStatus_(), result),
+    message: result.message || "สำรองข้อมูลไป Google Sheets สำเร็จ",
+  };
+}
+
+function runWeeklySheetsBackupTrigger() {
+  try {
+    runWeeklySheetsBackupCore_();
+  } catch (error) {
+    Logger.log(
+      "Weekly Sheets backup trigger failed: " +
+        (error && error.stack ? error.stack : error),
+    );
+  }
+}
+
+function removeWeeklySheetsBackupTrigger_() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  triggers.forEach((trigger) => {
+    if (trigger.getHandlerFunction() === WEEKLY_SHEETS_BACKUP_TRIGGER_HANDLER) {
+      ScriptApp.deleteTrigger(trigger);
+      removed += 1;
+    }
+  });
+  return removed;
+}
+
+function installWeeklySheetsBackupTrigger(payload) {
+  const props = PropertiesService.getScriptProperties();
+  const dayOfWeek = normalizeWeeklyBackupDay_(payload && payload.dayOfWeek);
+  const hour = normalizeWeeklyBackupHour_(payload && payload.hour);
+  const map = getWeeklyBackupWeekdayMap_();
+
+  removeWeeklySheetsBackupTrigger_();
+
+  ScriptApp.newTrigger(WEEKLY_SHEETS_BACKUP_TRIGGER_HANDLER)
+    .timeBased()
+    .onWeekDay(map[dayOfWeek].enumValue)
+    .atHour(hour)
+    .create();
+
+  props.setProperty("WEEKLY_SHEETS_BACKUP_DAY", dayOfWeek);
+  props.setProperty("WEEKLY_SHEETS_BACKUP_HOUR", String(hour));
+
+  return {
+    status: "success",
+    data: Object.assign({}, getWeeklySheetsBackupStatus_(), {
+      message: "เปิดใช้งานการสำรองข้อมูลรายสัปดาห์แล้ว",
+    }),
+    message: "เปิดใช้งานการสำรองข้อมูลรายสัปดาห์แล้ว",
+  };
+}
+
+function removeWeeklySheetsBackupTrigger() {
+  removeWeeklySheetsBackupTrigger_();
+  return {
+    status: "success",
+    data: Object.assign({}, getWeeklySheetsBackupStatus_(), {
+      message: "ปิดการสำรองข้อมูลรายสัปดาห์แล้ว",
+    }),
+    message: "ปิดการสำรองข้อมูลรายสัปดาห์แล้ว",
   };
 }
 
@@ -1502,6 +1677,9 @@ function doGet(e) {
       case "getSupabaseKeepAliveStatus":
         data = getSupabaseKeepAliveStatus();
         break;
+      case "getWeeklySheetsBackupStatus":
+        data = getWeeklySheetsBackupStatus();
+        break;
       case "testDraftRequestFlow":
         data = testDraftRequestFlow(params.requestId);
         break;
@@ -1674,6 +1852,15 @@ function doPost(e) {
         break;
       case "runSupabaseKeepAliveNow":
         result = runSupabaseKeepAliveNow();
+        break;
+      case "installWeeklySheetsBackupTrigger":
+        result = installWeeklySheetsBackupTrigger(payload);
+        break;
+      case "removeWeeklySheetsBackupTrigger":
+        result = removeWeeklySheetsBackupTrigger();
+        break;
+      case "runWeeklySheetsBackupNow":
+        result = runWeeklySheetsBackupNow();
         break;
       case "sendCompletionEmail":
         sendCompletionEmail(
@@ -6095,7 +6282,7 @@ function runMonthlyBackupEmail() {
         <h2 style="color: #4f46e5;">แจ้งเตือนสำรองข้อมูลรายเดือน</h2>
         <p>ถึงผู้ดูแลระบบ WNY App,</p>
         <p>ถึงเวลาสำรองข้อมูลประจำเดือน <strong>${monthTH} ${yearBE}</strong> แล้ว</p>
-        <p>กรุณาเข้าสู่ระบบและคลิกปุ่ม <strong>"สำรองข้อมูลจาก Supabase → Sheets"</strong> ในหน้า Admin เพื่อบันทึกข้อมูลล่าสุดกลับไปยัง Google Sheets</p>
+        <p>กรุณาเข้าสู่ระบบและคลิกปุ่ม <strong>"สำรอง Web Hosting → Sheets"</strong> ในหน้า Admin เพื่อบันทึกข้อมูลล่าสุดกลับไปยัง Google Sheets</p>
         <p style="color: #6b7280; font-size: 0.9em;">อีเมลนี้ส่งอัตโนมัติทุกวันที่ 1 ของเดือน</p>
       </div>
     `;
